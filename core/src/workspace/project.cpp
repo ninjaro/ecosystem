@@ -11,6 +11,56 @@ namespace fs = std::filesystem;
 namespace ecosystem {
 namespace project_support {
 
+    bool path_is_within(const fs::path& root, const fs::path& path) {
+        const fs::path relative = path.lexically_relative(root);
+        return !relative.empty() && !relative.is_absolute()
+            && *relative.begin() != "..";
+    }
+
+    // Unlike weakly_canonical alone, this rejects dangling symlinks in a future
+    // scaffold destination instead of treating them as ordinary missing paths.
+    fs::path resolve_owned_path(
+        const fs::path& path, const fs::path& boundary,
+        std::string* error_message
+    ) {
+        fs::path resolved = path.root_path();
+        for (const fs::path& part : path.relative_path()) {
+            if (part.empty() || part == ".") {
+                continue;
+            }
+            if (part == "..") {
+                resolved = resolved.parent_path();
+                continue;
+            }
+            resolved /= part;
+            std::error_code error;
+            const fs::file_status status = fs::symlink_status(resolved, error);
+            if (error == std::errc::no_such_file_or_directory) {
+                continue;
+            }
+            if (error) {
+                *error_message = "unable to inspect owned path " + path.string()
+                    + ": " + error.message();
+                return {};
+            }
+            if (!fs::is_symlink(status)) {
+                continue;
+            }
+            resolved = fs::canonical(resolved, error);
+            if (error) {
+                *error_message = "unable to resolve owned symlink "
+                    + path.string() + ": " + error.message();
+                return {};
+            }
+            if (!boundary.empty() && !path_is_within(boundary, resolved)) {
+                *error_message
+                    = "owned path resolves outside project: " + path.string();
+                return {};
+            }
+        }
+        return resolved;
+    }
+
 std::string normalize_generic(const fs::path& path) {
     return path.lexically_normal().generic_string();
 }
@@ -322,6 +372,134 @@ std::vector<fs::path> component_analysis_include_dirs(
 
 using namespace project_support;
 
+string_list validate_project_paths(
+    const fs::path& project_root, const std::vector<fs::path>& relative_paths
+) {
+    string_list errors;
+    std::error_code error;
+    const fs::path absolute_root = fs::absolute(
+        project_root.empty() ? fs::path(".") : project_root, error
+    );
+    if (error) {
+        return { "unable to resolve project root: " + error.message() };
+    }
+    std::string error_message;
+    const fs::path root = resolve_owned_path(absolute_root, {}, &error_message);
+    if (!error_message.empty()) {
+        return { error_message };
+    }
+    std::set<fs::path> seen;
+    for (const fs::path& relative : relative_paths) {
+        if (!seen.insert(relative).second) {
+            continue;
+        }
+        if (relative.empty() || relative.is_absolute()
+            || std::find(relative.begin(), relative.end(), fs::path(".."))
+                != relative.end()) {
+            errors.push_back(
+                "owned path must be project-relative: " + relative.string()
+            );
+            continue;
+        }
+        error_message.clear();
+        resolve_owned_path(
+            (root / relative).lexically_normal(), root, &error_message
+        );
+        if (!error_message.empty()) {
+            errors.push_back(error_message);
+        }
+    }
+    return errors;
+}
+
+string_list
+validate_manifest_paths(const manifest& value, const fs::path& project_root) {
+    string_list errors = validate_manifest(value);
+    if (!errors.empty()) {
+        return errors;
+    }
+    std::vector<fs::path> paths { "manifest.json", ".ecosystem" };
+    std::vector<fs::path> trees;
+    for (const component& owner : value.components) {
+        paths.emplace_back(owner.root);
+        for (const std::string directory :
+             { "include", "src", "tests", "benchmarks" }) {
+            paths.push_back(fs::path(owner.root) / directory);
+        }
+        for (const auto enumerate :
+             { component_module_headers, component_module_sources,
+               component_source_only_files, component_header_only_files,
+               component_c_header_only_files, component_template_impl_files,
+               component_c_header_pair_headers,
+               component_c_header_pair_sources }) {
+            append_unique_paths(&paths, enumerate({}, owner));
+        }
+        trees.push_back(fs::path(owner.root) / "tests");
+        trees.push_back(fs::path(owner.root) / "benchmarks");
+    }
+    if (!value.android_package_source_dir.empty()) {
+        trees.emplace_back(value.android_package_source_dir);
+    }
+    if (value.install_assets) {
+        trees.emplace_back("assets");
+    }
+    append_unique_paths(&paths, trees);
+    errors = validate_project_paths(project_root, paths);
+    if (!errors.empty()) {
+        return errors;
+    }
+
+    // Check discovered inputs as well as declared files. Validate each entry
+    // before following directory symlinks, and visit each physical directory
+    // once so an in-project symlink cycle cannot make traversal unbounded.
+    std::set<fs::path> visited;
+    const fs::path base = project_root.empty() ? fs::path(".") : project_root;
+    for (const fs::path& tree : trees) {
+        std::error_code error;
+        if (!fs::exists(base / tree, error) && !error) {
+            continue;
+        }
+        const fs::path canonical_tree = fs::canonical(base / tree, error);
+        if (!error && !visited.insert(canonical_tree).second) {
+            continue;
+        }
+        fs::recursive_directory_iterator entry;
+        if (!error) {
+            entry = fs::recursive_directory_iterator(
+                base / tree, fs::directory_options::follow_directory_symlink,
+                error
+            );
+        }
+        const fs::recursive_directory_iterator end;
+        while (!error && entry != end) {
+            const fs::path relative = entry->path().lexically_relative(base);
+            string_list entry_errors
+                = validate_project_paths(base, { relative });
+            if (!entry_errors.empty()) {
+                errors.insert(
+                    errors.end(), entry_errors.begin(), entry_errors.end()
+                );
+                entry.disable_recursion_pending();
+            } else if (entry->is_directory(error) && !error) {
+                const fs::path directory = fs::canonical(entry->path(), error);
+                if (!error && !visited.insert(directory).second) {
+                    entry.disable_recursion_pending();
+                }
+            }
+            if (!error) {
+                entry.increment(error);
+            }
+        }
+        if (error) {
+            errors.push_back(
+                "unable to inspect owned tree " + tree.string() + ": "
+                + error.message()
+            );
+        }
+    }
+    return errors;
+}
+
 std::vector<std::string> component_stack_values(const component& value, const std::string& key) {
     std::vector<std::string> values;
     if (!value.stack.is_object() || !value.stack.contains(key)) {
@@ -516,7 +694,7 @@ std::vector<fs::path> component_template_impl_files(
     const fs::path root = component_root_path(project_root, value);
     for (const file_unit& unit : value.file_units) {
         if (unit.kind == "header_template_impl") {
-            files.push_back(root / "include" / (unit.id + ".tpp"));
+            files.push_back(resolve_header_path(root, unit.id, ".tpp"));
         }
     }
     return files;
@@ -565,55 +743,12 @@ bool component_is_benchmark_only(const component& value) {
         && all_file_units_have_prefix(value, "benchmarks/");
 }
 
-std::string artifact_output_name(
-    const manifest& manifest_value, const component& component_value, const artifact& artifact_value
-) {
-    if (!artifact_value.name.empty()) {
-        return artifact_value.name;
+std::optional<std::string>
+component_generated_test_target(const component& value) {
+    if (value.tests.empty() || component_is_test_only(value)) {
+        return std::nullopt;
     }
-
-    int matching_ids = 0;
-    for (const component& other_component : manifest_value.components) {
-        for (const artifact& other_artifact : other_component.artifacts) {
-            if (other_artifact.id == artifact_value.id) {
-                ++matching_ids;
-            }
-        }
-    }
-
-    if (matching_ids <= 1) {
-        return artifact_value.id;
-    }
-    return component_value.id + "_" + artifact_value.id;
-}
-
-std::vector<fs::path> artifact_output_candidates(
-    const fs::path& build_dir,
-    const artifact& artifact_value,
-    const std::string& output_name
-) {
-    if (artifact_value.kind == "exe" || artifact_value.kind == "qt_app") {
-        return {
-            build_dir / output_name,
-            build_dir / (output_name + ".exe"),
-            build_dir / (output_name + ".app") / "Contents" / "MacOS" / output_name,
-        };
-    }
-    if (artifact_value.kind == "shared_lib") {
-        return {
-            build_dir / ("lib" + output_name + ".so"),
-            build_dir / ("lib" + output_name + ".dylib"),
-            build_dir / (output_name + ".dll"),
-            build_dir / ("cyg" + output_name + ".dll"),
-        };
-    }
-    if (artifact_value.kind == "static_lib") {
-        return {
-            build_dir / ("lib" + output_name + ".a"),
-            build_dir / (output_name + ".lib"),
-        };
-    }
-    return {};
+    return cmake_target_name({ value.id, "tests" });
 }
 
 std::optional<fs::path> artifact_output_path(
@@ -850,6 +985,22 @@ bool has_benchmarks_enabled(const manifest& value) {
 
 std::string cmake_target_name(const artifact_ref& ref) {
     return ref.component_id + "__" + ref.artifact_id;
+}
+
+std::vector<artifact_ref>
+distribution_artifacts(const manifest& value, const artifact_ref& primary) {
+    std::vector<artifact_ref> refs { primary };
+    if (format_artifact_ref(primary) == value.facade_entry_artifact) {
+        for (const std::string& entry : value.install_artifacts) {
+            if (entry != format_artifact_ref(primary)) {
+                if (const auto ref = parse_artifact_ref(entry);
+                    ref.has_value()) {
+                    refs.push_back(*ref);
+                }
+            }
+        }
+    }
+    return refs;
 }
 
 }  // namespace ecosystem

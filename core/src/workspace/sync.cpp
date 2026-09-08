@@ -227,16 +227,6 @@ namespace sync_support {
         return targets;
     }
 
-    bool has_explicit_test_artifact(const component& component_value) {
-        if (!component_is_test_only(component_value)) {
-            return false;
-        }
-        return std::any_of(
-            component_value.artifacts.begin(), component_value.artifacts.end(),
-            artifact_is_runnable
-        );
-    }
-
     bool project_has_assets_dir(const fs::path& project_root) {
         std::error_code error;
         return fs::exists(project_root / "assets", error) && !error;
@@ -309,6 +299,9 @@ namespace sync_support {
             ".github/actions/run-manifesto-stage/action.yml",
             ".github/actions/publish-manifesto-report/action.yml",
             ".github/actions/setup-manifesto/action.yml",
+            ".github/actions/setup-ecosystem/action.yml",
+            ".github/actions/run-ecosystem-stage/action.yml",
+            ".github/actions/publish-ecosystem-report/action.yml",
             ".github/workflows/tests.yml",
             ".github/workflows/codeql.yml",
             ".github/workflows/html.yml",
@@ -1060,7 +1053,7 @@ namespace sync_support {
             { "deploy_pages_action", vars.deploy_pages_action },
             { "github_matrix_language", "${{ matrix.language }}" },
             { "github_coverage_enabled",
-              "${{ steps.coverage.outputs.enabled == 'true' }}" },
+              "${{ steps.coverage.outputs.status == 'passed' }}" },
             { "github_page_url", "${{ steps.deployment.outputs.page_url }}" },
         };
     }
@@ -1168,6 +1161,12 @@ namespace sync_support {
         std::vector<artifact_ref> artifacts;
         std::set<std::string> seen;
         collect_surface_artifacts(value, *entry_ref, &artifacts, &seen);
+        for (const std::string& installed : value.install_artifacts) {
+            if (const auto ref = parse_artifact_ref(installed);
+                ref.has_value()) {
+                collect_surface_artifacts(value, *ref, &artifacts, &seen);
+            }
+        }
         return seen;
     }
 
@@ -1712,8 +1711,14 @@ namespace sync_support {
                     component_value->id,
                     artifact_value->id,
                 };
-                const bool is_entry_artifact = install_entry_ref.has_value()
-                    && same_artifact_ref(*install_entry_ref, ref);
+                const bool is_entry_artifact
+                    = (install_entry_ref.has_value()
+                       && same_artifact_ref(*install_entry_ref, ref))
+                    || std::find(
+                           value.install_artifacts.begin(),
+                           value.install_artifacts.end(),
+                           format_artifact_ref(ref)
+                       ) != value.install_artifacts.end();
                 if (artifact_installs_target_file(
                         *artifact_value, is_entry_artifact,
                         library_first_install_surface
@@ -1749,9 +1754,9 @@ namespace sync_support {
 
         if (developer_surface) {
             for (const component* component_value : components) {
-                if (component_value->tests.empty()
-                    || component_is_test_only(*component_value)
-                    || has_explicit_test_artifact(*component_value)) {
+                const auto test_target
+                    = component_generated_test_target(*component_value);
+                if (!test_target.has_value()) {
                     continue;
                 }
 
@@ -1815,12 +1820,11 @@ namespace sync_support {
                         component_root_path(project_root, *component_value)
                             / "tests"
                     ) + "/*.cpp",
-                    component_value->id + "__tests",
-                    "${" + prefix + "_HEADERS}", "${" + prefix + "_SOURCES}",
-                    "${" + test_var + "}", include_dir_expressions,
-                    link_targets, source_root_expression,
-                    runtime_definition_block, runtime_dependency_targets,
-                    has_assets_dir,
+                    *test_target, "${" + prefix + "_HEADERS}",
+                    "${" + prefix + "_SOURCES}", "${" + test_var + "}",
+                    include_dir_expressions, link_targets,
+                    source_root_expression, runtime_definition_block,
+                    runtime_dependency_targets, has_assets_dir,
                     json_flag_enabled(component_value->tests, "gtest"),
                     component_value->id
                 );
@@ -1979,9 +1983,21 @@ tracked_surface_drift(const fs::path& project_root, const manifest& value) {
 
 sync_report sync_project(const fs::path& project_root, const manifest& value) {
     sync_report report;
+    report.errors = validate_manifest_paths(value, project_root);
+    if (!report.errors.empty()) {
+        return report;
+    }
     std::string error_message;
     const std::vector<tracked_surface_file> files
         = generate_tracked_surface_files(value, project_root, &report.errors);
+    if (!report.errors.empty()) {
+        return report;
+    }
+    std::vector<fs::path> destinations = tracked_surface_owned_paths();
+    for (const tracked_surface_file& file_value : files) {
+        destinations.push_back(file_value.relative_path);
+    }
+    report.errors = validate_project_paths(project_root, destinations);
     if (!report.errors.empty()) {
         return report;
     }

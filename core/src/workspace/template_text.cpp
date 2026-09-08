@@ -2,6 +2,8 @@
 
 #include "workspace/tooling.hpp"
 
+#include <algorithm>
+
 #include <cstdlib>
 #include <filesystem>
 #include <set>
@@ -98,23 +100,28 @@ void append_parent_template_roots(std::vector<fs::path> *paths,
   }
 }
 
-std::vector<fs::path> template_root_candidates() {
-  std::vector<fs::path> candidates;
-  std::set<std::string> seen;
-  std::string env_root = env_or_empty("MANIFESTO_TEMPLATE_ROOT");
-  if (env_root.empty()) {
-    env_root = env_or_empty("ECOSYSTEM_TEMPLATE_ROOT");
-  }
-  if (!env_root.empty()) {
-    append_unique_path(&candidates, &seen, fs::path(env_root));
-  }
+std::vector<fs::path>
+template_root_candidates(const bool actor_contract = false) {
+    std::vector<fs::path> candidates;
+    std::set<std::string> seen;
+    std::string env_root = env_or_empty("MANIFESTO_TEMPLATE_ROOT");
+    if (env_root.empty()) {
+        env_root = env_or_empty("ECOSYSTEM_TEMPLATE_ROOT");
+    }
+    if (!env_root.empty()) {
+        append_unique_path(&candidates, &seen, fs::path(env_root));
+    }
 
-  const fs::path source_root = source_root_from_this_file();
-  append_parent_template_roots(&candidates, &seen, source_root);
-  append_parent_template_roots(&candidates, &seen, fs::current_path());
-  append_unique_path(&candidates, &seen, fs::current_path() / "templates");
-  append_unique_path(&candidates, &seen, source_root / "templates");
-  return candidates;
+    const fs::path source_root = source_root_from_this_file();
+    // CI adapters must agree with the actor contract in this tool version.
+    if (actor_contract) {
+        append_unique_path(&candidates, &seen, source_root / "templates");
+    }
+    append_parent_template_roots(&candidates, &seen, source_root);
+    append_parent_template_roots(&candidates, &seen, fs::current_path());
+    append_unique_path(&candidates, &seen, fs::current_path() / "templates");
+    append_unique_path(&candidates, &seen, source_root / "templates");
+    return candidates;
 }
 
 } // namespace template_text_support
@@ -131,18 +138,25 @@ fs::path template_root_path() {
 }
 
 fs::path locate_template_path(const std::vector<fs::path> &relative_paths) {
-  for (const fs::path &root : template_root_candidates()) {
-    if (!path_exists(root)) {
-      continue;
+    const bool actor_contract = std::any_of(
+        relative_paths.begin(), relative_paths.end(), [](const fs::path& path) {
+            const std::string text = path.generic_string();
+            return text.starts_with(".github/")
+                || text.starts_with("tracked/.github/");
+        }
+    );
+    for (const fs::path& root : template_root_candidates(actor_contract)) {
+        if (!path_exists(root)) {
+            continue;
+        }
+        for (const fs::path& relative_path : relative_paths) {
+            const fs::path candidate = root / relative_path;
+            if (path_exists(candidate)) {
+                return candidate;
+            }
+        }
     }
-    for (const fs::path &relative_path : relative_paths) {
-      const fs::path candidate = root / relative_path;
-      if (path_exists(candidate)) {
-        return candidate;
-      }
-    }
-  }
-  return {};
+    return {};
 }
 
 std::string render_text_template_candidates(

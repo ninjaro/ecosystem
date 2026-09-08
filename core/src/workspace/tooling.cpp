@@ -875,6 +875,11 @@ bool write_text_file(
         return false;
     }
     file << contents;
+    file.close();
+    if (!file) {
+        *error_message = "unable to write " + path.string();
+        return false;
+    }
     return true;
 }
 

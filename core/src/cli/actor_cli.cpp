@@ -1,12 +1,11 @@
-#include "cli/manifesto_cli.hpp"
+#include "cli/actor_cli.hpp"
 
 #include "cli/common_args.hpp"
-#include "cli/engels_cli.hpp"
-#include "cli/marx_cli.hpp"
 
 #include <cxxopts.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -20,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-namespace ecosystem::manifesto_cli_support {
+namespace ecosystem::actor_cli_support {
 
 struct queued_request {
     enum class state {
@@ -41,40 +40,27 @@ struct queued_request {
     std::string error;
 };
 
-struct manifesto_frontdoor_request {
+struct actor_frontdoor_request {
     bool quiet = false;
     bool interactive = false;
     bool help = false;
     args_list request_args;
 };
 
-std::string manifesto_usage_text() {
-    return "usage: manifesto [--quiet] [<command> ... [--then <command> ...]]\n"
-           "\n"
-           "batch mode:\n"
-           "  manifesto check tests\n"
-           "  manifesto sync --project manifesto --then report matrix\n"
-           "\n"
-           "interactive mode:\n"
-           "  manifesto\n"
-           "\n"
-           "interactive commands:\n"
-           "  help\n"
-           "  queue\n"
-           "  log <id>\n"
-           "  skip <id>\n"
-           "  clear\n"
-           "  exit\n";
+std::string actor_usage_text(const actor_frontend& frontend) {
+    return frontend.usage
+        + "\nshared options:\n"
+          "  --quiet <command> ... [--then <command> ...]\n"
+          "  --interactive (queue, log <id>, skip <id>, clear, exit)\n";
 }
 
-bool is_manifesto_option_token(const std::string& value) {
-    return value == "--quiet" || value == "--interactive"
-        || value == "--help" || value == "-h" || value == "help"
-        || value == "interactive";
+bool is_actor_option_token(const std::string& value) {
+    return value == "--quiet" || value == "--interactive" || value == "--help"
+        || value == "-h" || value == "help" || value == "interactive";
 }
 
-std::string normalized_manifesto_option_token(const std::string& value) {
-    if (value == "help") {
+std::string normalized_actor_option_token(const std::string& value) {
+    if (value == "help" || value == "-h") {
         return "--help";
     }
     if (value == "interactive") {
@@ -83,21 +69,21 @@ std::string normalized_manifesto_option_token(const std::string& value) {
     return value;
 }
 
-void split_manifesto_option_prefix(
+void split_actor_option_prefix(
     const args_list& args, args_list* option_args, args_list* request_args
 ) {
     std::size_t index = 0U;
     for (; index < args.size(); ++index) {
-        if (!is_manifesto_option_token(args[index])) {
+        if (!is_actor_option_token(args[index])) {
             break;
         }
-        option_args->push_back(normalized_manifesto_option_token(args[index]));
+        option_args->push_back(normalized_actor_option_token(args[index]));
     }
     request_args->assign(args.begin() + static_cast<long>(index), args.end());
 }
 
 std::vector<char*> argv_for_args(const args_list& args) {
-    static char command_name[] = "manifesto";
+    static char command_name[] = "actor";
     std::vector<char*> argv;
     argv.reserve(args.size() + 1U);
     argv.push_back(command_name);
@@ -107,22 +93,23 @@ std::vector<char*> argv_for_args(const args_list& args) {
     return argv;
 }
 
-std::optional<manifesto_frontdoor_request> parse_manifesto_frontdoor_request(
-    const args_list& args, std::string* error_message
+std::optional<actor_frontdoor_request> parse_actor_frontdoor_request(
+    const actor_frontend& frontend, const args_list& args,
+    std::string* error_message
 ) {
     args_list option_args;
-    manifesto_frontdoor_request request;
-    split_manifesto_option_prefix(args, &option_args, &request.request_args);
+    actor_frontdoor_request request;
+    split_actor_option_prefix(args, &option_args, &request.request_args);
 
-    cxxopts::Options options("manifesto", "");
+    cxxopts::Options options(frontend.name, "");
     options.add_options()(
         "quiet", "Suppress successful batch-stage output",
         cxxopts::value<bool>()->default_value("false")->implicit_value("true")
     )(
-        "interactive", "Enter the interactive manifesto shell",
+        "interactive", "Enter the interactive actor shell",
         cxxopts::value<bool>()->default_value("false")->implicit_value("true")
     )(
-        "help", "Show manifesto usage",
+        "help", "Show actor usage",
         cxxopts::value<bool>()->default_value("false")->implicit_value("true")
     );
 
@@ -135,17 +122,18 @@ std::optional<manifesto_frontdoor_request> parse_manifesto_frontdoor_request(
         request.interactive = result["interactive"].as<bool>();
         request.help = result["help"].as<bool>();
     } catch (const cxxopts::exceptions::exception&) {
-        *error_message = manifesto_usage_text();
+        *error_message = actor_usage_text(frontend);
         return std::nullopt;
     }
 
-    if (request.help && (!request.request_args.empty() || request.interactive)) {
-        *error_message = manifesto_usage_text();
+    if (request.help
+        && (!request.request_args.empty() || request.interactive)) {
+        *error_message = actor_usage_text(frontend);
         return std::nullopt;
     }
     if (request.interactive && !request.request_args.empty()) {
-        *error_message
-            = "manifesto interactive mode does not accept queued requests";
+        *error_message = frontend.name
+            + " interactive mode does not accept queued requests";
         return std::nullopt;
     }
     return request;
@@ -159,6 +147,16 @@ std::vector<std::string> split_words(const std::string& line) {
         words.push_back(value);
     }
     return words;
+}
+
+std::optional<std::size_t> parse_queue_id(const std::string& text) {
+    std::size_t id = 0;
+    const auto [end, error]
+        = std::from_chars(text.data(), text.data() + text.size(), id);
+    if (error != std::errc() || end != text.data() + text.size() || id == 0) {
+        return std::nullopt;
+    }
+    return id;
 }
 
 std::string join_words(const std::vector<std::string>& words) {
@@ -201,18 +199,21 @@ std::optional<std::string> command_owner(const std::string& command_name) {
     return std::nullopt;
 }
 
-std::optional<std::vector<args_list>> split_manifesto_requests(
-    const args_list& args, std::string* error_message
-) {
+std::optional<std::vector<args_list>>
+split_actor_requests(const args_list& args, std::string* error_message) {
     std::vector<args_list> requests;
     args_list current;
+    bool passthrough = false;
     for (const std::string& arg : args) {
-        if (arg != "--then") {
+        if (arg == "--") {
+            passthrough = true;
+        }
+        if (arg != "--then" || passthrough) {
             current.push_back(arg);
             continue;
         }
         if (current.empty()) {
-            *error_message = "manifesto request chain cannot start with --then";
+            *error_message = "request chain cannot start with --then";
             return std::nullopt;
         }
         requests.push_back(current);
@@ -220,36 +221,47 @@ std::optional<std::vector<args_list>> split_manifesto_requests(
     }
 
     if (current.empty()) {
-        *error_message = "manifesto request chain cannot end with --then";
+        *error_message = "request chain cannot end with --then";
         return std::nullopt;
     }
     requests.push_back(current);
     return requests;
 }
 
-std::string frontend_label(const std::string& owner) {
-    return owner;
-}
+std::string frontend_label(const std::string& owner) { return owner; }
 
-int run_actor_cli(
-    const std::string& owner, const args_list& args, std::ostream& out,
-    std::ostream& err
+bool validate_actor_request(
+    const actor_frontend& frontend, const args_list& args, std::ostream& err
 ) {
-    if (owner == "engels") {
-        return run_engels_cli(args, out, err);
+    if (args.empty()) {
+        emit_command_error(
+            err, command_error::invalid_request, "empty request"
+        );
+        return false;
     }
-    if (owner == "marx") {
-        return run_marx_cli(args, out, err);
+    const auto owner = command_owner(args.front());
+    if (!owner.has_value()) {
+        emit_command_error(
+            err, command_error::invalid_request,
+            "unknown command: " + args.front()
+        );
+        return false;
     }
-    emit_command_error(
-        err, command_error::invalid_request, "unknown manifesto actor"
-    );
-    return exit_code(command_error::invalid_request);
+    if (*owner != frontend.name) {
+        emit_command_error(
+            err, command_error::invalid_request,
+            "command '" + args.front() + "' is available via " + *owner
+                + "; run `" + *owner + " " + args.front() + "`"
+        );
+        return false;
+    }
+    return true;
 }
 
 class shell_queue {
 public:
-    explicit shell_queue(const bool quiet) : quiet_(quiet) {
+    explicit shell_queue(const actor_frontend& frontend)
+        : frontend_(frontend) {
         worker_ = std::thread(&shell_queue::worker_loop, this);
     }
 
@@ -258,7 +270,8 @@ public:
             std::lock_guard<std::mutex> lock(mutex_);
             stopping_ = true;
             for (const std::size_t id : pending_ids_) {
-                requests_[id - 1U].current_state = queued_request::state::skipped;
+                requests_[id - 1U].current_state
+                    = queued_request::state::skipped;
             }
             pending_ids_.clear();
         }
@@ -305,9 +318,10 @@ public:
 
         out << "queue:\n";
         for (const queued_request& request : requests_) {
-            out << "  #" << request.id << " [" << state_label(request.current_state)
-                << "] " << frontend_label(request.owner) << " "
-                << request.summary << "\n";
+            out << "  #" << request.id << " ["
+                << state_label(request.current_state) << "] "
+                << frontend_label(request.owner) << " " << request.summary
+                << "\n";
         }
     }
 
@@ -374,16 +388,17 @@ private:
             queued_request request;
             {
                 std::unique_lock<std::mutex> lock(mutex_);
-                condition_.wait(
-                    lock, [this]() { return stopping_ || !pending_ids_.empty(); }
-                );
+                condition_.wait(lock, [this]() {
+                    return stopping_ || !pending_ids_.empty();
+                });
                 if (stopping_ && pending_ids_.empty()) {
                     return;
                 }
                 const std::size_t id = pending_ids_.front();
                 pending_ids_.pop_front();
                 request = requests_[id - 1U];
-                requests_[id - 1U].current_state = queued_request::state::running;
+                requests_[id - 1U].current_state
+                    = queued_request::state::running;
             }
 
             if (!quiet_) {
@@ -395,9 +410,20 @@ private:
 
             std::ostringstream request_out;
             std::ostringstream request_err;
-            const int exit_status = run_actor_cli(
-                request.owner, request.args, request_out, request_err
-            );
+            int exit_status = exit_code(command_error::task_failed);
+            try {
+                exit_status
+                    = frontend_.execute(request.args, request_out, request_err);
+            } catch (const std::exception& error) {
+                emit_command_error(
+                    request_err, command_error::task_failed, error.what()
+                );
+            } catch (...) {
+                emit_command_error(
+                    request_err, command_error::task_failed,
+                    "unexpected queued request failure"
+                );
+            }
 
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -431,6 +457,7 @@ private:
         }
     }
 
+    actor_frontend frontend_;
     bool quiet_ = false;
     bool stopping_ = false;
     std::mutex mutex_;
@@ -441,10 +468,15 @@ private:
     std::vector<queued_request> requests_;
 };
 
-int dispatch_manifesto_requests(
-    const std::vector<args_list>& requests, const bool quiet, std::ostream& out,
-    std::ostream& err
+int dispatch_actor_requests(
+    const actor_frontend& frontend, const std::vector<args_list>& requests,
+    const bool quiet, std::ostream& out, std::ostream& err
 ) {
+    for (const args_list& request : requests) {
+        if (!validate_actor_request(frontend, request, err)) {
+            return exit_code(command_error::invalid_request);
+        }
+    }
     int status = 0;
     for (const args_list& request : requests) {
         if (request.empty()) {
@@ -463,7 +495,7 @@ int dispatch_manifesto_requests(
             std::ostringstream request_out;
             std::ostringstream request_err;
             const int request_status
-                = run_actor_cli(*owner, request, request_out, request_err);
+                = frontend.execute(request, request_out, request_err);
             if (request_status != 0) {
                 if (!request_out.str().empty()) {
                     out << request_out.str();
@@ -483,7 +515,7 @@ int dispatch_manifesto_requests(
             continue;
         }
 
-        const int request_status = run_actor_cli(*owner, request, out, err);
+        const int request_status = frontend.execute(request, out, err);
         if (request_status != 0) {
             return request_status;
         }
@@ -492,14 +524,16 @@ int dispatch_manifesto_requests(
     return status;
 }
 
-int run_manifesto_shell(std::ostream& out, std::ostream& err) {
-    shell_queue queue(false);
-    out << "manifesto interactive mode\n";
+int run_actor_shell(
+    const actor_frontend& frontend, std::ostream& out, std::ostream& err
+) {
+    shell_queue queue(frontend);
+    out << frontend.name << " interactive mode\n";
     out << "type `help` for commands\n";
 
     std::string line;
     while (true) {
-        out << "manifesto> ";
+        out << frontend.name << "> ";
         out.flush();
         if (!std::getline(std::cin, line)) {
             out << "\n";
@@ -511,7 +545,7 @@ int run_manifesto_shell(std::ostream& out, std::ostream& err) {
             continue;
         }
         if (words.front() == "help") {
-            out << manifesto_usage_text();
+            out << actor_usage_text(frontend);
             continue;
         }
         if (words.front() == "queue") {
@@ -530,9 +564,10 @@ int run_manifesto_shell(std::ostream& out, std::ostream& err) {
                 err << "error[invalid_request]: expected: skip <id>\n";
                 continue;
             }
-            try {
-                queue.skip(std::stoul(words[1]), out, err);
-            } catch (const std::exception&) {
+            const auto id = parse_queue_id(words[1]);
+            if (id.has_value()) {
+                queue.skip(*id, out, err);
+            } else {
                 err << "error[invalid_request]: invalid queue id: " << words[1]
                     << "\n";
             }
@@ -543,101 +578,81 @@ int run_manifesto_shell(std::ostream& out, std::ostream& err) {
                 err << "error[invalid_request]: expected: log <id>\n";
                 continue;
             }
-            try {
-                queue.emit_log(std::stoul(words[1]), out, err);
-            } catch (const std::exception&) {
+            const auto id = parse_queue_id(words[1]);
+            if (id.has_value()) {
+                queue.emit_log(*id, out, err);
+            } else {
                 err << "error[invalid_request]: invalid queue id: " << words[1]
                     << "\n";
             }
             continue;
         }
-        if (words.front() == "test" || words.front() == "tests") {
-            out << "scope (optional): ";
-            out.flush();
-            std::string scope_line;
-            if (!std::getline(std::cin, scope_line)) {
-                return 0;
-            }
-            args_list request { "check", "tests" };
-            const std::vector<std::string> scope_words = split_words(scope_line);
-            request.insert(request.end(), scope_words.begin(), scope_words.end());
-            queue.enqueue("engels", request, out);
-            continue;
-        }
-
         std::string request_error;
         const std::optional<std::vector<args_list>> requests
-            = split_manifesto_requests(words, &request_error);
+            = split_actor_requests(words, &request_error);
         if (!requests.has_value()) {
             emit_command_error(
                 err, command_error::invalid_request, request_error
             );
             continue;
         }
+        const bool valid = std::all_of(
+            requests->begin(), requests->end(), [&](const args_list& request) {
+                return validate_actor_request(frontend, request, err);
+            }
+        );
+        if (!valid) {
+            continue;
+        }
         for (const args_list& request : *requests) {
-            if (request.empty()) {
-                continue;
-            }
-            const std::optional<std::string> owner = command_owner(request.front());
-            if (!owner.has_value()) {
-                emit_command_error(
-                    err, command_error::invalid_request,
-                    "unknown command: " + request.front()
-                );
-                continue;
-            }
-            queue.enqueue(*owner, request, out);
+            queue.enqueue(frontend.name, request, out);
         }
     }
 }
 
-}  // namespace ecosystem::manifesto_cli_support
+} // namespace ecosystem::actor_cli_support
 
 namespace ecosystem {
 
-int run_manifesto(const int argc, const char* const* argv) {
-    const args_list args = collect_cli_args(argc, argv);
-    return run_manifesto_cli(args, std::cout, std::cerr);
-}
-
-int run_manifesto_cli(
-    const std::vector<std::string>& args, std::ostream& out, std::ostream& err
+int run_actor_frontend(
+    const actor_frontend& frontend, const std::vector<std::string>& args,
+    std::ostream& out, std::ostream& err
 ) {
     std::string parse_error;
-    const std::optional<manifesto_cli_support::manifesto_frontdoor_request>
-        request = manifesto_cli_support::parse_manifesto_frontdoor_request(
-            args, &parse_error
+    const std::optional<actor_cli_support::actor_frontdoor_request> request
+        = actor_cli_support::parse_actor_frontdoor_request(
+            frontend, args, &parse_error
         );
     if (!request.has_value()) {
-        emit_command_error(
-            err, command_error::invalid_request, parse_error
-        );
+        emit_command_error(err, command_error::invalid_request, parse_error);
         return exit_code(command_error::invalid_request);
     }
 
     if (request->help) {
-        out << manifesto_cli_support::manifesto_usage_text();
+        out << actor_cli_support::actor_usage_text(frontend);
         return 0;
     }
-    if (request->interactive || request->request_args.empty()) {
-        return manifesto_cli_support::run_manifesto_shell(out, err);
+    if (request->interactive) {
+        return actor_cli_support::run_actor_shell(frontend, out, err);
+    }
+    if (request->request_args.empty()) {
+        out << actor_cli_support::actor_usage_text(frontend);
+        return exit_code(command_error::invalid_request);
     }
 
     std::string chain_error;
     const std::optional<std::vector<args_list>> requests
-        = manifesto_cli_support::split_manifesto_requests(
+        = actor_cli_support::split_actor_requests(
             request->request_args, &chain_error
         );
     if (!requests.has_value()) {
-        emit_command_error(
-            err, command_error::invalid_request, chain_error
-        );
+        emit_command_error(err, command_error::invalid_request, chain_error);
         return exit_code(command_error::invalid_request);
     }
 
-    return manifesto_cli_support::dispatch_manifesto_requests(
-        *requests, request->quiet, out, err
+    return actor_cli_support::dispatch_actor_requests(
+        frontend, *requests, request->quiet, out, err
     );
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

@@ -618,13 +618,17 @@ bool stage_package_payload(
 
     const fs::path destination = install_dir / built_artifact_path.filename();
     fs::copy_file(
-        built_artifact_path,
-        destination,
-        fs::copy_options::overwrite_existing,
-        error
+        built_artifact_path, destination, fs::copy_options::none, error
     );
     if (error) {
-        *error_message = "unable to copy " + built_artifact_path.string() + ": " + error.message();
+        if (error == std::errc::file_exists) {
+            *error_message
+                = "package payload collision: " + destination.string() + " for "
+                + format_artifact_ref(resolved.ref);
+        } else {
+            *error_message = "unable to copy " + built_artifact_path.string()
+                + " to " + destination.string() + ": " + error.message();
+        }
         return false;
     }
 
@@ -1503,6 +1507,37 @@ command_error create_prerelease_packages(
             &installed_files,
             error_message)) {
         return command_error::task_failed;
+    }
+
+    for (const artifact_ref& companion :
+         distribution_artifacts(manifest_value, resolved.ref)) {
+        if (format_artifact_ref(companion)
+            == format_artifact_ref(resolved.ref)) {
+            continue;
+        }
+        const auto item = resolve_artifact(manifest_value, companion);
+        if (!item.has_value()) {
+            *error_message = "unresolved install artifact: "
+                + format_artifact_ref(companion);
+            return command_error::invalid_request;
+        }
+        const auto path = artifact_output_path(
+            local_build_dir(project_root, "release"), *item->artifact_value,
+            artifact_output_name(
+                manifest_value, *item->component_value, *item->artifact_value
+            )
+        );
+        if (!path.has_value()) {
+            *error_message
+                = "missing install artifact: " + format_artifact_ref(companion);
+            return command_error::task_failed;
+        }
+        if (!stage_package_payload(
+                project_root, *item, *path, payload_root, &installed_size,
+                &installed_files, error_message
+            )) {
+            return command_error::task_failed;
+        }
     }
 
     artifacts->deb_repo_dir = local_prerelease_deb_dir(project_root);

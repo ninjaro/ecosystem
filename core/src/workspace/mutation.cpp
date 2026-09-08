@@ -683,6 +683,12 @@ mutation_report add_component(const fs::path &project_root, manifest *value,
       },
   };
   component_value.file_units = template_value->file_units;
+  manifest candidate = *value;
+  candidate.components.push_back(component_value);
+  report.errors = validate_manifest_paths(candidate, project_root);
+  if (!report.errors.empty()) {
+    return report;
+  }
   value->components.push_back(component_value);
   report.changed_manifest = true;
   append_report(&report, scaffold_component_files(project_root, component_value,
@@ -710,6 +716,14 @@ mutation_report add_module(const fs::path &project_root, manifest *value,
     return report;
   }
 
+  manifest candidate = *value;
+  find_mutable_component(&candidate, component_id)
+      ->modules.push_back(normalized_module_path);
+  report.errors = validate_manifest_paths(candidate, project_root);
+  if (!report.errors.empty()) {
+    return report;
+  }
+
   const std::vector<scaffold_file> scaffold_files =
       prepare_module_scaffold_files(project_root, *component_value,
                                     normalized_module_path, &report.errors);
@@ -726,6 +740,10 @@ mutation_report add_files(const fs::path &project_root, const manifest &value,
                           const std::string &component_id,
                           const std::string &module_path) {
   mutation_report report;
+  report.errors = validate_manifest_paths(value, project_root);
+  if (!report.errors.empty()) {
+    return report;
+  }
   const component *component_value = find_component(value, component_id);
   if (component_value == nullptr) {
     report.errors.push_back("unknown component: " + component_id);
@@ -769,6 +787,14 @@ mutation_report add_file_unit(const fs::path &project_root, manifest *value,
                               normalized_unit_id);
       return report;
     }
+  }
+
+  manifest candidate = *value;
+  find_mutable_component(&candidate, component_id)
+      ->file_units.push_back({ normalized_unit_id, kind });
+  report.errors = validate_manifest_paths(candidate, project_root);
+  if (!report.errors.empty()) {
+    return report;
   }
 
   const fs::path component_root =

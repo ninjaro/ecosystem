@@ -20,11 +20,23 @@ struct resolved_artifact {
     const artifact* artifact_value = nullptr;
 };
 
+// Missing destinations are allowed; existing symlinks must resolve within the
+// project. These checks are preflight validation, not protection against races.
+string_list validate_project_paths(
+    const std::filesystem::path& project_root,
+    const std::vector<std::filesystem::path>& relative_paths
+);
+string_list validate_manifest_paths(
+    const manifest& value, const std::filesystem::path& project_root
+);
+
 const component* find_component(const manifest& value, const std::string& component_id);
 const artifact* find_artifact(const component& value, const std::string& artifact_id);
 std::optional<resolved_artifact> resolve_artifact(
     const manifest& value, const std::optional<artifact_ref>& requested
 );
+std::vector<artifact_ref>
+distribution_artifacts(const manifest& value, const artifact_ref& primary);
 std::vector<std::string> component_stack_values(const component& value, const std::string& key);
 bool component_has_stack_key(const component& value, const std::string& key);
 std::vector<const component*> component_closure_for_artifact(
@@ -75,14 +87,8 @@ std::vector<std::filesystem::path> component_benchmark_sources(
 );
 bool component_is_test_only(const component& value);
 bool component_is_benchmark_only(const component& value);
-std::string artifact_output_name(
-    const manifest& manifest_value, const component& component_value, const artifact& artifact_value
-);
-std::vector<std::filesystem::path> artifact_output_candidates(
-    const std::filesystem::path& build_dir,
-    const artifact& artifact_value,
-    const std::string& output_name
-);
+std::optional<std::string>
+component_generated_test_target(const component& value);
 std::optional<std::filesystem::path> artifact_output_path(
     const std::filesystem::path& build_dir,
     const artifact& artifact_value,

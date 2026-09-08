@@ -1,7 +1,10 @@
 #include "manifest.hpp"
 
+#include "workspace/project.hpp"
+
 #include <algorithm>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <regex>
 #include <set>
@@ -107,6 +110,33 @@ namespace manifest_support {
             return json::object();
         }
         return object.at(field_name);
+    }
+
+    bool
+    safe_owned_path(const std::string& text, const bool allow_root = false) {
+        if (text == ".") {
+            return allow_root;
+        }
+        if (text.empty()
+            || !std::regex_match(text, android_package_source_dir_pattern)) {
+            return false;
+        }
+        const fs::path path(text);
+        if (path.is_absolute()
+            || path.generic_string()
+                != path.lexically_normal().generic_string()) {
+            return false;
+        }
+        return std::none_of(
+            path.begin(), path.end(), [](const fs::path& segment) {
+                return segment == "." || segment == "..";
+            }
+        );
+    }
+
+    bool safe_output_name(const std::string& text) {
+        static const std::regex pattern("^[A-Za-z0-9_][A-Za-z0-9_.+-]*$");
+        return std::regex_match(text, pattern);
     }
 
     bool is_valid_id(const std::string& value) {
@@ -382,6 +412,26 @@ namespace manifest_support {
         value.facade_entry_artifact = require_string(
             facade, "entry_artifact", "manifest.facade", errors
         );
+        if (root.contains("install_artifacts")) {
+            if (!root.at("install_artifacts").is_array()) {
+                errors->push_back(
+                    "manifest.install_artifacts must be an array"
+                );
+            } else {
+                for (const json& entry : root.at("install_artifacts")) {
+                    if (!entry.is_string()) {
+                        errors->push_back(
+                            "manifest.install_artifacts entries must be "
+                            "artifact references"
+                        );
+                    } else {
+                        value.install_artifacts.push_back(
+                            entry.get<std::string>()
+                        );
+                    }
+                }
+            }
+        }
 
         if (!root.contains("components") || !root.at("components").is_array()) {
             errors->push_back("manifest.components must be an array");
@@ -517,6 +567,12 @@ manifest_report load_manifest(const fs::path& manifest_path) {
     report.has_manifest
         = std::filesystem::symlink_status(manifest_path, status_error).type()
         != std::filesystem::file_type::not_found;
+    report.errors = validate_project_paths(
+        manifest_path.parent_path(), { manifest_path.filename() }
+    );
+    if (!report.errors.empty()) {
+        return report;
+    }
     std::ifstream file(manifest_path);
     if (!file.is_open()) {
         report.errors.push_back("missing manifest: " + manifest_path.string());
@@ -532,8 +588,9 @@ manifest_report load_manifest(const fs::path& manifest_path) {
         report.has_manifest = true;
         report.value = parse_manifest(root, &report.errors);
         if (report.value.has_value()) {
-            const string_list validation_errors
-                = validate_manifest(*report.value);
+            const string_list validation_errors = validate_manifest_paths(
+                *report.value, manifest_path.parent_path()
+            );
             report.errors.insert(
                 report.errors.end(), validation_errors.begin(),
                 validation_errors.end()
@@ -552,8 +609,19 @@ bool save_manifest(
     const fs::path& manifest_path, const manifest& value,
     std::string* error_message
 ) {
+    const string_list path_errors = validate_project_paths(
+        manifest_path.parent_path(), { manifest_path.filename() }
+    );
+    if (!path_errors.empty()) {
+        *error_message = path_errors.front();
+        return false;
+    }
     std::error_code error;
-    fs::create_directories(manifest_path.parent_path(), error);
+    fs::create_directories(
+        manifest_path.has_parent_path() ? manifest_path.parent_path()
+                                        : fs::path("."),
+        error
+    );
     if (error) {
         *error_message = "unable to create "
             + manifest_path.parent_path().string() + ": " + error.message();
@@ -567,7 +635,64 @@ bool save_manifest(
     }
 
     file << to_json(value).dump(2) << "\n";
+    file.close();
+    if (!file) {
+        *error_message = "unable to write " + manifest_path.string();
+        return false;
+    }
     return true;
+}
+
+std::string artifact_output_name(
+    const manifest& manifest_value, const component& component_value,
+    const artifact& artifact_value
+) {
+    if (!artifact_value.name.empty()) {
+        return artifact_value.name;
+    }
+
+    int matching_ids = 0;
+    for (const component& other_component : manifest_value.components) {
+        for (const artifact& other_artifact : other_component.artifacts) {
+            if (other_artifact.id == artifact_value.id) {
+                ++matching_ids;
+            }
+        }
+    }
+
+    if (matching_ids <= 1) {
+        return artifact_value.id;
+    }
+    return component_value.id + "_" + artifact_value.id;
+}
+
+std::vector<fs::path> artifact_output_candidates(
+    const fs::path& build_dir, const artifact& artifact_value,
+    const std::string& output_name
+) {
+    if (artifact_value.kind == "exe" || artifact_value.kind == "qt_app") {
+        return {
+            build_dir / output_name,
+            build_dir / (output_name + ".exe"),
+            build_dir / (output_name + ".app") / "Contents" / "MacOS"
+                / output_name,
+        };
+    }
+    if (artifact_value.kind == "shared_lib") {
+        return {
+            build_dir / ("lib" + output_name + ".so"),
+            build_dir / ("lib" + output_name + ".dylib"),
+            build_dir / (output_name + ".dll"),
+            build_dir / ("cyg" + output_name + ".dll"),
+        };
+    }
+    if (artifact_value.kind == "static_lib") {
+        return {
+            build_dir / ("lib" + output_name + ".a"),
+            build_dir / (output_name + ".lib"),
+        };
+    }
+    return {};
 }
 
 string_list validate_manifest(const manifest& value) {
@@ -617,7 +742,9 @@ string_list validate_manifest(const manifest& value) {
     }
 
     std::set<std::string> component_ids;
-    std::set<std::string> artifact_refs;
+    std::map<std::string, const artifact*> artifacts;
+    std::map<std::string, std::string> output_owners;
+    std::map<std::string, std::string> target_owners;
     for (const component& component_value : value.components) {
         if (!is_valid_id(component_value.id)) {
             errors.push_back(
@@ -633,19 +760,20 @@ string_list validate_manifest(const manifest& value) {
                 "component.description must not be empty: " + component_value.id
             );
         }
-        if (trim_copy(component_value.root).empty()) {
+        if (!safe_owned_path(component_value.root, true)) {
             errors.push_back(
-                "component.root must not be empty: " + component_value.id
+                "component.root must be a safe project-relative path: "
+                + component_value.id
             );
         }
         validate_external_project(component_value, &errors);
 
         std::vector<std::string> seen_modules;
         for (const std::string& module_path : component_value.modules) {
-            if (module_path.empty() || module_path == ".") {
+            if (!safe_owned_path(module_path)) {
                 errors.push_back(
-                    "component module path must not be empty: "
-                    + component_value.id
+                    "component module must be a safe project-relative path: "
+                    + component_value.id + ":" + module_path
                 );
                 continue;
             }
@@ -680,7 +808,40 @@ string_list validate_manifest(const manifest& value) {
                     + artifact_value.id + ": " + artifact_value.kind
                 );
             }
-            artifact_refs.insert(component_value.id + ":" + artifact_value.id);
+            const std::string ref
+                = component_value.id + ":" + artifact_value.id;
+            artifacts.emplace(ref, &artifact_value);
+            const std::string target
+                = component_value.id + "__" + artifact_value.id;
+            if (const auto [existing, inserted]
+                = target_owners.emplace(target, ref);
+                !inserted && existing->second != ref) {
+                errors.push_back(
+                    "CMake target collision: " + existing->second + " and "
+                    + ref + " produce " + target
+                );
+            }
+            const std::string output
+                = artifact_output_name(value, component_value, artifact_value);
+            if (!safe_output_name(output)) {
+                errors.push_back(
+                    "artifact output name must be a safe filename: " + ref
+                    + ": " + output
+                );
+            } else if (!component_value.stack.contains("external_project")) {
+                for (const fs::path& path :
+                     artifact_output_candidates({}, artifact_value, output)) {
+                    const std::string key = path.generic_string();
+                    if (const auto [existing, inserted]
+                        = output_owners.emplace(key, ref);
+                        !inserted && existing->second != ref) {
+                        errors.push_back(
+                            "artifact output collision: " + existing->second
+                            + " and " + ref + " produce " + key
+                        );
+                    }
+                }
+            }
         }
         if (component_value.artifacts.empty()) {
             errors.push_back(
@@ -690,10 +851,10 @@ string_list validate_manifest(const manifest& value) {
 
         std::set<std::string> file_unit_ids;
         for (const file_unit& file_unit_value : component_value.file_units) {
-            if (trim_copy(file_unit_value.id).empty()) {
+            if (!safe_owned_path(file_unit_value.id)) {
                 errors.push_back(
-                    "file_unit.id must not be empty in component "
-                    + component_value.id
+                    "file_unit.id must be a safe project-relative path: "
+                    + component_value.id + ":" + file_unit_value.id
                 );
             }
             if (!file_unit_ids.insert(file_unit_value.id).second) {
@@ -708,6 +869,118 @@ string_list validate_manifest(const manifest& value) {
                     + file_unit_value.id + ": " + file_unit_value.kind
                 );
             }
+        }
+    }
+
+    // The developer surface creates test executables from declared test
+    // support. Reserve their target and filenames even before test files are
+    // discovered.
+    for (const component& owner : value.components) {
+        const auto target = component_generated_test_target(owner);
+        if (!target.has_value()) {
+            continue;
+        }
+        const std::string ref = "generated tests for " + owner.id;
+        if (const auto [existing, inserted]
+            = target_owners.emplace(*target, ref);
+            !inserted) {
+            errors.push_back(
+                "CMake target collision: " + existing->second + " and " + ref
+                + " produce " + *target
+            );
+        }
+        const artifact test_artifact { "tests", "exe", *target, {} };
+        for (const fs::path& path :
+             artifact_output_candidates({}, test_artifact, *target)) {
+            const std::string key = path.generic_string();
+            if (const auto [existing, inserted]
+                = output_owners.emplace(key, ref);
+                !inserted) {
+                errors.push_back(
+                    "artifact output collision: " + existing->second + " and "
+                    + ref + " produce " + key
+                );
+            }
+        }
+    }
+
+    for (const auto& [ref, item] : artifacts) {
+        std::set<std::string> links;
+        for (const std::string& link : item->link) {
+            if (!links.insert(link).second) {
+                errors.push_back(
+                    "duplicate artifact link: " + ref + " -> " + link
+                );
+            }
+            const auto target = artifacts.find(link);
+            if (!parse_artifact_ref(link).has_value()
+                || target == artifacts.end()) {
+                errors.push_back(
+                    "unresolved artifact link: " + ref + " -> " + link
+                );
+            } else if (
+                target->second->kind == "exe"
+                || target->second->kind == "qt_app"
+            ) {
+                errors.push_back(
+                    "artifact link must reference a library: " + ref + " -> "
+                    + link
+                );
+            }
+        }
+    }
+    std::map<std::string, int> state;
+    std::vector<std::string> chain;
+    std::function<void(const std::string&)> visit
+        = [&](const std::string& ref) {
+              if (state[ref] == 2) {
+                  return;
+              }
+              if (state[ref] == 1) {
+                  std::string cycle;
+                  for (auto it = std::find(chain.begin(), chain.end(), ref);
+                       it != chain.end(); ++it) {
+                      cycle += *it + " -> ";
+                  }
+                  errors.push_back("artifact dependency cycle: " + cycle + ref);
+                  return;
+              }
+              state[ref] = 1;
+              chain.push_back(ref);
+              for (const auto& link : artifacts.at(ref)->link) {
+                  if (artifacts.contains(link)) {
+                      visit(link);
+                  }
+              }
+              chain.pop_back();
+              state[ref] = 2;
+          };
+    for (const auto& [ref, item] : artifacts) {
+        visit(ref);
+    }
+
+    std::set<std::string> installed;
+    for (const std::string& ref_text : value.install_artifacts) {
+        const auto ref = parse_artifact_ref(ref_text);
+        bool found = false;
+        if (ref.has_value()) {
+            for (const component& owner : value.components) {
+                for (const artifact& item : owner.artifacts) {
+                    found = found
+                        || (owner.id == ref->component_id
+                            && item.id == ref->artifact_id);
+                }
+            }
+        }
+        if (!found) {
+            errors.push_back(
+                "manifest.install_artifacts does not resolve: " + ref_text
+            );
+        }
+        if (!installed.insert(ref_text).second) {
+            errors.push_back(
+                "duplicate manifest.install_artifacts entry: " + ref_text
+            );
         }
     }
 
@@ -771,6 +1044,9 @@ json to_json(const manifest& value) {
     json facade = json::object();
     facade["entry_artifact"] = value.facade_entry_artifact;
     root["facade"] = facade;
+    if (!value.install_artifacts.empty()) {
+        root["install_artifacts"] = value.install_artifacts;
+    }
 
     json components_json = json::array();
     for (const component& component_value : value.components) {

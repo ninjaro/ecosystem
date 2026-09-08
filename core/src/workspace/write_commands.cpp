@@ -571,6 +571,19 @@ command_error run_prerelease(
 
     prerelease_version version;
     prerelease_artifacts artifacts;
+    for (const artifact_ref& companion :
+         distribution_artifacts(manifest_value, resolved->ref)) {
+        if (format_artifact_ref(companion)
+            == format_artifact_ref(resolved->ref)) {
+            continue;
+        }
+        status = command_support::build_target(
+            project_root, "release", cmake_target_name(companion), err
+        );
+        if (status != command_error::ok) {
+            return status;
+        }
+    }
     std::string error_message;
     status = create_prerelease_packages(
         project_root, manifest_value, *resolved, *built_path, version_base,

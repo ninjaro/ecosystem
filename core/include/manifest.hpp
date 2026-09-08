@@ -50,6 +50,7 @@ struct manifest {
     std::string android_package_source_dir;
     bool install_assets = false;
     std::string facade_entry_artifact;
+    string_list install_artifacts;
     std::vector<component> components;
     json relations = json::array();
 };
@@ -65,6 +66,15 @@ manifest_report load_manifest(const std::filesystem::path& manifest_path);
 bool save_manifest(
     const std::filesystem::path& manifest_path, const manifest& value,
     std::string* error_message
+);
+
+std::string artifact_output_name(
+    const manifest& manifest_value, const component& component_value,
+    const artifact& artifact_value
+);
+std::vector<std::filesystem::path> artifact_output_candidates(
+    const std::filesystem::path& build_dir, const artifact& artifact_value,
+    const std::string& output_name
 );
 
 string_list validate_manifest(const manifest& value);

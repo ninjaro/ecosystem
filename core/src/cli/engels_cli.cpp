@@ -1,8 +1,9 @@
 #include "cli/engels_cli.hpp"
 
+#include "cli/actor_cli.hpp"
 #include "cli/common_args.hpp"
-#include "cli/engels_command.hpp"
 #include "cli/engels_args.hpp"
+#include "cli/engels_command.hpp"
 
 #include <iostream>
 #include <string>
@@ -10,12 +11,26 @@
 
 namespace ecosystem {
 
+int run_engels_request(
+    const args_list& args, std::ostream& out, std::ostream& err
+);
+
+int run_engels_cli(
+    const args_list& args, std::ostream& out, std::ostream& err
+) {
+    return run_actor_frontend(
+        actor_frontend { "engels", engels_cli_support::engels_usage_text(),
+                         run_engels_request },
+        args, out, err
+    );
+}
+
 int run_engels(const int argc, const char* const* argv) {
     const args_list args = collect_cli_args(argc, argv);
     return run_engels_cli(args, std::cout, std::cerr);
 }
 
-int run_engels_cli(
+int run_engels_request(
     const std::vector<std::string>& args, std::ostream& out, std::ostream& err
 ) {
     if (args.empty() || args[0] == "help" || args[0] == "--help"

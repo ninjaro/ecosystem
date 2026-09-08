@@ -1,5 +1,6 @@
 #include "cli/marx_cli.hpp"
 
+#include "cli/actor_cli.hpp"
 #include "cli/common_args.hpp"
 #include "cli/marx_args.hpp"
 #include "cli/marx_command.hpp"
@@ -10,12 +11,24 @@
 
 namespace ecosystem {
 
+int run_marx_request(
+    const args_list& args, std::ostream& out, std::ostream& err
+);
+
+int run_marx_cli(const args_list& args, std::ostream& out, std::ostream& err) {
+    return run_actor_frontend(
+        actor_frontend { "marx", marx_cli_support::marx_usage_text(),
+                         run_marx_request },
+        args, out, err
+    );
+}
+
 int run_marx(const int argc, const char* const* argv) {
     const args_list args = collect_cli_args(argc, argv);
     return run_marx_cli(args, std::cout, std::cerr);
 }
 
-int run_marx_cli(
+int run_marx_request(
     const std::vector<std::string>& args, std::ostream& out, std::ostream& err
 ) {
     if (args.empty() || args[0] == "help" || args[0] == "--help"
