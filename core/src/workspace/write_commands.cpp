@@ -37,6 +37,18 @@ command_error emit_mutation_report(
         return command_error::invalid_request;
     }
 
+    if (!report.written_files.empty()) {
+        const auto discovery_errors
+            = discover_owned_files(manifest_value, project_root);
+        if (!discovery_errors.empty()) {
+            for (const auto& message : discovery_errors)
+                command_support::print_error(
+                    err, command_error::invalid_request, message
+                );
+            return command_error::invalid_request;
+        }
+    }
+
     if (report.changed_manifest) {
         const string_list validation_errors = validate_manifest(*manifest_value);
         if (!validation_errors.empty()) {

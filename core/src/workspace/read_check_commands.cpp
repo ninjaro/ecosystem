@@ -1,6 +1,7 @@
 #include "workspace/read_commands.hpp"
 
 #include "command_internal.hpp"
+#include "workspace/template_text.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -707,7 +708,12 @@ command_error run_check_doxy(
         );
         return command_error::missing_local_tooling;
     }
-    ensure_local_artifacts(project_root, false, false, true);
+    try {
+        ensure_local_artifacts(project_root, false, false, true);
+    } catch (const template_render_error& error) {
+        print_error(err, command_error::task_failed, error.what());
+        return command_error::task_failed;
+    }
     if (run_command({ doxygen_tool.path, "Doxyfile" }, project_root) != 0) {
         print_error(err, command_error::task_failed, "doxygen failed");
         return command_error::task_failed;

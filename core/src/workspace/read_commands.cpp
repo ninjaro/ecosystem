@@ -648,7 +648,9 @@ namespace command_support {
                     targets.push_back(
                         {
                             cmake_target_name(ref),
-                            component_value.id + "_" + artifact_value.id,
+                            component_value.ownership
+                                ? cmake_target_name(ref)
+                                : component_value.id + "_" + artifact_value.id,
                             artifact_output_name(
                                 manifest_value, component_value, artifact_value
                             ),
@@ -658,16 +660,18 @@ namespace command_support {
                 continue;
             }
 
-            if (component_value.tests.empty()) {
+            const auto target
+                = component_generated_test_target(component_value);
+            if (!target
+                || (requested_artifact && component_value.ownership
+                    && component_value.artifacts.front().id
+                        != requested_artifact->artifact_id))
                 continue;
-            }
-
             targets.push_back(
-                {
-                    component_value.id + "__tests",
-                    component_value.id + "_tests",
-                    component_value.id + "__tests",
-                }
+                { *target,
+                  component_value.ownership ? *target
+                                            : component_value.id + "_tests",
+                  *target }
             );
         }
 

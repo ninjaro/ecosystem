@@ -134,6 +134,45 @@ namespace manifest_support {
         );
     }
 
+    std::vector<fs::path> ownership_candidates(const component& owner) {
+        std::vector<fs::path> result;
+        for (const std::string& scope : owner.ownership->scopes) {
+            if (!safe_owned_path(scope, true))
+                continue;
+            const fs::path logical(scope);
+            const std::string first = logical.begin()->string();
+            const bool qualified = first == "include" || first == "src"
+                || first == "tests" || first == "benchmarks";
+            const string_list directories = qualified
+                ? string_list { "" }
+                : string_list { "include", "src", "tests", "benchmarks" };
+            for (const auto& directory : directories) {
+                const auto candidate
+                    = (fs::path(owner.root) / directory / logical)
+                          .lexically_normal();
+                result.push_back(candidate);
+                if (logical.has_extension() || scope == "."
+                    || (qualified && logical == fs::path(first)))
+                    continue;
+                for (const std::string extension :
+                     { ".hpp", ".h", ".hh", ".hxx", ".tpp", ".cpp", ".cc",
+                       ".cxx" })
+                    result.emplace_back(candidate.string() + extension);
+                if (!qualified && directory == "tests")
+                    result.emplace_back(candidate.string() + "_tests.cpp");
+                if (!qualified && directory == "benchmarks")
+                    result.emplace_back(candidate.string() + "_benchmarks.cpp");
+            }
+        }
+        return result;
+    }
+
+    bool contains_owned_path(const fs::path& scope, const fs::path& path) {
+        const auto relative = path.lexically_relative(scope);
+        return !relative.empty() && !relative.is_absolute()
+            && *relative.begin() != "..";
+    }
+
     bool safe_output_name(const std::string& text) {
         static const std::regex pattern("^[A-Za-z0-9_][A-Za-z0-9_.+-]*$");
         return std::regex_match(text, pattern);
@@ -141,90 +180,6 @@ namespace manifest_support {
 
     bool is_valid_id(const std::string& value) {
         return std::regex_match(value, id_pattern);
-    }
-
-    void flatten_modules(
-        const json& value, const std::string& prefix,
-        const std::string& context, std::vector<std::string>* modules,
-        string_list* errors
-    ) {
-        if (!value.is_array()) {
-            errors->push_back(context + " must be an array");
-            return;
-        }
-        for (std::size_t index = 0; index < value.size(); ++index) {
-            const json& entry = value.at(index);
-            const std::string entry_context
-                = context + "[" + std::to_string(index) + "]";
-            if (entry.is_string()) {
-                const std::string name = normalize_relative_path(
-                    prefix + entry.get<std::string>()
-                );
-                if (name.empty() || name == ".") {
-                    errors->push_back(entry_context + " must not be empty");
-                    continue;
-                }
-                modules->push_back(name);
-                continue;
-            }
-            if (entry.is_object() && entry.size() == 1U) {
-                const auto iterator = entry.begin();
-                const std::string group
-                    = normalize_relative_path(iterator.key());
-                if (group.empty() || group == ".") {
-                    errors->push_back(
-                        entry_context + " group key must not be empty"
-                    );
-                    continue;
-                }
-                flatten_modules(
-                    iterator.value(), prefix + group + "/",
-                    entry_context + "." + group, modules, errors
-                );
-                continue;
-            }
-            errors->push_back(
-                entry_context
-                + " must be a string leaf or a single-key object group"
-            );
-        }
-    }
-
-    struct module_node {
-        bool leaf = false;
-        std::map<std::string, module_node> children;
-    };
-
-    void insert_module(module_node* root, const std::string& path) {
-        module_node* current = root;
-        std::stringstream stream(path);
-        std::string segment;
-        while (std::getline(stream, segment, '/')) {
-            current = &current->children[segment];
-        }
-        current->leaf = true;
-    }
-
-    json emit_module_array(const module_node& root) {
-        json output = json::array();
-        for (const auto& [name, child] : root.children) {
-            if (child.leaf && child.children.empty()) {
-                output.push_back(name);
-                continue;
-            }
-            json group = json::object();
-            group[name] = emit_module_array(child);
-            output.push_back(group);
-        }
-        return output;
-    }
-
-    json modules_to_json(const std::vector<std::string>& modules) {
-        module_node root;
-        for (const std::string& module_path : modules) {
-            insert_module(&root, module_path);
-        }
-        return emit_module_array(root);
     }
 
     string_list read_string_list(
@@ -260,207 +215,128 @@ namespace manifest_support {
         return values;
     }
 
-    artifact parse_artifact(
-        const json& object, const std::string& context, string_list* errors
+    void check_fields(
+        const json& object, const std::set<std::string>& allowed,
+        const std::string& context, string_list* errors
     ) {
-        artifact value;
-        value.id = require_string(object, "id", context, errors);
-        value.kind = require_string(object, "kind", context, errors);
-        if (object.contains("name")) {
-            value.name = require_string(object, "name", context, errors);
-        }
-        value.link = read_string_list(object, "link", context, errors);
-        return value;
-    }
-
-    file_unit parse_file_unit(
-        const json& object, const std::string& context, string_list* errors
-    ) {
-        file_unit value;
-        value.id = require_string(object, "id", context, errors);
-        value.kind = require_string(object, "kind", context, errors);
-        return value;
-    }
-
-    component parse_component(
-        const json& object, const std::string& context, string_list* errors
-    ) {
-        component value;
-        value.id = require_string(object, "id", context, errors);
-        value.description
-            = require_string(object, "description", context, errors);
-        value.root = normalize_relative_path(
-            require_string(object, "root", context, errors)
-        );
-        if (value.root.empty()) {
-            value.root = ".";
-        }
-
-        if (object.contains("stack")) {
-            if (!object.at("stack").is_object()) {
-                errors->push_back(context + ".stack must be a JSON object");
-            } else {
-                value.stack = object.at("stack");
-            }
-        }
-
-        if (object.contains("tests")) {
-            if (!object.at("tests").is_object()) {
-                errors->push_back(context + ".tests must be a JSON object");
-            } else {
-                value.tests = object.at("tests");
-            }
-        }
-
-        if (object.contains("benchmarks")) {
-            if (!object.at("benchmarks").is_object()) {
+        for (const auto& [key, ignored] : object.items()) {
+            if (!allowed.contains(key))
                 errors->push_back(
-                    context + ".benchmarks must be a JSON object"
+                    context + ": unsupported field '" + key + "'"
                 );
-            } else {
-                value.benchmarks = object.at("benchmarks");
-            }
         }
+    }
 
-        if (!object.contains("modules")) {
-            errors->push_back(context + ".modules must be an array");
-        } else {
-            flatten_modules(
-                object.at("modules"), "", context + ".modules", &value.modules,
-                errors
-            );
+    string_list authored_list(
+        const json& object, const std::string& field,
+        const std::string& context, string_list* errors, bool required = false
+    ) {
+        if (!object.contains(field) && !required)
+            return {};
+        if (!object.contains(field) || !object.at(field).is_array()) {
+            errors->push_back(context + "." + field + " must be an array");
+            return {};
         }
-
-        if (!object.contains("artifacts")
-            || !object.at("artifacts").is_array()) {
-            errors->push_back(context + ".artifacts must be an array");
-        } else {
-            for (std::size_t index = 0; index < object.at("artifacts").size();
-                 ++index) {
-                const json& entry = object.at("artifacts").at(index);
-                if (!entry.is_object()) {
-                    errors->push_back(
-                        context + ".artifacts[" + std::to_string(index)
-                        + "] must be a JSON object"
-                    );
-                    continue;
-                }
-                value.artifacts.push_back(parse_artifact(
-                    entry,
-                    context + ".artifacts[" + std::to_string(index) + "]",
-                    errors
-                ));
-            }
-        }
-
-        if (object.contains("file_units")) {
-            if (!object.at("file_units").is_array()) {
-                errors->push_back(context + ".file_units must be an array");
-            } else {
-                for (std::size_t index = 0;
-                     index < object.at("file_units").size(); ++index) {
-                    const json& entry = object.at("file_units").at(index);
-                    if (!entry.is_object()) {
-                        errors->push_back(
-                            context + ".file_units[" + std::to_string(index)
-                            + "] must be a JSON object"
-                        );
-                        continue;
-                    }
-                    value.file_units.push_back(parse_file_unit(
-                        entry,
-                        context + ".file_units[" + std::to_string(index) + "]",
-                        errors
-                    ));
-                }
-            }
-        }
-
-        return value;
+        return read_string_list(object, field, context, errors);
     }
 
     manifest parse_manifest(const json& root, string_list* errors) {
+        check_fields(
+            root,
+            { "id", "description", "version", "cpp_standard", "facade",
+              "artifacts", "install_artifacts", "install_assets",
+              "android_application_id", "android_package_source_dir" },
+            "manifest", errors
+        );
         manifest value;
         value.id = require_string(root, "id", "manifest", errors);
         value.description
             = require_string(root, "description", "manifest", errors);
-        if (root.contains("version")) {
+        if (root.contains("version"))
             value.version = require_string(root, "version", "manifest", errors);
-        }
-        value.cpp_standard
-            = require_integer(root, "cpp_standard", "manifest", errors);
-        if (root.contains("android_application_id")) {
+        if (root.contains("cpp_standard"))
+            value.cpp_standard
+                = require_integer(root, "cpp_standard", "manifest", errors);
+        value.facade_entry_artifact
+            = require_string(root, "facade", "manifest", errors);
+        value.install_artifacts
+            = authored_list(root, "install_artifacts", "manifest", errors);
+        if (root.contains("android_application_id"))
             value.android_application_id = require_string(
                 root, "android_application_id", "manifest", errors
             );
-        }
-        if (root.contains("android_package_source_dir")) {
-            value.android_package_source_dir
-                = normalize_relative_path(require_string(
-                    root, "android_package_source_dir", "manifest", errors
-                ));
-        }
+        if (root.contains("android_package_source_dir"))
+            value.android_package_source_dir = require_string(
+                root, "android_package_source_dir", "manifest", errors
+            );
         if (root.contains("install_assets")) {
-            if (!root.at("install_assets").is_boolean()) {
+            if (!root.at("install_assets").is_boolean())
                 errors->push_back("manifest.install_assets must be a boolean");
-            } else {
+            else
                 value.install_assets = root.at("install_assets").get<bool>();
-            }
         }
-
-        const json facade = require_object(root, "facade", "manifest", errors);
-        value.facade_entry_artifact = require_string(
-            facade, "entry_artifact", "manifest.facade", errors
-        );
-        if (root.contains("install_artifacts")) {
-            if (!root.at("install_artifacts").is_array()) {
+        if (!root.contains("artifacts") || !root.at("artifacts").is_array()) {
+            errors->push_back(
+                "manifest.artifacts must be an array; "
+                "components/modules/file_units are obsolete authored fields"
+            );
+            return value;
+        }
+        for (std::size_t index = 0; index < root.at("artifacts").size();
+             ++index) {
+            const auto& item = root.at("artifacts").at(index);
+            const std::string context
+                = "manifest.artifacts[" + std::to_string(index) + "]";
+            if (!item.is_object()) {
+                errors->push_back(context + " must be an object");
+                continue;
+            }
+            check_fields(
+                item,
+                { "id", "kind", "name", "description", "root", "owns", "entry",
+                  "dependencies", "packages", "tests", "benchmarks" },
+                context, errors
+            );
+            const std::string identity
+                = require_string(item, "id", context, errors);
+            const auto ref = parse_artifact_ref(identity);
+            if (!ref) {
                 errors->push_back(
-                    "manifest.install_artifacts must be an array"
+                    context + ".id must be a namespace:artifact identity"
                 );
-            } else {
-                for (const json& entry : root.at("install_artifacts")) {
-                    if (!entry.is_string()) {
-                        errors->push_back(
-                            "manifest.install_artifacts entries must be "
-                            "artifact references"
-                        );
-                    } else {
-                        value.install_artifacts.push_back(
-                            entry.get<std::string>()
-                        );
-                    }
-                }
+                continue;
             }
-        }
-
-        if (!root.contains("components") || !root.at("components").is_array()) {
-            errors->push_back("manifest.components must be an array");
-        } else {
-            for (std::size_t index = 0; index < root.at("components").size();
-                 ++index) {
-                const json& entry = root.at("components").at(index);
-                if (!entry.is_object()) {
-                    errors->push_back(
-                        "manifest.components[" + std::to_string(index)
-                        + "] must be a JSON object"
-                    );
-                    continue;
-                }
-                value.components.push_back(parse_component(
-                    entry, "manifest.components[" + std::to_string(index) + "]",
-                    errors
-                ));
+            component owner;
+            owner.id = ref->component_id;
+            owner.description = item.contains("description")
+                ? require_string(item, "description", context, errors)
+                : value.description;
+            owner.root = item.contains("root")
+                ? require_string(item, "root", context, errors)
+                : ".";
+            owner.ownership.emplace();
+            owner.ownership->scopes
+                = authored_list(item, "owns", context, errors, true);
+            if (item.contains("entry"))
+                owner.ownership->entry
+                    = require_string(item, "entry", context, errors);
+            for (const auto& [field, destination] :
+                 std::vector<std::pair<std::string, json*>> {
+                     { "packages", &owner.stack },
+                     { "tests", &owner.tests },
+                     { "benchmarks", &owner.benchmarks } }) {
+                if (item.contains(field))
+                    *destination = require_object(item, field, context, errors);
             }
+            artifact output;
+            output.id = ref->artifact_id;
+            output.kind = require_string(item, "kind", context, errors);
+            if (item.contains("name"))
+                output.name = require_string(item, "name", context, errors);
+            output.link = authored_list(item, "dependencies", context, errors);
+            owner.artifacts.push_back(std::move(output));
+            value.components.push_back(std::move(owner));
         }
-
-        if (root.contains("relations")) {
-            if (!root.at("relations").is_array()) {
-                errors->push_back("manifest.relations must be an array");
-            } else {
-                value.relations = root.at("relations");
-            }
-        }
-
         return value;
     }
 
@@ -530,6 +406,14 @@ namespace manifest_support {
                 + component_value.id
             );
         }
+        if (component_value.ownership
+            && (!component_value.ownership->scopes.empty()
+                || !component_value.ownership->entry.empty())) {
+            errors->push_back(
+                "external artifacts must not declare local owns or entry: "
+                + component_value.id
+            );
+        }
         if (!component_value.modules.empty()
             || !component_value.file_units.empty()) {
             errors->push_back(
@@ -594,6 +478,15 @@ manifest_report load_manifest(const fs::path& manifest_path) {
             report.errors.insert(
                 report.errors.end(), validation_errors.begin(),
                 validation_errors.end()
+            );
+        }
+        if (report.value && report.errors.empty()) {
+            const auto discovery_errors = discover_owned_files(
+                &*report.value, manifest_path.parent_path()
+            );
+            report.errors.insert(
+                report.errors.end(), discovery_errors.begin(),
+                discovery_errors.end()
             );
         }
     } catch (const json::exception& error) {
@@ -738,7 +631,7 @@ string_list validate_manifest(const manifest& value) {
         }
     }
     if (value.components.empty()) {
-        errors.push_back("manifest.components must not be empty");
+        errors.push_back("manifest.artifacts must not be empty");
     }
 
     std::set<std::string> component_ids;
@@ -752,7 +645,8 @@ string_list validate_manifest(const manifest& value) {
                 + component_value.id
             );
         }
-        if (!component_ids.insert(component_value.id).second) {
+        if (!component_ids.insert(component_value.id).second
+            && !component_value.ownership) {
             errors.push_back("duplicate component id: " + component_value.id);
         }
         if (trim_copy(component_value.description).empty()) {
@@ -767,6 +661,52 @@ string_list validate_manifest(const manifest& value) {
             );
         }
         validate_external_project(component_value, &errors);
+        if (component_value.ownership) {
+            const auto& owned = *component_value.ownership;
+            if (component_value.artifacts.size() != 1)
+                errors.push_back(
+                    "an authored owner must contain exactly one artifact"
+                );
+            std::set<std::string> scopes;
+            for (const auto& scope : owned.scopes) {
+                if (!safe_owned_path(scope, true))
+                    errors.push_back(
+                        "artifact.owns must contain safe project-relative "
+                        "scopes: "
+                        + scope
+                    );
+                if (!scopes.insert(scope).second)
+                    errors.push_back("duplicate ownership scope: " + scope);
+            }
+            if (!owned.entry.empty() && !safe_owned_path(owned.entry))
+                errors.push_back(
+                    "artifact.entry must be a safe root-relative file: "
+                    + owned.entry
+                );
+            if (!owned.entry.empty()) {
+                const auto ext = fs::path(owned.entry).extension().string();
+                if (ext != ".cpp" && ext != ".cc" && ext != ".cxx")
+                    errors.push_back(
+                        "artifact.entry must name a C++ source file: "
+                        + owned.entry
+                    );
+            }
+            if (!component_value.artifacts.empty()) {
+                const auto& item = component_value.artifacts.front();
+                const bool runnable
+                    = item.kind == "exe" || item.kind == "qt_app";
+                if (runnable && owned.entry.empty())
+                    errors.push_back(
+                        "runnable artifact requires an explicit entry: "
+                        + component_value.id + ":" + item.id
+                    );
+                if (!runnable && !owned.entry.empty())
+                    errors.push_back(
+                        "library artifact must not declare an entry: "
+                        + component_value.id + ":" + item.id
+                    );
+            }
+        }
 
         std::vector<std::string> seen_modules;
         for (const std::string& module_path : component_value.modules) {
@@ -810,7 +750,8 @@ string_list validate_manifest(const manifest& value) {
             }
             const std::string ref
                 = component_value.id + ":" + artifact_value.id;
-            artifacts.emplace(ref, &artifact_value);
+            if (!artifacts.emplace(ref, &artifact_value).second)
+                errors.push_back("duplicate artifact identity: " + ref);
             const std::string target
                 = component_value.id + "__" + artifact_value.id;
             if (const auto [existing, inserted]
@@ -872,6 +813,34 @@ string_list validate_manifest(const manifest& value) {
         }
     }
 
+    std::vector<std::pair<fs::path, std::string>> ownership_claims;
+    std::set<std::pair<std::string, std::string>> reported_overlaps;
+    for (const auto& owner : value.components) {
+        if (!owner.ownership || owner.artifacts.size() != 1)
+            continue;
+        const auto identity
+            = format_artifact_ref({ owner.id, owner.artifacts.front().id });
+        auto claims = ownership_candidates(owner);
+        if (!owner.ownership->entry.empty())
+            claims.push_back((fs::path(owner.root) / owner.ownership->entry)
+                                 .lexically_normal());
+        for (const auto& claim : claims) {
+            for (const auto& [prior, other] : ownership_claims) {
+                if (identity != other
+                    && (contains_owned_path(prior, claim)
+                        || contains_owned_path(claim, prior))) {
+                    if (reported_overlaps.insert({ other, identity }).second)
+                        errors.push_back(
+                            "overlapping artifact ownership: " + other + " and "
+                            + identity + " claim " + claim.generic_string()
+                        );
+                    break;
+                }
+            }
+            ownership_claims.push_back({ claim, identity });
+        }
+    }
+
     // The developer surface creates test executables from declared test
     // support. Reserve their target and filenames even before test files are
     // discovered.
@@ -880,7 +849,8 @@ string_list validate_manifest(const manifest& value) {
         if (!target.has_value()) {
             continue;
         }
-        const std::string ref = "generated tests for " + owner.id;
+        const std::string ref = "generated tests for " + owner.id
+            + (owner.ownership ? ":" + owner.artifacts.front().id : "");
         if (const auto [existing, inserted]
             = target_owners.emplace(*target, ref);
             !inserted) {
@@ -987,9 +957,7 @@ string_list validate_manifest(const manifest& value) {
     const std::optional<artifact_ref> facade_ref
         = parse_artifact_ref(value.facade_entry_artifact);
     if (!facade_ref.has_value()) {
-        errors.push_back(
-            "manifest.facade.entry_artifact must be in component:artifact form"
-        );
+        errors.push_back("manifest.facade must be in component:artifact form");
         return errors;
     }
 
@@ -1005,21 +973,196 @@ string_list validate_manifest(const manifest& value) {
             found_facade = true;
             if (!is_facade_entry_kind(artifact_value.kind)) {
                 errors.push_back(
-                    "manifest.facade.entry_artifact must reference a "
+                    "manifest.facade must reference a "
                     "facade-eligible artifact: "
                     + value.facade_entry_artifact
                 );
+            }
+            if (artifact_value.kind == "exe" || artifact_value.kind == "qt_app") {
+                for (const std::string name : { "mvp", "mvp.exe" }) {
+                    const auto owner = output_owners.find(name);
+                    if (owner != output_owners.end()
+                        && owner->second != value.facade_entry_artifact) {
+                        errors.push_back(
+                            "visitor facade output collision: " + owner->second
+                            + " produces " + name + "; reserved for "
+                            + value.facade_entry_artifact
+                        );
+                    }
+                }
             }
             break;
         }
     }
     if (!found_facade) {
         errors.push_back(
-            "manifest.facade.entry_artifact does not resolve: "
-            + value.facade_entry_artifact
+            "manifest.facade does not resolve: " + value.facade_entry_artifact
         );
     }
 
+    return errors;
+}
+
+string_list
+discover_owned_files(manifest* value, const fs::path& project_root) {
+    string_list errors = validate_manifest(*value);
+    if (!errors.empty())
+        return errors;
+    const fs::path base = project_root.empty() ? fs::path(".") : project_root;
+    std::vector<std::pair<fs::path, std::string>> physical_scopes;
+    std::set<std::pair<std::string, std::string>> overlaps;
+    for (const auto& owner : value->components) {
+        if (!owner.ownership)
+            continue;
+        const auto identity
+            = format_artifact_ref({ owner.id, owner.artifacts.front().id });
+        auto candidates = ownership_candidates(owner);
+        if (!owner.ownership->entry.empty())
+            candidates.push_back((fs::path(owner.root) / owner.ownership->entry)
+                                     .lexically_normal());
+        auto path_errors = validate_project_paths(base, candidates);
+        errors.insert(errors.end(), path_errors.begin(), path_errors.end());
+        if (!path_errors.empty())
+            continue;
+        for (const auto& candidate : candidates) {
+            std::error_code error;
+            const auto resolved = fs::weakly_canonical(base / candidate, error);
+            if (error) {
+                errors.push_back(
+                    "unable to resolve ownership scope: " + candidate.string()
+                    + ": " + error.message()
+                );
+                continue;
+            }
+            for (const auto& [prior, other] : physical_scopes) {
+                if (identity != other
+                    && (contains_owned_path(prior, resolved)
+                        || contains_owned_path(resolved, prior))
+                    && overlaps.insert({ other, identity }).second)
+                    errors.push_back(
+                        "overlapping artifact ownership through filesystem "
+                        "paths: "
+                        + other + " and " + identity + " claim "
+                        + candidate.generic_string()
+                    );
+            }
+            physical_scopes.push_back({ resolved, identity });
+        }
+    }
+    if (!errors.empty())
+        return errors;
+    std::map<fs::path, std::string> owners;
+    for (component& owner : value->components) {
+        if (!owner.ownership)
+            continue;
+        auto& owned = *owner.ownership;
+        owned.headers.clear();
+        owned.sources.clear();
+        owned.tests.clear();
+        owned.benchmarks.clear();
+        const std::string identity
+            = format_artifact_ref({ owner.id, owner.artifacts.front().id });
+        std::set<fs::path> files;
+        auto accept = [&](const fs::path& path) {
+            auto path_errors = validate_project_paths(base, { path });
+            errors.insert(errors.end(), path_errors.begin(), path_errors.end());
+            if (!path_errors.empty()
+                || !files.insert(path.lexically_normal()).second)
+                return;
+            const std::string extension = path.extension().string();
+            const bool header = extension == ".hpp" || extension == ".h"
+                || extension == ".hh" || extension == ".hxx"
+                || extension == ".tpp";
+            const bool source = extension == ".cpp" || extension == ".cc"
+                || extension == ".cxx";
+            if (!header && !source)
+                return;
+            std::error_code error;
+            const fs::path physical = fs::weakly_canonical(base / path, error);
+            if (error) {
+                errors.push_back(
+                    "unable to resolve owned file: " + path.string() + ": "
+                    + error.message()
+                );
+                return;
+            }
+            const auto [prior, inserted] = owners.emplace(physical, identity);
+            if (!inserted && prior->second != identity) {
+                errors.push_back(
+                    "overlapping artifact ownership: " + prior->second + " and "
+                    + identity + " own " + path.string()
+                );
+                return;
+            }
+            const fs::path relative
+                = path.lexically_relative(fs::path(owner.root));
+            if (header)
+                owned.headers.push_back(path.lexically_normal());
+            else if (
+                *relative.begin() == "tests"
+                && relative != fs::path(owned.entry)
+            )
+                owned.tests.push_back(path.lexically_normal());
+            else if (
+                *relative.begin() == "benchmarks"
+                && relative != fs::path(owned.entry)
+            )
+                owned.benchmarks.push_back(path.lexically_normal());
+            else
+                owned.sources.push_back(path.lexically_normal());
+        };
+        std::set<fs::path> visited;
+        auto inspect = [&](const fs::path& candidate) {
+            auto path_errors = validate_project_paths(base, { candidate });
+            errors.insert(errors.end(), path_errors.begin(), path_errors.end());
+            if (!path_errors.empty())
+                return;
+            std::error_code error;
+            if (!fs::exists(base / candidate, error) && !error)
+                return;
+            if (!error && fs::is_regular_file(base / candidate, error)) {
+                accept(candidate);
+                return;
+            }
+            fs::recursive_directory_iterator iterator;
+            if (!error)
+                iterator = fs::recursive_directory_iterator(
+                    base / candidate,
+                    fs::directory_options::follow_directory_symlink, error
+                );
+            const fs::recursive_directory_iterator end;
+            while (!error && iterator != end) {
+                const fs::path path = iterator->path().lexically_relative(base);
+                auto entry_errors = validate_project_paths(base, { path });
+                errors.insert(
+                    errors.end(), entry_errors.begin(), entry_errors.end()
+                );
+                if (!entry_errors.empty())
+                    iterator.disable_recursion_pending();
+                else if (iterator->is_directory(error) && !error) {
+                    const fs::path canonical
+                        = fs::canonical(iterator->path(), error);
+                    if (!error && !visited.insert(canonical).second)
+                        iterator.disable_recursion_pending();
+                } else if (!error && iterator->is_regular_file(error))
+                    accept(path);
+                if (!error)
+                    iterator.increment(error);
+            }
+            if (error)
+                errors.push_back(
+                    "unable to inspect ownership scope " + candidate.string()
+                    + ": " + error.message()
+                );
+        };
+        for (const auto& candidate : ownership_candidates(owner))
+            inspect(candidate);
+        if (!owned.entry.empty())
+            accept((fs::path(owner.root) / owned.entry).lexically_normal());
+        for (auto* paths : { &owned.headers, &owned.sources, &owned.tests,
+                             &owned.benchmarks })
+            std::sort(paths->begin(), paths->end());
+    }
     return errors;
 }
 
@@ -1027,77 +1170,138 @@ json to_json(const manifest& value) {
     json root = json::object();
     root["id"] = value.id;
     root["description"] = value.description;
-    if (!value.version.empty()) {
+    if (!value.version.empty())
         root["version"] = value.version;
-    }
-    root["cpp_standard"] = value.cpp_standard;
-    if (!value.android_application_id.empty()) {
-        root["android_application_id"] = value.android_application_id;
-    }
-    if (!value.android_package_source_dir.empty()) {
-        root["android_package_source_dir"] = value.android_package_source_dir;
-    }
-    if (value.install_assets) {
-        root["install_assets"] = true;
-    }
-
-    json facade = json::object();
-    facade["entry_artifact"] = value.facade_entry_artifact;
-    root["facade"] = facade;
-    if (!value.install_artifacts.empty()) {
+    if (value.cpp_standard != 20)
+        root["cpp_standard"] = value.cpp_standard;
+    root["facade"] = value.facade_entry_artifact;
+    if (!value.install_artifacts.empty())
         root["install_artifacts"] = value.install_artifacts;
-    }
-
-    json components_json = json::array();
-    for (const component& component_value : value.components) {
-        json component_json = json::object();
-        component_json["id"] = component_value.id;
-        component_json["description"] = component_value.description;
-        component_json["root"] = component_value.root;
-        if (!component_value.stack.empty()) {
-            component_json["stack"] = component_value.stack;
-        }
-        component_json["modules"] = modules_to_json(component_value.modules);
-
-        if (!component_value.file_units.empty()) {
-            json file_units_json = json::array();
-            for (const file_unit& file_unit_value :
-                 component_value.file_units) {
-                json file_unit_json = json::object();
-                file_unit_json["id"] = file_unit_value.id;
-                file_unit_json["kind"] = file_unit_value.kind;
-                file_units_json.push_back(file_unit_json);
+    if (!value.android_application_id.empty())
+        root["android_application_id"] = value.android_application_id;
+    if (!value.android_package_source_dir.empty())
+        root["android_package_source_dir"] = value.android_package_source_dir;
+    if (value.install_assets)
+        root["install_assets"] = true;
+    root["artifacts"] = json::array();
+    for (const component& owner : value.components) {
+        const bool has_library = std::any_of(
+            owner.artifacts.begin(), owner.artifacts.end(),
+            [](const artifact& item) {
+                return item.kind == "static_lib" || item.kind == "shared_lib"
+                    || item.kind == "interface_lib";
             }
-            component_json["file_units"] = file_units_json;
-        }
-
-        json artifacts_json = json::array();
-        for (const artifact& artifact_value : component_value.artifacts) {
-            json artifact_json = json::object();
-            artifact_json["id"] = artifact_value.id;
-            artifact_json["kind"] = artifact_value.kind;
-            if (!artifact_value.name.empty()) {
-                artifact_json["name"] = artifact_value.name;
+        );
+        for (std::size_t index = 0; index < owner.artifacts.size(); ++index) {
+            const auto& item = owner.artifacts[index];
+            const bool runnable = item.kind == "exe" || item.kind == "qt_app";
+            json authored = json::object();
+            authored["id"] = format_artifact_ref({ owner.id, item.id });
+            authored["kind"] = item.kind;
+            if (!item.name.empty())
+                authored["name"] = item.name;
+            if (owner.description != value.description)
+                authored["description"] = owner.description;
+            if (owner.root != ".")
+                authored["root"] = owner.root;
+            string_list scopes;
+            std::string entry;
+            if (owner.ownership) {
+                scopes = owner.ownership->scopes;
+                entry = owner.ownership->entry;
+            } else {
+                // Project internal IR (fixtures and scaffolding) into the one
+                // authored model. This is not an obsolete-schema parser.
+                if (!runnable || !has_library)
+                    scopes = owner.modules;
+                for (const auto& unit : owner.file_units) {
+                    const auto leaf = fs::path(unit.id).filename().string();
+                    const bool runtime = unit.kind == "source_only"
+                        && (leaf == "main" || leaf.ends_with("_main"));
+                    if (runtime && runnable) {
+                        entry
+                            = (fs::path(
+                                   unit.id.starts_with("src/")
+                                           || unit.id.starts_with("tests/")
+                                           || unit.id.starts_with("benchmarks/")
+                                       ? ""
+                                       : "src"
+                               )
+                               / (unit.id + ".cpp"))
+                                  .generic_string();
+                        continue;
+                    }
+                    if (runtime || (runnable && has_library))
+                        continue;
+                    const bool qualified = unit.id.starts_with("include/")
+                        || unit.id.starts_with("src/")
+                        || unit.id.starts_with("tests/")
+                        || unit.id.starts_with("benchmarks/");
+                    if (unit.kind == "source_only")
+                        scopes.push_back((fs::path(qualified ? "" : "src")
+                                          / (unit.id + ".cpp"))
+                                             .generic_string());
+                    else if (unit.kind == "source_pair_h") {
+                        scopes.push_back((fs::path(qualified ? "" : "include")
+                                          / (unit.id + ".h"))
+                                             .generic_string());
+                        scopes.push_back((fs::path(qualified ? "" : "src")
+                                          / (unit.id + ".cpp"))
+                                             .generic_string());
+                    } else
+                        scopes.push_back(
+                            (fs::path(qualified ? "" : "include")
+                             / (unit.id
+                                + (unit.kind == "header_only_h" ? ".h"
+                                       : unit.kind == "header_template_impl"
+                                       ? ""
+                                       : ".hpp")))
+                                .generic_string()
+                        );
+                }
+                if (runnable && entry.empty()) {
+                    std::vector<std::string> candidates;
+                    for (const auto& unit : owner.file_units)
+                        if (unit.kind == "source_only") {
+                            candidates.push_back(
+                                (fs::path(
+                                     unit.id.starts_with("src/")
+                                             || unit.id.starts_with("tests/")
+                                             || unit.id.starts_with(
+                                                 "benchmarks/"
+                                             )
+                                         ? ""
+                                         : "src"
+                                 )
+                                 / (unit.id + ".cpp"))
+                                    .generic_string()
+                            );
+                        }
+                    if (candidates.size() == 1)
+                        entry = candidates.front();
+                    else if (candidates.empty() && owner.modules.size() == 1)
+                        entry = "src/" + owner.modules.front() + ".cpp";
+                }
+                if (index == 0 && !owner.tests.empty()
+                    && !component_is_test_only(owner))
+                    scopes.push_back("tests");
+                if (index == 0 && !owner.benchmarks.empty()
+                    && !component_is_benchmark_only(owner))
+                    scopes.push_back("benchmarks");
             }
-            if (!artifact_value.link.empty()) {
-                artifact_json["link"] = artifact_value.link;
-            }
-            artifacts_json.push_back(artifact_json);
+            authored["owns"] = scopes;
+            if (!entry.empty())
+                authored["entry"] = entry;
+            if (!item.link.empty())
+                authored["dependencies"] = item.link;
+            if (!owner.stack.empty())
+                authored["packages"] = owner.stack;
+            if ((owner.ownership || index == 0) && !owner.tests.empty())
+                authored["tests"] = owner.tests;
+            if ((owner.ownership || index == 0) && !owner.benchmarks.empty())
+                authored["benchmarks"] = owner.benchmarks;
+            root["artifacts"].push_back(std::move(authored));
         }
-        component_json["artifacts"] = artifacts_json;
-
-        if (!component_value.tests.empty()) {
-            component_json["tests"] = component_value.tests;
-        }
-        if (!component_value.benchmarks.empty()) {
-            component_json["benchmarks"] = component_value.benchmarks;
-        }
-
-        components_json.push_back(component_json);
-    }
-    root["components"] = components_json;
-    if (!value.relations.empty()) {
-        root["relations"] = value.relations;
     }
     return root;
 }

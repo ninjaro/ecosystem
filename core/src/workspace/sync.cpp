@@ -966,7 +966,8 @@ namespace sync_support {
         const std::string& runtime_definition_block,
         const std::vector<std::string>& runtime_dependency_targets,
         const bool stage_assets, const bool gtest_enabled,
-        const std::string& component_id
+        const std::string& component_id,
+        const std::optional<std::string>& owned_inputs = std::nullopt
     ) {
         std::vector<std::string> indented_include_dirs;
         for (const std::string& include_dir_expression :
@@ -999,7 +1000,12 @@ namespace sync_support {
             {
                 { "gtest_guard_open", gtest_guard_open },
                 { "test_var", test_var },
-                { "tests_glob", tests_glob },
+                { "test_source_block",
+                  owned_inputs
+                      ? "set(" + test_var + "\n" + *owned_inputs + "    )"
+                      : "file(GLOB_RECURSE " + test_var
+                          + " CONFIGURE_DEPENDS\n            " + tests_glob
+                          + "\n    )" },
                 { "test_target", test_target },
                 { "headers_var", headers_var },
                 { "sources_var", sources_var },
@@ -1012,6 +1018,8 @@ namespace sync_support {
                 { "runtime_dependencies_block", runtime_dependencies_block },
                 { "stage_assets_block", stage_assets_block },
                 { "component_id", component_id },
+                { "test_name",
+                  owned_inputs ? test_target : component_id + "_tests" },
                 { "gtest_guard_close", gtest_guard_close },
             }
         );
@@ -1111,7 +1119,7 @@ namespace sync_support {
         artifacts->push_back(ref);
 
         const component* component_value
-            = find_component(value, ref.component_id);
+            = find_component(value, format_artifact_ref(ref));
         if (component_value == nullptr) {
             return;
         }
@@ -1121,7 +1129,8 @@ namespace sync_support {
             return;
         }
 
-        if (artifact_is_runnable(*artifact_value)) {
+        if (!component_value->ownership
+            && artifact_is_runnable(*artifact_value)) {
             const std::optional<artifact_ref> library_ref
                 = first_library_artifact_ref(*component_value);
             if (library_ref.has_value()
@@ -1281,9 +1290,15 @@ namespace sync_support {
             = to_upper_identifier(external_repository_id(external.repository));
         const std::string local_source_variable
             = variable_prefix + "_SOURCE_DIR";
-        const std::string internal_prefix
-            = "_" + project_id + "_" + component_value.id;
-        const std::string external_target = component_value.id + "__external";
+        const std::string owner_key = component_value.ownership
+            ? cmake_target_name({ component_value.id, artifacts.front()->id })
+            : component_value.id;
+        const std::string internal_prefix = "_" + project_id + "_" + owner_key;
+        // A private target prefix outside the authored identifier alphabet also
+        // prevents an artifact named external from aliasing its provider step.
+        const std::string external_target = component_value.ownership
+            ? "manifesto-external-" + owner_key
+            : component_value.id + "__external";
 
         std::ostringstream build_targets;
         std::ostringstream byproducts;
@@ -1332,6 +1347,61 @@ namespace sync_support {
         );
     }
 
+    std::set<std::string>
+    exported_library_keys(const manifest& value, string_list* warnings) {
+        std::set<std::string> keys;
+        auto roots = value.install_artifacts;
+        roots.push_back(value.facade_entry_artifact);
+        std::vector<artifact_ref> refs;
+        for (const auto& root : roots) {
+            const auto ref = parse_artifact_ref(root);
+            const auto resolved = resolve_artifact(value, ref);
+            if (!resolved || !is_library_kind(resolved->artifact_value->kind)
+                || external_project_for(*resolved->component_value))
+                continue;
+            std::set<std::string> closure;
+            refs.clear();
+            collect_surface_artifacts(value, *ref, &refs, &closure);
+            const bool external = std::any_of(
+                refs.begin(), refs.end(), [&](const auto& dependency) {
+                    const auto item = resolve_artifact(value, dependency);
+                    return item
+                        && external_project_for(*item->component_value)
+                               .has_value();
+                }
+            );
+            if (external) {
+                warnings->push_back(
+                    "Skipping CMake package export for " + root
+                    + ": external_project dependencies require provider "
+                      "install metadata"
+                );
+                continue;
+            }
+            keys.insert(closure.begin(), closure.end());
+        }
+        return keys;
+    }
+
+    manifest package_manifest(
+        const manifest& value, const std::set<std::string>& keys, bool installed
+    ) {
+        auto result = value;
+        result.components.clear();
+        for (const auto* owner : selected_components(value, keys)) {
+            if (installed && external_project_for(*owner))
+                throw template_render_error(
+                    "installed library exports with external_project "
+                    "dependencies require provider install metadata: "
+                    + owner->id
+                );
+            result.components.push_back(*owner);
+            // Preserve every requirement used by component_link_targets,
+            // including support targets contributed by tests/benchmarks.
+        }
+        return result;
+    }
+
     std::string generate_surface_cmakelists(
         const manifest& value, const fs::path& project_root,
         const bool developer_surface
@@ -1346,14 +1416,15 @@ namespace sync_support {
             : tracked_facade_artifact_keys(value);
         const std::vector<const component*> components
             = selected_components(value, selected_artifact_keys);
-        const std::optional<artifact_ref> dependency_scope = developer_surface
-            ? std::nullopt
-            : parse_artifact_ref(value.facade_entry_artifact);
-        const dependency_summary dependencies
-            = summarize_dependencies(value, dependency_scope);
+        string_list export_warnings;
+        const auto export_keys = exported_library_keys(value, &export_warnings);
+        const dependency_summary dependencies = summarize_dependencies(
+            package_manifest(value, selected_artifact_keys, false), std::nullopt
+        );
 
         package_surface_options package_options;
         package_options.support_targets = true;
+        package_options.imported_support_targets = !export_keys.empty();
         package_options.qt_automation = true;
         package_options.enable_testing
             = developer_surface && has_tests_enabled(value);
@@ -1424,12 +1495,30 @@ namespace sync_support {
             }
         );
 
+        if (value.id == "manifesto") {
+            const auto runtime_ref
+                = parse_artifact_ref(value.facade_entry_artifact);
+            if (!runtime_ref)
+                throw template_render_error(
+                    "tooling runtime needs a valid facade identity"
+                );
+            stream << render_required_sync_template(
+                "cmake/manifesto_runtime.tpl",
+                { { "source_root_expression", source_root_expression },
+                  { "runtime_target", cmake_target_name(*runtime_ref) } }
+            ) << "\n";
+        }
+
         for (const component* component_value : components) {
             if (external_project_for(*component_value).has_value()) {
                 continue;
             }
-            const std::string prefix
-                = to_upper_identifier(value.id + "_" + component_value->id);
+            const std::string prefix = to_upper_identifier(
+                value.id + "_" + component_value->id
+                + (component_value->ownership
+                       ? "_" + component_value->artifacts.front().id
+                       : "")
+            );
             append_paths(
                 stream, prefix + "_HEADERS",
                 component_public_headers(project_root, *component_value),
@@ -1496,8 +1585,12 @@ namespace sync_support {
                 }
             }
 
-            const std::string prefix
-                = to_upper_identifier(value.id + "_" + component_value->id);
+            const std::string prefix = to_upper_identifier(
+                value.id + "_" + component_value->id
+                + (component_value->ownership
+                       ? "_" + component_value->artifacts.front().id
+                       : "")
+            );
             const std::vector<fs::path> include_dirs
                 = component_include_dirs(project_root, *component_value);
             const std::optional<artifact_ref> library_ref
@@ -1558,10 +1651,25 @@ namespace sync_support {
 
                 std::vector<std::string> include_dir_lines;
                 for (const fs::path& include_dir : include_dirs) {
-                    include_dir_lines.push_back(source_path_expression(
+                    const auto path = source_path_expression(
                         source_root_expression, project_root, include_dir
-                    ));
+                    );
+                    include_dir_lines.push_back(
+                        export_keys.contains(format_artifact_ref(ref))
+                            ? "\"$<BUILD_INTERFACE:" + path + ">\""
+                            : path
+                    );
                 }
+                if (export_keys.contains(format_artifact_ref(ref)))
+                    include_dir_lines.push_back(
+                        "\"$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>\""
+                    );
+                stream << render_required_sync_template(
+                    "cmake/artifact/compile_features.tpl",
+                    { { "target_name", target_name },
+                      { "visibility", link_scope },
+                      { "cpp_standard", std::to_string(value.cpp_standard) } }
+                ) << "\n";
                 stream << render_include_dirs_block(
                     target_name,
                     artifact_value->kind == "interface_lib" ? "INTERFACE"
@@ -1641,8 +1749,9 @@ namespace sync_support {
                 if (developer_surface
                     && component_is_test_only(*component_value)
                     && is_runnable_kind(artifact_value->kind)) {
-                    const std::string test_name
-                        = component_value->id + "_" + artifact_value->id;
+                    const std::string test_name = component_value->ownership
+                        ? target_name
+                        : component_value->id + "_" + artifact_value->id;
                     stream << render_add_test_line(
                         test_name, target_name, indent
                     ) << "\n";
@@ -1686,7 +1795,7 @@ namespace sync_support {
         const std::optional<artifact_ref> install_entry_ref
             = parse_artifact_ref(value.facade_entry_artifact);
         const component* install_entry_component = install_entry_ref.has_value()
-            ? find_component(value, install_entry_ref->component_id)
+            ? find_component(value, format_artifact_ref(*install_entry_ref))
             : nullptr;
         const artifact* install_entry_artifact
             = install_entry_component == nullptr
@@ -1697,6 +1806,13 @@ namespace sync_support {
               );
         const bool library_first_install_surface
             = install_surface_is_library_first(install_entry_artifact);
+        if (install_entry_ref && install_entry_artifact) {
+            stream << render_required_sync_template(
+                "cmake/visitor_facade.tpl",
+                { { "target_name", cmake_target_name(*install_entry_ref) },
+                  { "project_id", value.id } }
+            ) << "\n";
+        }
         std::set<std::string> installed_header_components;
         for (const component* component_value :
              selected_components(value, install_artifact_keys)) {
@@ -1719,21 +1835,37 @@ namespace sync_support {
                            value.install_artifacts.end(),
                            format_artifact_ref(ref)
                        ) != value.install_artifacts.end();
-                if (artifact_installs_target_file(
+                const bool exported
+                    = export_keys.contains(format_artifact_ref(ref));
+                if (exported) {
+                    stream << render_required_sync_template(
+                        "cmake/install_export_target.tpl",
+                        { { "target_name", cmake_target_name(ref) },
+                          { "project_id", value.id } }
+                    ) << "\n";
+                } else if (
+                    artifact_installs_target_file(
                         *artifact_value, is_entry_artifact,
                         library_first_install_surface
-                    )) {
+                    )
+                ) {
                     stream << render_install_target_block(
                         cmake_target_name(ref)
                     ) << "\n";
                 }
-                if (!artifact_installs_public_headers(
+                if (!exported
+                    && !artifact_installs_public_headers(
                         *artifact_value, is_entry_artifact,
                         library_first_install_surface
                     )) {
                     continue;
                 }
-                if (!installed_header_components.insert(component_value->id)
+                if (!installed_header_components
+                         .insert(
+                             component_value->ownership
+                                 ? format_artifact_ref(ref)
+                                 : component_value->id
+                         )
                          .second) {
                     continue;
                 }
@@ -1744,12 +1876,68 @@ namespace sync_support {
                 const fs::path include_dir
                     = component_root_path(project_root, *component_value)
                     / "include";
+                if (component_value->ownership) {
+                    for (const auto& header : component_public_headers(
+                             project_root, *component_value
+                         )) {
+                        const auto relative
+                            = header.lexically_relative(include_dir);
+                        if (relative.empty() || *relative.begin() == "..")
+                            continue;
+                        stream << render_required_sync_template(
+                            "cmake/artifact/install_header.tpl",
+                            { { "header",
+                                source_path_expression(
+                                    source_root_expression, project_root, header
+                                ) },
+                              { "destination",
+                                (fs::path("${CMAKE_INSTALL_INCLUDEDIR}")
+                                 / relative.parent_path())
+                                    .generic_string() } }
+                        ) << "\n";
+                    }
+                    continue;
+                }
                 stream << render_install_include_directory_block(
                     source_path_expression(
                         source_root_expression, project_root, include_dir
                     )
                 ) << "\n";
             }
+        }
+
+        for (const auto& warning : export_warnings)
+            stream << "message(WARNING \"" << warning << "\")\n";
+        if (!export_keys.empty()) {
+            package_surface_options installed_options;
+            installed_options.support_targets = true;
+            installed_options.imported_support_targets = true;
+            auto installed_packages = render_package_surface(
+                summarize_dependencies(
+                    package_manifest(value, export_keys, true), std::nullopt
+                ),
+                installed_options
+            );
+            // Restore the consumer's profile variable after finding the
+            // provider's dependencies.
+            installed_packages = "set(_" + value.id
+                + "_saved_kde \"${ECOSYSTEM_PROFILE_KDE}\")\n"
+                  "set(ECOSYSTEM_PROFILE_KDE \"@ECOSYSTEM_PROFILE_KDE@\")\n"
+                + installed_packages + "set(ECOSYSTEM_PROFILE_KDE \"${_"
+                + value.id
+                + "_saved_kde}\")\n"
+                  "unset(_"
+                + value.id + "_saved_kde)\n";
+            stream << render_required_sync_template(
+                "cmake/install_export_package.tpl",
+                { { "project_id", value.id },
+                  { "first_target",
+                    value.id + "::"
+                        + cmake_target_name(
+                            *parse_artifact_ref(*export_keys.begin())
+                        ) },
+                  { "package_surface", installed_packages } }
+            ) << "\n";
         }
 
         if (developer_surface) {
@@ -1760,8 +1948,12 @@ namespace sync_support {
                     continue;
                 }
 
-                const std::string prefix
-                    = to_upper_identifier(value.id + "_" + component_value->id);
+                const std::string prefix = to_upper_identifier(
+                    value.id + "_" + component_value->id
+                    + (component_value->ownership
+                           ? "_" + component_value->artifacts.front().id
+                           : "")
+                );
                 const std::string test_var = prefix + "_TEST_SOURCES";
                 const std::vector<std::string> link_targets
                     = component_value->artifacts.empty()
@@ -1813,20 +2005,39 @@ namespace sync_support {
                     }
                 }
 
+                std::string test_inputs;
+                if (component_value->ownership) {
+                    for (const auto& path : component_test_sources(
+                             project_root, *component_value
+                         )) {
+                        test_inputs
+                            += "            "
+                            + source_path_expression(
+                                   source_root_expression, project_root, path
+                            )
+                            + "\n";
+                    }
+                }
                 stream << render_generated_tests_block(
                     test_var,
-                    source_path_expression(
-                        source_root_expression, project_root,
-                        component_root_path(project_root, *component_value)
-                            / "tests"
-                    ) + "/*.cpp",
+                    component_value->ownership
+                        ? ""
+                        : source_path_expression(
+                              source_root_expression, project_root,
+                              component_root_path(
+                                  project_root, *component_value
+                              ) / "tests"
+                          ) + "/*.cpp",
                     *test_target, "${" + prefix + "_HEADERS}",
                     "${" + prefix + "_SOURCES}", "${" + test_var + "}",
                     include_dir_expressions, link_targets,
                     source_root_expression, runtime_definition_block,
                     runtime_dependency_targets, has_assets_dir,
                     json_flag_enabled(component_value->tests, "gtest"),
-                    component_value->id
+                    component_value->id,
+                    component_value->ownership
+                        ? std::optional<std::string>(test_inputs)
+                        : std::nullopt
                 );
             }
         }

@@ -628,7 +628,7 @@ int run_actor_frontend(
         return exit_code(command_error::invalid_request);
     }
 
-    if (request->help) {
+    if (args.empty() || request->help) {
         out << actor_cli_support::actor_usage_text(frontend);
         return 0;
     }

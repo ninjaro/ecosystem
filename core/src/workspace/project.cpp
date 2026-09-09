@@ -61,6 +61,15 @@ namespace project_support {
         return resolved;
     }
 
+    std::vector<fs::path> owned_paths(
+        const fs::path& project_root, const std::vector<fs::path>& files
+    ) {
+        std::vector<fs::path> result;
+        for (const auto& path : files)
+            result.push_back((project_root / path).lexically_normal());
+        return result;
+    }
+
 std::string normalize_generic(const fs::path& path) {
     return path.lexically_normal().generic_string();
 }
@@ -227,11 +236,14 @@ void visit_artifact_closure(
         return;
     }
 
-    const component* component_value = find_component(value, ref.component_id);
+    const component* component_value
+        = find_component(value, format_artifact_ref(ref));
     if (component_value == nullptr) {
         return;
     }
-    if (seen_components->insert(component_value->id).second) {
+    if (seen_components
+            ->insert(component_value->ownership ? ref_key : component_value->id)
+            .second) {
         components->push_back(component_value);
     }
 
@@ -310,6 +322,37 @@ std::vector<cxx_analysis_source> component_analysis_sources(
 ) {
     std::vector<cxx_analysis_source> files;
     const fs::path root = component_root_path(project_root, component_value);
+    if (component_value.ownership) {
+        const auto& owned = *component_value.ownership;
+        for (const auto& source : owned.sources) {
+            const std::string category = component_is_test_only(component_value)
+                ? "tests"
+                : component_is_benchmark_only(component_value) ? "benchmarks"
+                : source
+                    == (fs::path(component_value.root) / owned.entry)
+                           .lexically_normal()
+                ? "runtime"
+                : "core";
+            if (analysis_category_enabled(
+                    category, include_tests, include_benchmarks
+                ))
+                append_unique_analysis_source(
+                    &files, project_root / source, component_value.id, category
+                );
+        }
+        if (include_tests)
+            for (const auto& source : owned.tests)
+                append_unique_analysis_source(
+                    &files, project_root / source, component_value.id, "tests"
+                );
+        if (include_benchmarks)
+            for (const auto& source : owned.benchmarks)
+                append_unique_analysis_source(
+                    &files, project_root / source, component_value.id,
+                    "benchmarks"
+                );
+        return files;
+    }
 
     for (const std::string& module_path : component_value.modules) {
         append_unique_analysis_source(
@@ -527,12 +570,19 @@ bool component_has_stack_key(const component& value, const std::string& key) {
 }
 
 const component* find_component(const manifest& value, const std::string& component_id) {
-    for (const component& component_value : value.components) {
-        if (component_value.id == component_id) {
-            return &component_value;
+    const auto ref = parse_artifact_ref(component_id);
+    const component* result = nullptr;
+    for (const component& item : value.components) {
+        if (ref && item.id == ref->component_id
+            && find_artifact(item, ref->artifact_id))
+            return &item;
+        if (!ref && item.id == component_id) {
+            if (result != nullptr)
+                return nullptr;
+            result = &item;
         }
     }
-    return nullptr;
+    return result;
 }
 
 const artifact* find_artifact(const component& value, const std::string& artifact_id) {
@@ -549,7 +599,8 @@ std::optional<resolved_artifact> resolve_artifact(
 ) {
     const artifact_ref resolved_ref
         = requested.has_value() ? *requested : *parse_artifact_ref(value.facade_entry_artifact);
-    const component* component_value = find_component(value, resolved_ref.component_id);
+    const component* component_value
+        = find_component(value, format_artifact_ref(resolved_ref));
     if (component_value == nullptr) {
         return std::nullopt;
     }
@@ -609,6 +660,10 @@ std::vector<fs::path> component_include_dirs(
 std::vector<fs::path> component_module_headers(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return owned_paths(project_root, value.ownership->headers);
+    }
+
     std::vector<fs::path> files;
     const fs::path root = component_root_path(project_root, value);
     for (const std::string& module_path : value.modules) {
@@ -620,6 +675,15 @@ std::vector<fs::path> component_module_headers(
 std::vector<fs::path> component_module_sources(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        auto result = owned_paths(project_root, value.ownership->sources);
+        const fs::path entry
+            = (project_root / value.root / value.ownership->entry)
+                  .lexically_normal();
+        std::erase(result, entry);
+        return result;
+    }
+
     std::vector<fs::path> files;
     const fs::path root = component_root_path(project_root, value);
     for (const std::string& module_path : value.modules) {
@@ -631,6 +695,13 @@ std::vector<fs::path> component_module_sources(
 std::vector<fs::path> component_source_only_files(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        if (value.ownership->entry.empty())
+            return {};
+        return { (project_root / value.root / value.ownership->entry)
+                     .lexically_normal() };
+    }
+
     return file_unit_paths(
         component_root_path(project_root, value),
         value,
@@ -642,6 +713,10 @@ std::vector<fs::path> component_source_only_files(
 std::vector<fs::path> component_runtime_only_files(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return component_source_only_files(project_root, value);
+    }
+
     std::vector<fs::path> files;
     const fs::path root = component_root_path(project_root, value);
     for (const file_unit& unit : value.file_units) {
@@ -655,6 +730,10 @@ std::vector<fs::path> component_runtime_only_files(
 std::vector<fs::path> component_non_runtime_source_only_files(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return {};
+    }
+
     std::vector<fs::path> files;
     const fs::path root = component_root_path(project_root, value);
     for (const file_unit& unit : value.file_units) {
@@ -668,6 +747,10 @@ std::vector<fs::path> component_non_runtime_source_only_files(
 std::vector<fs::path> component_header_only_files(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return {};
+    }
+
     return file_unit_paths(
         component_root_path(project_root, value),
         value,
@@ -679,6 +762,10 @@ std::vector<fs::path> component_header_only_files(
 std::vector<fs::path> component_c_header_only_files(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return {};
+    }
+
     return file_unit_paths(
         component_root_path(project_root, value),
         value,
@@ -690,6 +777,10 @@ std::vector<fs::path> component_c_header_only_files(
 std::vector<fs::path> component_template_impl_files(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return {};
+    }
+
     std::vector<fs::path> files;
     const fs::path root = component_root_path(project_root, value);
     for (const file_unit& unit : value.file_units) {
@@ -703,6 +794,10 @@ std::vector<fs::path> component_template_impl_files(
 std::vector<fs::path> component_c_header_pair_headers(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return {};
+    }
+
     return file_unit_paths(
         component_root_path(project_root, value),
         value,
@@ -714,6 +809,10 @@ std::vector<fs::path> component_c_header_pair_headers(
 std::vector<fs::path> component_c_header_pair_sources(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return {};
+    }
+
     return file_unit_paths(
         component_root_path(project_root, value),
         value,
@@ -725,20 +824,32 @@ std::vector<fs::path> component_c_header_pair_sources(
 std::vector<fs::path> component_test_sources(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return owned_paths(project_root, value.ownership->tests);
+    }
+
     return discover_sources(component_root_path(project_root, value) / "tests");
 }
 
 std::vector<fs::path> component_benchmark_sources(
     const fs::path& project_root, const component& value
 ) {
+    if (value.ownership) {
+        return owned_paths(project_root, value.ownership->benchmarks);
+    }
+
     return discover_sources(component_root_path(project_root, value) / "benchmarks");
 }
 
 bool component_is_test_only(const component& value) {
+    if (value.ownership)
+        return value.ownership->entry.starts_with("tests/");
     return !value.tests.empty() && value.modules.empty() && all_file_units_have_prefix(value, "tests/");
 }
 
 bool component_is_benchmark_only(const component& value) {
+    if (value.ownership)
+        return value.ownership->entry.starts_with("benchmarks/");
     return !value.benchmarks.empty() && value.modules.empty()
         && all_file_units_have_prefix(value, "benchmarks/");
 }
@@ -748,6 +859,9 @@ component_generated_test_target(const component& value) {
     if (value.tests.empty() || component_is_test_only(value)) {
         return std::nullopt;
     }
+    if (value.ownership && !value.artifacts.empty())
+        return cmake_target_name({ value.id, value.artifacts.front().id })
+            + "__tests";
     return cmake_target_name({ value.id, "tests" });
 }
 

@@ -14,15 +14,14 @@ namespace fs = std::filesystem;
 namespace ecosystem {
 namespace mutation_support {
 
-component *find_mutable_component(manifest *value,
-                                  const std::string &component_id) {
-  for (component &component_value : value->components) {
-    if (component_value.id == component_id) {
-      return &component_value;
+    component*
+    find_mutable_component(manifest* value, const std::string& component_id) {
+        const auto* selected = find_component(*value, component_id);
+        for (auto& item : value->components)
+            if (&item == selected)
+                return &item;
+        return nullptr;
     }
-  }
-  return nullptr;
-}
 
 std::string normalize_module_path(std::string value) {
   value = fs::path(std::move(value)).lexically_normal().generic_string();
@@ -144,6 +143,43 @@ struct scaffold_file {
   std::string contents;
 };
 
+bool preflight_scaffold(
+    const fs::path& project_root, const std::vector<scaffold_file>& files,
+    mutation_report* report
+) {
+    std::vector<fs::path> paths;
+    for (const auto& file : files)
+        paths.push_back(file.path.lexically_relative(project_root));
+    auto errors = validate_project_paths(project_root, paths);
+    report->errors.insert(report->errors.end(), errors.begin(), errors.end());
+    return errors.empty();
+}
+
+void extend_owned_scope(
+    component* owner, const fs::path& project_root,
+    const std::vector<scaffold_file>& files
+) {
+    if (!owner->ownership)
+        return;
+    for (const auto& file : files) {
+        const auto relative
+            = file.path
+                  .lexically_relative(component_root_path(project_root, *owner))
+                  .generic_string();
+        if (!contains_value(owner->ownership->scopes, relative))
+            owner->ownership->scopes.push_back(relative);
+    }
+}
+
+void refresh_owned_files(
+    manifest* value, const fs::path& root, mutation_report* report
+) {
+    if (!report->errors.empty())
+        return;
+    const auto errors = discover_owned_files(value, root);
+    report->errors.insert(report->errors.end(), errors.begin(), errors.end());
+}
+
 void write_scaffold_files(const std::vector<scaffold_file> &scaffold_files,
                           mutation_report *report) {
   for (const scaffold_file &file_value : scaffold_files) {
@@ -183,6 +219,8 @@ mutation_report scaffold_module_files(const fs::path &project_root,
   if (!report.errors.empty()) {
     return report;
   }
+  if (!preflight_scaffold(project_root, scaffold_files, &report))
+      return report;
   write_scaffold_files(scaffold_files, &report);
   return report;
 }
@@ -267,8 +305,11 @@ std::optional<std::string> file_unit_contents(const std::string &unit_id,
   const std::string extension = path.extension().generic_string();
   if (extension == ".hpp" || extension == ".h") {
     if (kind == "header_template_impl") {
-      return render_mutation_template("mutation/header_template_impl.hpp.tpl",
-                                      {{"unit_id", unit_id}}, errors);
+        return render_mutation_template(
+            "mutation/header_template_impl.hpp.tpl",
+            { { "unit_id", fs::path(unit_id).filename().generic_string() } },
+            errors
+        );
     }
     return render_mutation_template("mutation/header.hpp.tpl", {}, errors);
   }
@@ -285,10 +326,11 @@ std::optional<std::string> file_unit_contents(const std::string &unit_id,
 
 const artifact *resolve_artifact(const manifest &value,
                                  const artifact_ref &ref) {
-  const component *component_value = find_component(value, ref.component_id);
-  if (component_value == nullptr) {
-    return nullptr;
-  }
+    const component* component_value
+        = find_component(value, format_artifact_ref(ref));
+    if (component_value == nullptr) {
+        return nullptr;
+    }
   return find_artifact(*component_value, ref.artifact_id);
 }
 
@@ -387,8 +429,8 @@ facade_default_library_artifact_refs(const manifest &value) {
   }
 
   std::vector<artifact_ref> start_refs;
-  const component *facade_component =
-      find_component(value, facade_ref->component_id);
+  const component* facade_component
+      = find_component(value, format_artifact_ref(*facade_ref));
   const artifact *facade_artifact = resolve_artifact(value, *facade_ref);
   if (artifact_ref_is_library(value, *facade_ref)) {
     append_unique_artifact_ref(&start_refs, *facade_ref);
@@ -445,7 +487,8 @@ validate_artifact_links(const manifest &value,
     }
     seen_links.push_back(formatted_ref);
 
-    const component *component_value = find_component(value, ref.component_id);
+    const component* component_value
+        = find_component(value, format_artifact_ref(ref));
     if (component_value == nullptr) {
       errors.push_back("unknown linked component: " + ref.component_id);
       continue;
@@ -683,16 +726,35 @@ mutation_report add_component(const fs::path &project_root, manifest *value,
       },
   };
   component_value.file_units = template_value->file_units;
+  component_value.ownership.emplace();
+  if (is_library_artifact_kind(component_value.artifacts.front().kind)) {
+      component_value.ownership->scopes = { component_id };
+  } else {
+      component_value.ownership->entry
+          = template_value->scaffold_files.front()
+                .path
+                .lexically_relative(
+                    component_root_path(project_root, component_value)
+                )
+                .generic_string();
+  }
   manifest candidate = *value;
   candidate.components.push_back(component_value);
   report.errors = validate_manifest_paths(candidate, project_root);
+  if (report.errors.empty())
+      report.errors = discover_owned_files(&candidate, project_root);
   if (!report.errors.empty()) {
     return report;
   }
+  if (!preflight_scaffold(
+          project_root, template_value->scaffold_files, &report
+      ))
+      return report;
   value->components.push_back(component_value);
   report.changed_manifest = true;
   append_report(&report, scaffold_component_files(project_root, component_value,
                                                   *template_value));
+  refresh_owned_files(value, project_root, &report);
   return report;
 }
 
@@ -716,23 +778,29 @@ mutation_report add_module(const fs::path &project_root, manifest *value,
     return report;
   }
 
+  const std::vector<scaffold_file> scaffold_files
+      = prepare_module_scaffold_files(
+          project_root, *component_value, normalized_module_path, &report.errors
+      );
+  if (!report.errors.empty()
+      || !preflight_scaffold(project_root, scaffold_files, &report))
+      return report;
   manifest candidate = *value;
-  find_mutable_component(&candidate, component_id)
-      ->modules.push_back(normalized_module_path);
+  auto* candidate_owner = find_mutable_component(&candidate, component_id);
+  candidate_owner->modules.push_back(normalized_module_path);
+  if (candidate_owner->ownership)
+      candidate_owner->ownership->scopes.push_back(normalized_module_path);
   report.errors = validate_manifest_paths(candidate, project_root);
-  if (!report.errors.empty()) {
-    return report;
-  }
-
-  const std::vector<scaffold_file> scaffold_files =
-      prepare_module_scaffold_files(project_root, *component_value,
-                                    normalized_module_path, &report.errors);
-  if (!report.errors.empty()) {
-    return report;
-  }
+  if (report.errors.empty())
+      report.errors = discover_owned_files(&candidate, project_root);
+  if (!report.errors.empty())
+      return report;
+  if (component_value->ownership)
+      component_value->ownership->scopes.push_back(normalized_module_path);
   component_value->modules.push_back(normalized_module_path);
   report.changed_manifest = true;
   write_scaffold_files(scaffold_files, &report);
+  refresh_owned_files(value, project_root, &report);
   return report;
 }
 
@@ -751,10 +819,20 @@ mutation_report add_files(const fs::path &project_root, const manifest &value,
   }
 
   const std::string normalized_module_path = normalize_module_path(module_path);
-  if (!contains_value(component_value->modules, normalized_module_path)) {
-    report.errors.push_back("module is not declared in manifest: " +
-                            normalized_module_path);
-    return report;
+  bool declared
+      = contains_value(component_value->modules, normalized_module_path);
+  if (component_value->ownership)
+      for (const auto& scope : component_value->ownership->scopes) {
+          declared = declared || scope == "." || scope == normalized_module_path
+              || normalized_module_path.starts_with(scope + "/")
+              || scope == "include/" + normalized_module_path + ".hpp"
+              || scope == "src/" + normalized_module_path + ".cpp";
+      }
+  if (!declared) {
+      report.errors.push_back(
+          "module is not declared in manifest: " + normalized_module_path
+      );
+      return report;
   }
 
   append_report(&report, scaffold_module_files(project_root, *component_value,
@@ -789,14 +867,6 @@ mutation_report add_file_unit(const fs::path &project_root, manifest *value,
     }
   }
 
-  manifest candidate = *value;
-  find_mutable_component(&candidate, component_id)
-      ->file_units.push_back({ normalized_unit_id, kind });
-  report.errors = validate_manifest_paths(candidate, project_root);
-  if (!report.errors.empty()) {
-    return report;
-  }
-
   const fs::path component_root =
       component_root_path(project_root, *component_value);
   std::vector<scaffold_file> scaffold_files;
@@ -809,17 +879,30 @@ mutation_report add_file_unit(const fs::path &project_root, manifest *value,
     }
     scaffold_files.push_back(scaffold_file{path, *contents});
   }
+  if (!preflight_scaffold(project_root, scaffold_files, &report))
+      return report;
+  manifest candidate = *value;
+  auto* candidate_owner = find_mutable_component(&candidate, component_id);
+  candidate_owner->file_units.push_back({ normalized_unit_id, kind });
+  extend_owned_scope(candidate_owner, project_root, scaffold_files);
+  report.errors = validate_manifest_paths(candidate, project_root);
+  if (report.errors.empty())
+      report.errors = discover_owned_files(&candidate, project_root);
+  if (!report.errors.empty())
+      return report;
+  extend_owned_scope(component_value, project_root, scaffold_files);
   component_value->file_units.push_back(file_unit{normalized_unit_id, kind});
   report.changed_manifest = true;
   write_scaffold_files(scaffold_files, &report);
+  refresh_owned_files(value, project_root, &report);
   return report;
 }
 
 mutation_report set_facade_entry(manifest *value,
                                  const artifact_ref &entry_ref) {
   mutation_report report;
-  const component *component_value =
-      find_component(*value, entry_ref.component_id);
+  const component* component_value
+      = find_component(*value, format_artifact_ref(entry_ref));
   if (component_value == nullptr) {
     report.errors.push_back("unknown component in facade entry: " +
                             entry_ref.component_id);

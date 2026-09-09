@@ -93,10 +93,13 @@ namespace package_surface_render_support {
     }
 
     std::string render_add_interface_library(
-        const std::string& target_name, std::string* error_message
+        const std::string& target_name, bool imported,
+        std::string* error_message
     ) {
         return render_package_surface_template(
-            "cmake/package_surface/add_interface_library.tpl",
+            imported
+                ? "cmake/package_surface/add_imported_interface_library.tpl"
+                : "cmake/package_surface/add_interface_library.tpl",
             { { "target_name", target_name } }, error_message
         );
     }
@@ -200,10 +203,11 @@ namespace package_surface_render_support {
     }
 
     std::string render_static_support_target(
-        const package_surface_target_rule& target, std::string* error_message
+        const package_surface_target_rule& target, bool imported,
+        std::string* error_message
     ) {
         std::string rendered = render_add_interface_library(
-            std::string(target.name), error_message
+            std::string(target.name), imported, error_message
         );
         if (error_message != nullptr && !error_message->empty()) {
             return {};
@@ -314,8 +318,9 @@ namespace package_surface_render_support {
         if (rule.blank_line_before_target) {
             stream += "\n";
         }
-        stream
-            += render_static_support_target(rule.support_target, error_message);
+        stream += render_static_support_target(
+            rule.support_target, options.imported_support_targets, error_message
+        );
         return stream;
     }
 
@@ -376,7 +381,7 @@ namespace package_surface_render_support {
             && !rule.profile_rule.support_target_name.empty()) {
             stream += render_add_interface_library(
                 std::string(rule.profile_rule.support_target_name),
-                error_message
+                options.imported_support_targets, error_message
             );
             if (error_message != nullptr && !error_message->empty()) {
                 return {};

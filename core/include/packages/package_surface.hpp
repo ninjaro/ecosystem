@@ -8,6 +8,7 @@ namespace ecosystem {
 
 struct package_surface_options {
     bool support_targets = false;
+    bool imported_support_targets = false;
     bool qt_automation = false;
     bool enable_testing = false;
     bool emit_profile_option_lines = false;

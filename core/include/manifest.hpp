@@ -29,6 +29,16 @@ struct file_unit {
     std::string kind;
 };
 
+struct source_ownership {
+    string_list scopes;
+    std::string entry;
+    // Derived project-root-relative files, never serialized as authored state.
+    std::vector<std::filesystem::path> headers;
+    std::vector<std::filesystem::path> sources;
+    std::vector<std::filesystem::path> tests;
+    std::vector<std::filesystem::path> benchmarks;
+};
+
 struct component {
     std::string id;
     std::string description;
@@ -39,6 +49,7 @@ struct component {
     std::vector<std::string> modules;
     std::vector<artifact> artifacts;
     std::vector<file_unit> file_units;
+    std::optional<source_ownership> ownership;
 };
 
 struct manifest {
@@ -78,6 +89,9 @@ std::vector<std::filesystem::path> artifact_output_candidates(
 );
 
 string_list validate_manifest(const manifest& value);
+string_list discover_owned_files(
+    manifest* value, const std::filesystem::path& project_root
+);
 json to_json(const manifest& value);
 
 std::optional<artifact_ref> parse_artifact_ref(const std::string& value);

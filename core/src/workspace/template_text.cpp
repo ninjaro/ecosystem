@@ -2,12 +2,21 @@
 
 #include "workspace/tooling.hpp"
 
-#include <algorithm>
-
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <set>
 #include <string>
+#include <vector>
+
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -59,24 +68,58 @@ std::string unresolved_placeholder(const std::string &value) {
   return {};
 }
 
-fs::path source_root_from_this_file() {
-  fs::path current = fs::path(__FILE__).lexically_normal().parent_path();
-  while (!current.empty()) {
-    if (path_exists(current / "manifest.json")) {
-      return current;
+fs::path executable_path() {
+    std::error_code error;
+#if defined(__linux__)
+    return fs::read_symlink("/proc/self/exe", error);
+#elif defined(__APPLE__)
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> path(size);
+    if (_NSGetExecutablePath(path.data(), &size) == 0)
+        return fs::weakly_canonical(path.data(), error);
+#elif defined(_WIN32)
+    std::vector<wchar_t> path(32768);
+    const auto size = GetModuleFileNameW(
+        nullptr, path.data(), static_cast<DWORD>(path.size())
+    );
+    if (size > 0 && size < path.size())
+        return fs::weakly_canonical(std::wstring(path.data(), size), error);
+#endif
+    return {};
+}
+
+fs::path source_template_root() {
+#ifdef MANIFESTO_SOURCE_TEMPLATE_ROOT
+    return MANIFESTO_SOURCE_TEMPLATE_ROOT;
+#else
+    // Allows bootstrapping a newly generated build with an older CMake surface.
+    return fs::path(__FILE__)
+               .parent_path()
+               .parent_path()
+               .parent_path()
+               .parent_path()
+        / "templates";
+#endif
+}
+
+fs::path version_template_root() {
+#ifdef MANIFESTO_BUILD_ROOT
+    const auto executable = executable_path();
+    if (!executable.empty()) {
+        std::error_code error;
+        const auto build = fs::weakly_canonical(MANIFESTO_BUILD_ROOT, error);
+        if (!error && executable.parent_path() == build)
+            return source_template_root();
+        // Installed data is one bundle. Missing members must not be filled in
+        // from a different source checkout or incidental workspace templates.
+        return (executable.parent_path() / MANIFESTO_INSTALL_TEMPLATE_PATH)
+            .lexically_normal();
     }
-    if (current == current.root_path()) {
-      break;
-    }
-    current = current.parent_path();
-  }
-  return fs::path(__FILE__)
-      .lexically_normal()
-      .parent_path()
-      .parent_path()
-      .parent_path()
-      .parent_path()
-      .parent_path();
+    return {};
+#else
+    return source_template_root();
+#endif
 }
 
 void append_unique_path(std::vector<fs::path> *paths, std::set<std::string> *seen,
@@ -87,21 +130,8 @@ void append_unique_path(std::vector<fs::path> *paths, std::set<std::string> *see
   }
 }
 
-void append_parent_template_roots(std::vector<fs::path> *paths,
-                                  std::set<std::string> *seen,
-                                  const fs::path &start_path) {
-  fs::path current = start_path.parent_path();
-  while (!current.empty()) {
-    append_unique_path(paths, seen, current / "templates");
-    if (current == current.root_path()) {
-      break;
-    }
-    current = current.parent_path();
-  }
-}
-
 std::vector<fs::path>
-template_root_candidates(const bool actor_contract = false) {
+template_root_candidates() {
     std::vector<fs::path> candidates;
     std::set<std::string> seen;
     std::string env_root = env_or_empty("MANIFESTO_TEMPLATE_ROOT");
@@ -112,15 +142,7 @@ template_root_candidates(const bool actor_contract = false) {
         append_unique_path(&candidates, &seen, fs::path(env_root));
     }
 
-    const fs::path source_root = source_root_from_this_file();
-    // CI adapters must agree with the actor contract in this tool version.
-    if (actor_contract) {
-        append_unique_path(&candidates, &seen, source_root / "templates");
-    }
-    append_parent_template_roots(&candidates, &seen, source_root);
-    append_parent_template_roots(&candidates, &seen, fs::current_path());
-    append_unique_path(&candidates, &seen, fs::current_path() / "templates");
-    append_unique_path(&candidates, &seen, source_root / "templates");
+    append_unique_path(&candidates, &seen, version_template_root());
     return candidates;
 }
 
@@ -138,14 +160,7 @@ fs::path template_root_path() {
 }
 
 fs::path locate_template_path(const std::vector<fs::path> &relative_paths) {
-    const bool actor_contract = std::any_of(
-        relative_paths.begin(), relative_paths.end(), [](const fs::path& path) {
-            const std::string text = path.generic_string();
-            return text.starts_with(".github/")
-                || text.starts_with("tracked/.github/");
-        }
-    );
-    for (const fs::path& root : template_root_candidates(actor_contract)) {
+    for (const fs::path& root : template_root_candidates()) {
         if (!path_exists(root)) {
             continue;
         }
@@ -165,7 +180,11 @@ std::string render_text_template_candidates(
   const fs::path template_path = locate_template_path(relative_paths);
   if (template_path.empty()) {
     if (error_message != nullptr) {
-      *error_message = "unable to locate manifesto template file";
+        *error_message = "unable to locate manifesto template file; searched";
+        for (const auto& root : template_root_candidates())
+            *error_message += " " + root.generic_string();
+        for (const auto& relative : relative_paths)
+            *error_message += " [" + relative.generic_string() + "]";
     }
     return {};
   }

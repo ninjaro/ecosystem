@@ -1,5 +1,6 @@
 #include "workspace/tooling.hpp"
 
+#include "workspace/project.hpp"
 #include "workspace/sync.hpp"
 #include "workspace/template_text.hpp"
 
@@ -898,7 +899,6 @@ void ensure_local_artifacts(
     const fs::path& project_root, const bool with_clang_format,
     const bool with_clang_tidy, const bool with_doxygen
 ) {
-    std::string ignored_error;
     const fs::path state_root = local_state_dir(project_root);
     fs::create_directories(state_root / "source");
     fs::create_directories(state_root / "build");
@@ -909,11 +909,20 @@ void ensure_local_artifacts(
     // Tracked style surfaces are owned by `ecos sync`;
     // build/check/doctor/report only materialize ignored local artifacts.
     if (with_doxygen) {
-        write_template_artifact_candidates(
-            project_root / "Doxyfile", { "Doxyfile", "tooling/Doxyfile.tpl" },
-            { { "project_name", project_root.filename().string() } },
-            &ignored_error
-        );
+        const auto path_errors
+            = validate_project_paths(project_root, { "Doxyfile" });
+        if (!path_errors.empty()) {
+            throw template_render_error("Doxyfile: " + path_errors.front());
+        }
+        std::string error_message;
+        if (!write_template_artifact_candidates(
+                project_root / "Doxyfile",
+                { "Doxyfile", "tooling/Doxyfile.tpl" },
+                { { "project_name", project_root.filename().string() } },
+                &error_message
+            )) {
+            throw template_render_error("Doxyfile: " + error_message);
+        }
     }
 }
 
