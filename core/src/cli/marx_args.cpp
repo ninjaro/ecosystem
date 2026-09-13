@@ -38,8 +38,8 @@ std::optional<cxxopts::ParseResult> parse_options(
 }
 
 bool known_marx_command(const std::string& command) {
-    return command == "sync" || command == "mutate" || command == "build"
-        || command == "benchmark" || command == "run"
+    return command == "sync" || command == "format" || command == "mutate"
+        || command == "build" || command == "benchmark" || command == "run"
         || command == "prerelease";
 }
 
@@ -48,15 +48,21 @@ std::string marx_usage_text() {
            "\n"
            "commands:\n"
            "  sync [--project <project> ...] [--group <group> ...]\n"
-           "  mutate add component <component-id> [--kind <kind>] [--artifact-id <artifact-id>]\n"
+           "  format [component:artifact] [--project <project> ...] [--group "
+           "<group> ...]\n"
+           "  mutate add component <component-id> [--kind <kind>] "
+           "[--artifact-id <artifact-id>]\n"
            "  mutate add module <component-id> <module-path>\n"
            "  mutate add files <component-id> <module-path>\n"
            "  mutate add file-unit <component-id> <module-id> --kind <kind>\n"
            "  mutate set facade-entry <component:artifact>\n"
            "  build <profile> [component:artifact] [--project <project> ...]\n"
-           "  benchmark [component:artifact] [--project <project> ...] [-- <arg> ...]\n"
-           "  run <profile> [component:artifact] [--project <project> ...] [--android-mode <mode>] [-- <arg> ...]\n"
-           "  prerelease [component:artifact] [--project <project> ...] [--version-base <major.minor.patch>]\n";
+           "  benchmark [component:artifact] [--project <project> ...] [-- "
+           "<arg> ...]\n"
+           "  run <profile> [component:artifact] [--project <project> ...] "
+           "[--android-mode <mode>] [-- <arg> ...]\n"
+           "  prerelease [component:artifact] [--project <project> ...] "
+           "[--version-base <major.minor.patch>]\n";
 }
 
 bool validate_mutate_request(

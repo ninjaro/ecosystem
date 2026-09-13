@@ -156,7 +156,7 @@ namespace manifest_support {
                     continue;
                 for (const std::string extension :
                      { ".hpp", ".h", ".hh", ".hxx", ".tpp", ".cpp", ".cc",
-                       ".cxx" })
+                       ".cxx", ".c" })
                     result.emplace_back(candidate.string() + extension);
                 if (!qualified && directory == "tests")
                     result.emplace_back(candidate.string() + "_tests.cpp");
@@ -978,7 +978,8 @@ string_list validate_manifest(const manifest& value) {
                     + value.facade_entry_artifact
                 );
             }
-            if (artifact_value.kind == "exe" || artifact_value.kind == "qt_app") {
+            if (artifact_value.kind == "exe"
+                || artifact_value.kind == "qt_app") {
                 for (const std::string name : { "mvp", "mvp.exe" }) {
                     const auto owner = output_owners.find(name);
                     if (owner != output_owners.end()
@@ -1074,7 +1075,7 @@ discover_owned_files(manifest* value, const fs::path& project_root) {
                 || extension == ".hh" || extension == ".hxx"
                 || extension == ".tpp";
             const bool source = extension == ".cpp" || extension == ".cc"
-                || extension == ".cxx";
+                || extension == ".cxx" || extension == ".c";
             if (!header && !source)
                 return;
             std::error_code error;

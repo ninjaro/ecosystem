@@ -2,6 +2,8 @@
 
 #include "workspace/read_commands.hpp"
 
+#include <algorithm>
+
 namespace fs = std::filesystem;
 
 namespace ecosystem::engels_command_support {
@@ -11,8 +13,8 @@ std::string expected_usage(const std::string& usage_tail) {
 }
 
 bool is_marx_command(const std::string& command) {
-    return command == "sync" || command == "mutate" || command == "build"
-        || command == "benchmark" || command == "run"
+    return command == "sync" || command == "format" || command == "mutate"
+        || command == "build" || command == "benchmark" || command == "run"
         || command == "prerelease";
 }
 
@@ -201,43 +203,48 @@ int run_engels_command(
     }
 
     if (args[0] == "report") {
+        if (args.size() < 2U) {
+            emit_command_error(
+                err, command_error::invalid_request,
+                "expected: report <kind> [artifact] [--json]"
+            );
+            return exit_code(command_error::invalid_request);
+        }
+        args_list report_args(args.begin() + 2, args.end());
+        const auto json_flags = std::erase(report_args, "--json");
+        if (json_flags > 1) {
+            emit_command_error(
+                err, command_error::invalid_request,
+                "--json may be specified only once"
+            );
+            return exit_code(command_error::invalid_request);
+        }
+        const bool json_output = json_flags == 1;
         if (workspace_mode) {
-            if (args.size() < 2U) {
-                emit_command_error(
-                    err,
-                    command_error::invalid_request,
-                    engels_command_support::expected_usage(
-                        "report <kind> [--project <project>] [--group <group>] "
-                        "[component:artifact|project/component:artifact]"
-                    )
-                );
-                return exit_code(command_error::invalid_request);
-            }
             workspace_scope scope;
             const command_error parse_status = parse_workspace_scope(
-                *workspace, args_list(args.begin() + 2, args.end()), true,
-                &scope, err
+                *workspace, report_args, true, &scope, err
             );
             if (parse_status != command_error::ok) {
                 return exit_code(parse_status);
             }
-            return exit_code(
-                run_workspace_report(*workspace, args[1], scope, out, err)
-            );
+            return exit_code(run_workspace_report(
+                *workspace, args[1], scope, out, err, json_output
+            ));
         }
-        if (args.size() < 2U || args.size() > 3U) {
+        if (report_args.size() > 1U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 engels_command_support::expected_usage(
-                    "report <kind> [component:artifact]"
+                    "report <kind> [component:artifact] [--json]"
                 )
             );
             return exit_code(command_error::invalid_request);
         }
         const std::optional<artifact_ref> requested_artifact
-            = args.size() == 3U ? parse_artifact_ref(args[2]) : std::nullopt;
-        if (args.size() == 3U && !requested_artifact.has_value()) {
+            = report_args.size() == 1U ? parse_artifact_ref(report_args[0])
+                                       : std::nullopt;
+        if (report_args.size() == 1U && !requested_artifact.has_value()) {
             emit_command_error(
                 err,
                 command_error::invalid_request,
@@ -247,7 +254,7 @@ int run_engels_command(
         }
         return exit_code(run_report(
             project_root, *current_manifest_report.value, args[1],
-            requested_artifact, out, err
+            requested_artifact, out, err, json_output
         ));
     }
 

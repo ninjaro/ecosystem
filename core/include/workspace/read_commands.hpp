@@ -44,12 +44,13 @@ command_error run_workspace_doctor(
 command_error run_report(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::string& kind,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err, bool json_output = false
 );
 command_error run_workspace_report(
     const workspace_context& workspace, const std::string& kind,
-    const workspace_scope& scope, std::ostream& out, std::ostream& err
+    const workspace_scope& scope, std::ostream& out, std::ostream& err,
+    bool json_output = false
 );
 command_error parse_workspace_doctor_request(
     const workspace_context& workspace, const string_list& args,

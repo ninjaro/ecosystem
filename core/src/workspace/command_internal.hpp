@@ -73,6 +73,11 @@ bool contains_string(
 );
 bool path_is_executable(const fs::path& path);
 bool path_exists(const fs::path& path);
+command_error run_format_files(
+    const fs::path& project_root, const manifest& manifest_value,
+    const std::optional<artifact_ref>& requested_artifact, bool apply,
+    std::ostream& out, std::ostream& err
+);
 void append_unique_paths(
     std::vector<fs::path>* files, const std::vector<fs::path>& candidates
 );

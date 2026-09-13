@@ -211,6 +211,39 @@ int run_marx_command(
         return exit_code(run_sync(project_root, *current_manifest_report.value, out, err));
     }
 
+    if (args[0] == "format") {
+        if (workspace_mode) {
+            workspace_scope scope;
+            const auto status = parse_workspace_scope(
+                *workspace, args_list(args.begin() + 1, args.end()), true,
+                &scope, err
+            );
+            if (status != command_error::ok)
+                return exit_code(status);
+            return exit_code(run_workspace_format(*workspace, scope, out, err));
+        }
+        if (!has_project_manifest) {
+            marx_command_support::emit_manifest_report_errors(
+                current_manifest_report, err
+            );
+            return exit_code(command_error::invalid_request);
+        }
+        const auto requested
+            = args.size() == 2 ? parse_artifact_ref(args[1]) : std::nullopt;
+        if (args.size() > 2 || (args.size() == 2 && !requested)) {
+            emit_command_error(
+                err, command_error::invalid_request,
+                marx_command_support::expected_usage(
+                    "format [component:artifact]"
+                )
+            );
+            return exit_code(command_error::invalid_request);
+        }
+        return exit_code(run_format(
+            project_root, *current_manifest_report.value, requested, out, err
+        ));
+    }
+
     if (args[0] == "mutate") {
         if (workspace_mode) {
             emit_command_error(

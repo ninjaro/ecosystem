@@ -86,6 +86,53 @@ command_error emit_mutation_report(
 
 }  // namespace write_commands_support
 
+command_error run_format(
+    const std::filesystem::path& project_root, const manifest& manifest_value,
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
+) {
+    return command_support::run_format_files(
+        project_root, manifest_value, requested_artifact, true, out, err
+    );
+}
+
+command_error run_workspace_format(
+    const workspace_context& workspace, const workspace_scope& scope,
+    std::ostream& out, std::ostream& err
+) {
+    const auto validity = validate_workspace_scope(workspace, scope, err);
+    if (validity != command_error::ok)
+        return validity;
+    command_error status = command_error::ok;
+    for (const auto* project : selected_workspace_projects(workspace, scope)) {
+        const auto artifacts = workspace_artifacts_for_project(scope, project);
+        std::ostringstream project_out, project_err;
+        if (artifacts.empty()) {
+            status = command_support::combine_status(
+                status,
+                run_format(
+                    project->root, *project->manifest_value, std::nullopt,
+                    project_out, project_err
+                )
+            );
+        } else {
+            for (const auto& artifact : artifacts) {
+                status = command_support::combine_status(
+                    status,
+                    run_format(
+                        project->root, *project->manifest_value, artifact,
+                        project_out, project_err
+                    )
+                );
+            }
+        }
+        command_support::emit_workspace_project_output(
+            workspace, project, project_out, project_err, out, err
+        );
+    }
+    return status;
+}
+
 command_error run_sync(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     std::ostream& out, std::ostream& err
@@ -670,82 +717,114 @@ command_error run_benchmark(
         return command_error::task_failed;
     }
 
-    const std::filesystem::path output_dir
-        = local_benchmark_dir(project_root) / benchmark_output_stem(resolved.ref);
+    const std::filesystem::path output_dir = local_benchmark_dir(project_root)
+        / benchmark_output_subdir(resolved.ref);
+    const auto log_path = output_dir / "bench_log.txt";
+    const auto result_path = output_dir / "result.json";
+    const auto summary_path = output_dir / "summary.json";
+    const auto plot_path = output_dir / "bench_plot.svg";
+    const auto path_errors = validate_project_paths(
+        project_root,
+        { log_path.lexically_relative(project_root),
+          result_path.lexically_relative(project_root) }
+    );
+    if (!path_errors.empty()) {
+        command_support::print_error(
+            err, command_error::task_failed, path_errors.front()
+        );
+        return command_error::task_failed;
+    }
     std::error_code fs_error;
     std::filesystem::create_directories(output_dir, fs_error);
     if (fs_error) {
         command_support::print_error(
-            err, command_error::task_failed, fs_error.message()
+            err, command_error::task_failed,
+            output_dir.string() + ": " + fs_error.message()
         );
         return command_error::task_failed;
     }
+    // A new execution must not leave charts from an earlier run beside its log.
+    bool optional_reports_available = true;
+    for (const auto& path : { summary_path, plot_path }) {
+        std::filesystem::remove(path, fs_error);
+        if (fs_error) {
+            err << "warning: unable to retire optional benchmark report "
+                << path.string() << ": " << fs_error.message() << "\n";
+            optional_reports_available = false;
+        }
+    }
 
-    std::vector<std::string> command {
-        binary_path->string(),
-        "--benchmark_color=false",
-    };
+    std::vector<std::string> command { binary_path->string() };
     command.insert(
         command.end(), passthrough_args.begin(), passthrough_args.end()
     );
-    const captured_command benchmark_result = capture_command_result(
-        command, local_build_dir(project_root, "release")
-    );
+    const auto working_directory = local_build_dir(project_root, "release");
+    const captured_command benchmark_result
+        = capture_command_result(command, working_directory);
 
-    const std::filesystem::path log_path = output_dir / "bench_log.txt";
     std::string error_message;
-    if (!write_text_file(log_path, benchmark_result.output, &error_message)) {
-        command_support::print_error(
-            err, command_error::task_failed, error_message
-        );
-        return command_error::task_failed;
-    }
-    if (benchmark_result.exit_code != 0) {
-        command_support::print_error(
-            err, command_error::task_failed, "benchmark executable failed"
-        );
-        return command_error::task_failed;
-    }
-
-    out << "benchmarked " << format_artifact_ref(resolved.ref) << "\n";
-    out << "benchmark log: "
-        << log_path.lexically_relative(project_root).generic_string() << "\n";
-
-    benchmark_summary summary;
-    parse_benchmark_log(benchmark_result.output, &summary, &error_message);
-    if (summary.series.empty()) {
-        out << "benchmark plot: skipped (no FLOPs series recognized)\n";
-        return command_error::ok;
-    }
-
-    const std::filesystem::path summary_path = output_dir / "summary.json";
-    if (!write_text_file(
-            summary_path, to_json(summary).dump(2) + "\n", &error_message
+    const json result {
+        { "artifact", format_artifact_ref(resolved.ref) },
+        { "profile", "release" },
+        { "command", command },
+        { "working_directory", working_directory.generic_string() },
+        { "exit_code", benchmark_result.exit_code },
+        { "status", benchmark_result.exit_code == 0 ? "passed" : "failed" },
+        { "log", log_path.filename().generic_string() }
+    };
+    if (!write_text_file(log_path, benchmark_result.output, &error_message)
+        || !write_text_file(
+            result_path, result.dump(2) + "\n", &error_message
         )) {
         command_support::print_error(
             err, command_error::task_failed, error_message
         );
         return command_error::task_failed;
     }
+    out << "benchmark log: "
+        << log_path.lexically_relative(project_root).generic_string() << "\n";
+    out << "benchmark result: "
+        << result_path.lexically_relative(project_root).generic_string()
+        << "\n";
+    if (benchmark_result.exit_code != 0) {
+        command_support::print_error(
+            err, command_error::task_failed,
+            "benchmark executable failed: " + format_artifact_ref(resolved.ref)
+                + " (exit " + std::to_string(benchmark_result.exit_code) + ")"
+        );
+        return command_error::task_failed;
+    }
+    out << "benchmarked " << format_artifact_ref(resolved.ref) << "\n";
 
-    const std::filesystem::path plot_path = output_dir / "bench_plot.svg";
+    if (!optional_reports_available) {
+        return command_error::ok;
+    }
+    benchmark_summary summary;
+    parse_benchmark_log(benchmark_result.output, &summary, &error_message);
+    if (summary.series.empty()) {
+        out << "benchmark plot: skipped (no FLOPs series recognized)\n";
+        return command_error::ok;
+    }
+    error_message.clear();
     const std::string title
         = format_artifact_ref(resolved.ref) + " GFLOPs/s vs n";
     const std::string plot_contents
         = render_benchmark_svg(summary, title, &error_message);
-    if (!error_message.empty()) {
-        command_support::print_error(
-            err, command_error::task_failed, error_message
-        );
-        return command_error::task_failed;
+    if (!error_message.empty()
+        || !write_text_file(
+            summary_path, to_json(summary).dump(2) + "\n", &error_message
+        )
+        || !write_text_file(plot_path, plot_contents, &error_message)) {
+        err << "warning: optional benchmark report skipped: " << error_message
+            << "\n";
+        for (const auto& path : { summary_path, plot_path }) {
+            std::filesystem::remove(path, fs_error);
+            if (fs_error)
+                err << "warning: unable to remove " << path.string() << ": "
+                    << fs_error.message() << "\n";
+        }
+        return command_error::ok;
     }
-    if (!write_text_file(plot_path, plot_contents, &error_message)) {
-        command_support::print_error(
-            err, command_error::task_failed, error_message
-        );
-        return command_error::task_failed;
-    }
-
     out << "benchmark summary: "
         << summary_path.lexically_relative(project_root).generic_string()
         << "\n";

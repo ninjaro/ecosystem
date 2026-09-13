@@ -303,7 +303,8 @@ bool analysis_category_enabled(
 
 void append_unique_analysis_source(
     std::vector<cxx_analysis_source>* destination, const fs::path& path,
-    const std::string& component_id, const std::string& category
+    const std::string& component_id, const std::string& category,
+    const std::string& artifact_id = {}
 ) {
     const std::string normalized_path = normalize_generic(path);
     for (const cxx_analysis_source& source : *destination) {
@@ -312,7 +313,7 @@ void append_unique_analysis_source(
         }
     }
     destination->push_back(
-        cxx_analysis_source { path, component_id, category }
+        cxx_analysis_source { path, component_id, category, artifact_id }
     );
 }
 
@@ -322,6 +323,11 @@ std::vector<cxx_analysis_source> component_analysis_sources(
 ) {
     std::vector<cxx_analysis_source> files;
     const fs::path root = component_root_path(project_root, component_value);
+    const std::string artifact_id = component_value.artifacts.size() == 1
+        ? format_artifact_ref(
+              { component_value.id, component_value.artifacts.front().id }
+          )
+        : std::string {};
     if (component_value.ownership) {
         const auto& owned = *component_value.ownership;
         for (const auto& source : owned.sources) {
@@ -337,29 +343,29 @@ std::vector<cxx_analysis_source> component_analysis_sources(
                     category, include_tests, include_benchmarks
                 ))
                 append_unique_analysis_source(
-                    &files, project_root / source, component_value.id, category
+                    &files, project_root / source, component_value.id, category,
+                    artifact_id
                 );
         }
         if (include_tests)
             for (const auto& source : owned.tests)
                 append_unique_analysis_source(
-                    &files, project_root / source, component_value.id, "tests"
+                    &files, project_root / source, component_value.id, "tests",
+                    artifact_id
                 );
         if (include_benchmarks)
             for (const auto& source : owned.benchmarks)
                 append_unique_analysis_source(
                     &files, project_root / source, component_value.id,
-                    "benchmarks"
+                    "benchmarks", artifact_id
                 );
         return files;
     }
 
     for (const std::string& module_path : component_value.modules) {
         append_unique_analysis_source(
-            &files,
-            root / "src" / (module_path + ".cpp"),
-            component_value.id,
-            "core"
+            &files, root / "src" / (module_path + ".cpp"), component_value.id,
+            "core", artifact_id
         );
     }
 
@@ -374,10 +380,8 @@ std::vector<cxx_analysis_source> component_analysis_sources(
             continue;
         }
         append_unique_analysis_source(
-            &files,
-            resolve_source_only_path(root, unit.id),
-            component_value.id,
-            category
+            &files, resolve_source_only_path(root, unit.id), component_value.id,
+            category, artifact_id
         );
     }
 
@@ -881,10 +885,18 @@ std::optional<fs::path> artifact_output_path(
 }
 
 std::vector<fs::path> format_candidate_files(
-    const manifest& value, const fs::path& project_root
+    const manifest& value, const fs::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact
 ) {
     std::vector<fs::path> files;
     for (const component& component_value : value.components) {
+        if (requested_artifact
+            && (component_value.id != requested_artifact->component_id
+                || !find_artifact(
+                    component_value, requested_artifact->artifact_id
+                ))) {
+            continue;
+        }
         append_unique_paths(&files, component_module_headers(project_root, component_value));
         append_unique_paths(&files, component_module_sources(project_root, component_value));
         append_unique_paths(&files, component_header_only_files(project_root, component_value));
@@ -933,7 +945,8 @@ std::vector<cxx_analysis_source> cxx_analysis_sources(
                  include_benchmarks
              )) {
             append_unique_analysis_source(
-                &files, source.path, source.component_id, source.category
+                &files, source.path, source.component_id, source.category,
+                source.artifact
             );
         }
     }
@@ -1017,6 +1030,7 @@ std::vector<std::string> supported_check_profiles(const manifest& value) {
     profiles.push_back("tidy");
     profiles.push_back("format");
     profiles.push_back("naming");
+    profiles.push_back("style");
     profiles.push_back("repo");
     profiles.push_back("doxy");
     profiles.push_back("sphinx");
@@ -1025,7 +1039,7 @@ std::vector<std::string> supported_check_profiles(const manifest& value) {
 }
 
 std::vector<std::string> supported_report_kinds() {
-    return { "cxx", "toolchains", "matrix" };
+    return { "cxx", "toolchains", "matrix", "naming", "style" };
 }
 
 std::vector<std::string> supported_platforms(const manifest& value) {

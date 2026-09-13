@@ -1,6 +1,6 @@
 #pragma once
 
-#include "manifest.hpp"
+#include "analysis/diagnostic.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -12,12 +12,14 @@ struct source_analysis {
     std::string file;
     std::string component_id;
     std::string category;
+    std::string artifact;
     int warning_count = 0;
     int error_count = 0;
     int function_count = 0;
     int class_count = 0;
     int namespace_count = 0;
     string_list diagnostics;
+    std::vector<diagnostic_finding> findings;
 };
 
 struct component_analysis_summary {
@@ -36,6 +38,7 @@ struct component_analysis_summary {
 
 struct cxx_analysis_report {
     std::string project_id;
+    std::optional<artifact_ref> requested_artifact;
     int cpp_standard = 20;
     bool tests_included = false;
     bool benchmarks_included = false;
@@ -55,10 +58,8 @@ struct cxx_analysis_report {
 };
 
 cxx_analysis_report analyze_project_sources(
-    const manifest& value,
-    const std::filesystem::path& project_root,
-    const std::optional<std::string>& component_filter,
-    bool include_tests,
+    const manifest& value, const std::filesystem::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact, bool include_tests,
     bool include_benchmarks
 );
 

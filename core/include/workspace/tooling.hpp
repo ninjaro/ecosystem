@@ -119,12 +119,14 @@ command_error configure_cmake_source_tree(
     const std::filesystem::path& source_dir,
     const std::filesystem::path& build_dir,
     const std::vector<std::string>& cmake_options,
-    const std::string& build_type, std::string* error_message
+    const std::string& build_type, std::string* error_message,
+    bool capture_output = false
 );
 command_error configure_build_tree(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::string& profile, bool with_tests, bool with_coverage,
-    bool with_benchmarks, std::string* error_message
+    bool with_benchmarks, std::string* error_message,
+    bool capture_output = false
 );
 command_error ensure_local_developer_surface(
     const std::filesystem::path& project_root, const manifest& manifest_value,

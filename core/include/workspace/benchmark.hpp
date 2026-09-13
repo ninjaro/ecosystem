@@ -32,6 +32,6 @@ std::string render_benchmark_svg(
     const std::string& title,
     std::string* error_message
 );
-std::string benchmark_output_stem(const artifact_ref& ref);
+std::filesystem::path benchmark_output_subdir(const artifact_ref& ref);
 
 }  // namespace ecosystem

@@ -2,6 +2,8 @@
 #include "workspace/template_text.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <cmath>
 #include <filesystem>
 #include <iomanip>
 #include <map>
@@ -62,15 +64,24 @@ std::optional<int> parse_problem_size(const std::string& benchmark_name) {
     if (!std::regex_search(benchmark_name, match, size_regex) || match.size() < 2U) {
         return std::nullopt;
     }
-    return std::stoi(match[1].str());
+    const std::string digits = match[1].str();
+    int size = 0;
+    const auto parsed
+        = std::from_chars(digits.data(), digits.data() + digits.size(), size);
+    if (parsed.ec != std::errc {}
+        || parsed.ptr != digits.data() + digits.size()) {
+        return std::nullopt;
+    }
+    return size;
 }
 
 std::optional<double> average_samples(const std::vector<double>& values) {
     if (values.empty()) {
         return std::nullopt;
     }
-    const double total = std::accumulate(values.begin(), values.end(), 0.0);
-    return total / static_cast<double>(values.size());
+    const long double total
+        = std::accumulate(values.begin(), values.end(), 0.0L);
+    return static_cast<double>(total / values.size());
 }
 
 std::string svg_escape(const std::string& value) {
@@ -241,7 +252,18 @@ bool parse_benchmark_log(
             continue;
         }
 
-        const double gflops = std::stod(match[2].str());
+        double gflops = 0;
+        try {
+            const std::string counter = match[2].str();
+            std::size_t consumed = 0;
+            gflops = std::stod(counter, &consumed);
+            if (consumed != counter.size() || !std::isfinite(gflops)
+                || gflops < 0) {
+                continue;
+            }
+        } catch (const std::exception&) {
+            continue;
+        }
         benchmark_samples& bucket = samples[parse_algorithm(benchmark_name)][*n];
         if (is_mean) {
             bucket.means.push_back(gflops);
@@ -471,8 +493,8 @@ std::string render_benchmark_svg(
     );
 }
 
-std::string benchmark_output_stem(const artifact_ref& ref) {
-    return ref.component_id + "_" + ref.artifact_id;
+std::filesystem::path benchmark_output_subdir(const artifact_ref& ref) {
+    return std::filesystem::path(ref.component_id) / ref.artifact_id;
 }
 
 }  // namespace ecosystem

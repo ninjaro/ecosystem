@@ -41,11 +41,74 @@ namespace command_support {
     const std::vector<std::string> known_build_profiles { "debug", "release",
                                                           "android", "kde" };
     const std::vector<std::string> known_check_profiles {
-        "tests",  "coverage", "leaks", "java",   "tidy", "format",
-        "naming", "repo",     "doxy",  "sphinx", "ci",
+        "tests",  "coverage", "leaks", "java", "tidy",   "format",
+        "naming", "style",    "repo",  "doxy", "sphinx", "ci",
     };
     const std::vector<std::string> known_report_kinds { "cxx", "toolchains",
-                                                        "matrix" };
+                                                        "matrix", "naming",
+                                                        "style" };
+
+    command_error run_format_files(
+        const fs::path& project_root, const manifest& manifest_value,
+        const std::optional<artifact_ref>& requested_artifact, const bool apply,
+        std::ostream& out, std::ostream& err
+    ) {
+        if (requested_artifact
+            && !resolve_artifact(manifest_value, requested_artifact)) {
+            print_error(
+                err, command_error::invalid_request,
+                "unknown artifact request: "
+                    + format_artifact_ref(*requested_artifact)
+            );
+            return command_error::invalid_request;
+        }
+        const auto files = format_candidate_files(
+            manifest_value, project_root, requested_artifact
+        );
+        std::vector<fs::path> relative_paths;
+        for (const auto& file : files)
+            relative_paths.push_back(file.lexically_relative(project_root));
+        const auto path_errors
+            = validate_project_paths(project_root, relative_paths);
+        if (!path_errors.empty()) {
+            print_error(
+                err, command_error::invalid_request, path_errors.front()
+            );
+            return command_error::invalid_request;
+        }
+        const tool_status tool = probe_tool("clang-format");
+        if (!tool.available) {
+            print_error(
+                err, command_error::missing_local_tooling,
+                "clang-format is not available"
+            );
+            return command_error::missing_local_tooling;
+        }
+        ensure_local_artifacts(project_root, true, false, false);
+        if (files.empty()) {
+            out << "format: no files\n";
+            return command_error::ok;
+        }
+        std::vector<std::string> args { tool.path, apply ? "-i" : "--dry-run" };
+        if (!apply)
+            args.push_back("--Werror");
+        args.push_back("-style=file");
+        for (const auto& file : files)
+            args.push_back(file.string());
+        if (run_command(args, project_root) != 0) {
+            print_error(
+                err, command_error::task_failed,
+                apply ? "clang-format failed while formatting selected files"
+                      : "clang-format reported formatting drift"
+            );
+            return command_error::task_failed;
+        }
+        if (apply)
+            out << "formatted " << files.size() << " file(s)\n";
+        else
+            out << "format check passed\n";
+        return command_error::ok;
+    }
 
     bool contains_string(
         const std::vector<std::string>& values, const std::string& candidate
@@ -577,7 +640,8 @@ namespace command_support {
     bool
     check_profile_supports_multi_artifact_filters(const std::string& profile) {
         return profile == "tests" || profile == "coverage" || profile == "leaks"
-            || profile == "tidy" || profile == "naming";
+            || profile == "tidy" || profile == "format" || profile == "naming"
+            || profile == "style";
     }
 
     bool is_runnable_artifact(const artifact& artifact_value) {

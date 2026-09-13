@@ -191,9 +191,10 @@ std::optional<std::string> command_owner(const std::string& command_name) {
         || command_name == "doctor" || command_name == "report") {
         return std::string("engels");
     }
-    if (command_name == "sync" || command_name == "mutate"
-        || command_name == "build" || command_name == "benchmark"
-        || command_name == "run" || command_name == "prerelease") {
+    if (command_name == "sync" || command_name == "format"
+        || command_name == "mutate" || command_name == "build"
+        || command_name == "benchmark" || command_name == "run"
+        || command_name == "prerelease") {
         return std::string("marx");
     }
     return std::nullopt;

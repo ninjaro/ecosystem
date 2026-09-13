@@ -12,6 +12,7 @@ struct cxx_analysis_source {
     std::filesystem::path path;
     std::string component_id;
     std::string category;
+    std::string artifact;
 };
 
 struct resolved_artifact {
@@ -96,7 +97,8 @@ std::optional<std::filesystem::path> artifact_output_path(
 );
 
 std::vector<std::filesystem::path> format_candidate_files(
-    const manifest& value, const std::filesystem::path& project_root
+    const manifest& value, const std::filesystem::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
 std::vector<cxx_analysis_source> cxx_analysis_sources(
     const manifest& value,

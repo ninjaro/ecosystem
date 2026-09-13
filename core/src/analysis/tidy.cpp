@@ -3,7 +3,10 @@
 #include "workspace/project.hpp"
 #include "workspace/tooling.hpp"
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -35,21 +38,16 @@ string_list split_nonempty_lines(const std::string& value) {
 using namespace tidy_support;
 
 tidy_check_report run_tidy_check(
-    const manifest& value,
-    const fs::path& project_root,
-    const std::optional<std::string>& component_filter,
-    const bool include_tests,
-    const bool include_benchmarks,
+    const manifest& value, const fs::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact,
+    const bool include_tests, const bool include_benchmarks,
     const std::string& profile
 ) {
     tidy_check_report report;
-    report.analysis = analyze_project_sources(
-        value,
-        project_root,
-        component_filter,
-        include_tests,
-        include_benchmarks
-    );
+    report.analysis.project_id = value.id;
+    report.analysis.cpp_standard = value.cpp_standard;
+    report.analysis.tests_included = include_tests;
+    report.analysis.benchmarks_included = include_benchmarks;
 
     const fs::path build_dir = local_build_dir(project_root, profile);
     const fs::path compilation_database_path = build_dir / "compile_commands.json";
@@ -69,17 +67,67 @@ tidy_check_report run_tidy_check(
         return report;
     }
 
+    manifest selected = value;
+    if (requested_artifact) {
+        std::erase_if(selected.components, [&](const component& candidate) {
+            return candidate.id != requested_artifact->component_id
+                || !find_artifact(candidate, requested_artifact->artifact_id);
+        });
+    }
     const std::vector<cxx_analysis_source> sources = cxx_analysis_sources(
-        value,
-        project_root,
-        component_filter,
-        include_tests,
-        include_benchmarks
+        selected, project_root, std::nullopt, include_tests, include_benchmarks
     );
     if (sources.empty()) {
         report.clang_tidy_skip_reason = "no source files available for clang-tidy";
         return report;
     }
+
+    // clang-tidy can fall back to guessed compiler arguments when a selected
+    // file has no database entry. A required check must use configured inputs.
+    try {
+        std::ifstream input(compilation_database_path);
+        const json database = json::parse(input);
+        if (!database.is_array()) {
+            report.clang_tidy_skip_reason
+                = "compile_commands.json must contain an array";
+            return report;
+        }
+        std::set<fs::path> configured_sources;
+        for (const auto& entry : database) {
+            const fs::path directory = entry.at("directory").get<std::string>();
+            const fs::path file = entry.at("file").get<std::string>();
+            if (!directory.is_absolute()
+                || (!entry.contains("command")
+                    && !entry.contains("arguments"))) {
+                report.clang_tidy_skip_reason
+                    = "invalid compile_commands.json entry";
+                return report;
+            }
+            configured_sources.insert(fs::weakly_canonical(directory / file));
+        }
+        for (const auto& source : sources) {
+            if (!configured_sources.contains(
+                    fs::weakly_canonical(source.path)
+                )) {
+                report.clang_tidy_skip_reason
+                    = "compile_commands.json has no entry for "
+                    + source.path.lexically_relative(project_root)
+                          .generic_string();
+                return report;
+            }
+        }
+    } catch (const json::exception& error) {
+        report.clang_tidy_skip_reason
+            = "invalid compile_commands.json: " + std::string(error.what());
+        return report;
+    } catch (const fs::filesystem_error& error) {
+        report.clang_tidy_skip_reason = error.what();
+        return report;
+    }
+
+    report.analysis = analyze_project_sources(
+        selected, project_root, std::nullopt, include_tests, include_benchmarks
+    );
 
     std::vector<std::string> command {
         clang_tidy.path,

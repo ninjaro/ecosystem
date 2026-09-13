@@ -1,5 +1,6 @@
 #include "workspace/read_commands.hpp"
 
+#include "analysis/personal.hpp"
 #include "command_internal.hpp"
 #include "workspace/template_text.hpp"
 
@@ -13,201 +14,42 @@
 
 namespace ecosystem::command_support {
 
-bool is_naming_candidate_extension(const fs::path& path) {
-    const std::string extension = path.extension().generic_string();
-    return extension == ".c" || extension == ".cc" || extension == ".cpp"
-        || extension == ".cxx" || extension == ".h" || extension == ".hh"
-        || extension == ".hpp" || extension == ".hxx"
-        || extension == ".ipp" || extension == ".inl"
-        || extension == ".tpp";
-}
-
-bool is_test_file(const fs::path& project_root, const fs::path& path) {
-    const std::string relative
-        = path.lexically_relative(project_root).generic_string();
-    return starts_with(relative, "tests/")
-        || relative.find("/tests/") != std::string::npos;
-}
-
-std::vector<fs::path> naming_candidate_files(
-    const manifest& manifest_value, const fs::path& project_root,
-    const std::optional<artifact_ref>& requested_artifact
-) {
-    std::vector<fs::path> files;
-    for (const component& component_value : manifest_value.components) {
-        if (requested_artifact.has_value()
-            && component_value.id != requested_artifact->component_id) {
-            continue;
-        }
-
-        append_unique_paths(
-            &files, component_module_headers(project_root, component_value)
-        );
-        append_unique_paths(
-            &files, component_module_sources(project_root, component_value)
-        );
-        append_unique_paths(
-            &files, component_source_only_files(project_root, component_value)
-        );
-        append_unique_paths(
-            &files, component_header_only_files(project_root, component_value)
-        );
-        append_unique_paths(
-            &files, component_c_header_only_files(project_root, component_value)
-        );
-        append_unique_paths(
-            &files, component_template_impl_files(project_root, component_value)
-        );
-        append_unique_paths(
-            &files,
-            component_c_header_pair_headers(project_root, component_value)
-        );
-        append_unique_paths(
-            &files,
-            component_c_header_pair_sources(project_root, component_value)
-        );
-        append_unique_paths(
-            &files, component_test_sources(project_root, component_value)
-        );
-        append_unique_paths(
-            &files, component_benchmark_sources(project_root, component_value)
-        );
-    }
-
-    std::vector<fs::path> filtered;
-    for (const fs::path& file : files) {
-        if (is_naming_candidate_extension(file) && path_exists(file)) {
-            filtered.push_back(file);
-        }
-    }
-    return filtered;
-}
-
-const std::set<std::string>& naming_keywords() {
-    static const std::set<std::string> keywords {
-        "alignas",       "alignof",     "and",
-        "and_eq",        "asm",         "auto",
-        "bitand",        "bitor",       "bool",
-        "break",         "case",        "catch",
-        "char",          "char8_t",     "char16_t",
-        "char32_t",      "class",       "compl",
-        "concept",       "const",       "consteval",
-        "constexpr",     "constinit",   "const_cast",
-        "continue",      "co_await",    "co_return",
-        "co_yield",      "decltype",    "default",
-        "delete",        "do",          "double",
-        "dynamic_cast",  "else",        "enum",
-        "explicit",      "export",      "extern",
-        "false",         "float",       "for",
-        "friend",        "goto",        "if",
-        "inline",        "int",         "long",
-        "mutable",       "namespace",   "new",
-        "noexcept",      "not",         "not_eq",
-        "nullptr",       "operator",    "or",
-        "or_eq",         "private",     "protected",
-        "public",        "register",    "reinterpret_cast",
-        "requires",      "return",      "short",
-        "signed",        "sizeof",      "static",
-        "static_assert", "static_cast", "struct",
-        "switch",        "template",    "this",
-        "thread_local",  "throw",       "true",
-        "try",           "typedef",     "typeid",
-        "typename",      "union",       "unsigned",
-        "using",         "virtual",     "void",
-        "volatile",      "wchar_t",     "while",
-        "xor",           "xor_eq",
-    };
-    return keywords;
-}
-
-std::set<std::string> load_naming_allowlist(const fs::path& project_root) {
-    std::set<std::string> allowlist;
-    for (const fs::path& path :
-         { project_root / "docs" / "naming_allowlist.txt",
-           project_root / "naming_allowlist.txt" }) {
-        if (!path_exists(path)) {
-            continue;
-        }
-
-        std::ifstream file(path, std::ios::binary);
-        std::string line;
-        while (std::getline(file, line)) {
-            const std::string trimmed
-                = trim_copy(line.substr(0U, line.find('#')));
-            if (!trimmed.empty()) {
-                allowlist.insert(trimmed);
-            }
-        }
-    }
-    return allowlist;
-}
-
-command_error run_check_naming(
+command_error run_check_personal(
     const fs::path& project_root, const manifest& manifest_value,
     const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::string& profile, std::ostream& out, std::ostream& err
 ) {
-    const std::vector<fs::path> files = naming_candidate_files(
-        manifest_value, project_root, requested_artifact
-    );
-    const std::set<std::string> allowlist = load_naming_allowlist(project_root);
-    const std::regex identifier_pattern("\\b[a-z][a-z0-9_]*\\b");
-    std::set<std::string> seen;
-    std::vector<std::string> violations;
-
-    for (const fs::path& file : files) {
-        std::string read_error;
-        const std::string contents = read_text_file(file, &read_error);
-        if (!read_error.empty()) {
-            print_error(err, command_error::task_failed, read_error);
-            return command_error::task_failed;
-        }
-
-        const int limit = is_test_file(project_root, file) ? 8 : 5;
-        for (std::sregex_iterator
-                 it(contents.begin(), contents.end(), identifier_pattern),
-             end;
-             it != end; ++it) {
-            const std::string identifier = it->str();
-            if (naming_keywords().contains(identifier)
-                || allowlist.contains(identifier)) {
-                continue;
-            }
-
-            const int words = identifier.find('_') == std::string::npos
-                ? 1
-                : static_cast<int>(
-                      std::count(identifier.begin(), identifier.end(), '_')
-                      + 1
-                  );
-            if (words <= limit) {
-                continue;
-            }
-
-            const std::string relative
-                = file.lexically_relative(project_root).generic_string();
-            const std::string key = relative + "|" + identifier;
-            if (!seen.insert(key).second) {
-                continue;
-            }
-            violations.push_back(
-                relative + ": identifier '" + identifier + "' has "
-                + std::to_string(words)
-                + " words (limit: " + std::to_string(limit) + ")"
-            );
-        }
+    if (requested_artifact
+        && !resolve_artifact(manifest_value, requested_artifact)) {
+        print_error(
+            err, command_error::invalid_request,
+            "unknown artifact request: "
+                + format_artifact_ref(*requested_artifact)
+        );
+        return command_error::invalid_request;
     }
-
-    if (!violations.empty()) {
-        err << "naming violations:\n";
-        for (const std::string& violation : violations) {
-            err << "  " << violation << "\n";
-        }
-        print_error(err, command_error::task_failed, "naming check failed");
+    const auto report = analyze_personal_checks(
+        manifest_value, project_root, requested_artifact, profile
+    );
+    const auto report_path
+        = local_report_dir(project_root) / (profile + ".json");
+    std::string error;
+    if (!write_text_file(report_path, to_json(report).dump(2) + "\n", &error)) {
+        print_error(err, command_error::task_failed, error);
         return command_error::task_failed;
     }
-
-    out << "naming check passed\n";
+    render_personal_report(report, out);
+    out << profile << " report: "
+        << report_path.lexically_relative(project_root).generic_string()
+        << "\n";
+    if (!report.errors.empty()) {
+        for (const auto& message : report.errors)
+            err << message << "\n";
+        print_error(
+            err, command_error::task_failed, profile + " analysis failed"
+        );
+        return command_error::task_failed;
+    }
     return command_error::ok;
 }
 
@@ -301,6 +143,7 @@ command_error run_check_leaks(
             {
                 ctest_tool.path,
                 "--output-on-failure",
+                "--no-tests=error",
                 "-R",
                 ctest_regex_for(test_targets),
             },
@@ -372,6 +215,7 @@ command_error run_check_tests(
     std::vector<std::string> ctest_args {
         ctest_tool.path,
         "--output-on-failure",
+        "--no-tests=error",
         "-R",
         ctest_regex_for(test_targets),
     };
@@ -448,6 +292,7 @@ command_error run_check_coverage(
         {
             ctest_tool.path,
             "--output-on-failure",
+            "--no-tests=error",
             "-R",
             ctest_regex_for(test_targets),
         },
@@ -601,29 +446,31 @@ command_error run_check_tidy(
     const std::optional<artifact_ref>& requested_artifact,
     std::ostream& out, std::ostream& err
 ) {
-    ensure_local_artifacts(project_root, false, true, false);
     const std::optional<resolved_artifact> resolved
         = resolve_artifact(manifest_value, requested_artifact);
+    if (requested_artifact && !resolved) {
+        print_error(
+            err, command_error::invalid_request,
+            "unknown artifact request: "
+                + format_artifact_ref(*requested_artifact)
+        );
+        return command_error::invalid_request;
+    }
+    ensure_local_artifacts(project_root, false, true, false);
     const bool include_benchmarks = resolved.has_value()
         && component_is_benchmark_only(*resolved->component_value);
-    command_error status = run_configure_build_tree(
-        project_root, manifest_value, "debug",
-        has_tests_enabled(manifest_value), false, include_benchmarks, err
-    );
-    if (status != command_error::ok) {
-        return status;
+    if (probe_tool("clang-tidy").available) {
+        const command_error status = run_configure_build_tree(
+            project_root, manifest_value, "debug",
+            has_tests_enabled(manifest_value), false, include_benchmarks, err
+        );
+        if (status != command_error::ok) {
+            return status;
+        }
     }
-    const std::optional<std::string> component_filter
-        = requested_artifact.has_value()
-        ? std::make_optional(requested_artifact->component_id)
-        : std::nullopt;
     const tidy_check_report report = run_tidy_check(
-        manifest_value,
-        project_root,
-        component_filter,
-        true,
-        include_benchmarks,
-        "debug"
+        manifest_value, project_root, requested_artifact, true,
+        include_benchmarks, "debug"
     );
     const fs::path report_path = local_report_dir(project_root) / "tidy.json";
     std::string error_message;
@@ -633,68 +480,51 @@ command_error run_check_tidy(
         print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
+    out << "tidy report: "
+        << report_path.lexically_relative(project_root).generic_string()
+        << "\n";
+    if (!report.clang_tidy_used) {
+        const auto failure = report.clang_tidy_available
+            ? command_error::task_failed
+            : command_error::missing_local_tooling;
+        print_error(
+            err, failure,
+            "required tidy check did not run: " + report.clang_tidy_skip_reason
+        );
+        return failure;
+    }
+    if (report.clang_tidy_exit_code != 0) {
+        for (const auto& line : report.clang_tidy_output)
+            err << line << "\n";
+        print_error(
+            err, command_error::task_failed, "clang-tidy reported diagnostics"
+        );
+        return command_error::task_failed;
+    }
     if (!report.analysis.errors.empty() || report.analysis.total_errors > 0
         || report.analysis.total_warnings > 0) {
+        for (const auto& message : report.analysis.errors)
+            err << message << "\n";
+        for (const auto& source : report.analysis.sources)
+            for (const auto& diagnostic : source.diagnostics)
+                err << diagnostic << "\n";
         print_error(
             err, command_error::task_failed,
             "Clang analysis reported diagnostics"
         );
         return command_error::task_failed;
     }
-    if (report.clang_tidy_used && report.clang_tidy_exit_code != 0) {
-        print_error(
-            err, command_error::task_failed,
-            "clang-tidy reported diagnostics"
-        );
-        return command_error::task_failed;
-    }
-    out << "tidy report: "
-        << report_path.lexically_relative(project_root).generic_string();
-    if (!report.clang_tidy_used && !report.clang_tidy_skip_reason.empty()) {
-        out << " (" << report.clang_tidy_skip_reason << ")";
-    }
-    out << "\n";
     return command_error::ok;
 }
 
 command_error run_check_format(
     const fs::path& project_root, const manifest& manifest_value,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 ) {
-    const tool_status format_tool = probe_tool("clang-format");
-    if (!format_tool.available) {
-        print_error(
-            err, command_error::missing_local_tooling,
-            "clang-format is not available"
-        );
-        return command_error::missing_local_tooling;
-    }
-    ensure_local_artifacts(project_root, true, false, false);
-
-    std::vector<std::string> args {
-        format_tool.path,
-        "--dry-run",
-        "--Werror",
-        "-style=file",
-    };
-    for (const fs::path& file :
-         format_candidate_files(manifest_value, project_root)) {
-        args.push_back(file.string());
-    }
-    if (args.size() == 4U) {
-        out << "format: no files\n";
-        return command_error::ok;
-    }
-
-    if (run_command(args, project_root) != 0) {
-        print_error(
-            err, command_error::task_failed,
-            "clang-format reported formatting drift"
-        );
-        return command_error::task_failed;
-    }
-    out << "format check passed\n";
-    return command_error::ok;
+    return run_format_files(
+        project_root, manifest_value, requested_artifact, false, out, err
+    );
 }
 
 command_error run_check_doxy(
@@ -877,11 +707,13 @@ command_error run_check(
         );
     }
     if (profile == "format") {
-        return run_check_format(project_root, manifest_value, out, err);
-    }
-    if (profile == "naming") {
-        return run_check_naming(
+        return run_check_format(
             project_root, manifest_value, requested_artifact, out, err
+        );
+    }
+    if (profile == "naming" || profile == "style") {
+        return run_check_personal(
+            project_root, manifest_value, requested_artifact, profile, out, err
         );
     }
     if (profile == "repo") {
@@ -924,7 +756,9 @@ command_error run_check(
     if (status != command_error::ok) {
         return status;
     }
-    status = run_check_format(project_root, manifest_value, out, err);
+    status = run_check_format(
+        project_root, manifest_value, requested_artifact, out, err
+    );
     if (status != command_error::ok) {
         return status;
     }

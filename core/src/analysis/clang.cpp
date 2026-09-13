@@ -1,11 +1,13 @@
 #include "analysis/clang.hpp"
 
+#include "clang_internal.hpp"
 #include "workspace/project.hpp"
 #include "workspace/tooling.hpp"
 
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <optional>
 #include <sstream>
@@ -187,6 +189,7 @@ source_analysis analyze_single_file(
     analysis.file = source.path.lexically_relative(project_root).generic_string();
     analysis.component_id = source.component_id;
     analysis.category = source.category;
+    analysis.artifact = source.artifact;
 
     std::vector<std::string> owned_args
         = compilation_database_args(compilation_database, source.path);
@@ -216,6 +219,8 @@ source_analysis analyze_single_file(
     if (error_code != CXError_Success || translation_unit == nullptr) {
         analysis.error_count = 1;
         analysis.diagnostics.push_back("fatal: unable to parse translation unit");
+        if (translation_unit != nullptr)
+            clang_disposeTranslationUnit(translation_unit);
         return analysis;
     }
 
@@ -243,6 +248,36 @@ source_analysis analyze_single_file(
         }
         if (severity >= CXDiagnostic_Warning) {
             analysis.diagnostics.push_back(message);
+            diagnostic_finding finding;
+            finding.rule
+                = to_string(clang_getDiagnosticOption(diagnostic, nullptr));
+            if (finding.rule.empty())
+                finding.rule = "clang.diagnostic."
+                    + std::to_string(clang_getDiagnosticCategory(diagnostic));
+            finding.category
+                = to_string(clang_getDiagnosticCategoryText(diagnostic));
+            finding.severity = severity_name(severity);
+            finding.authority = "external";
+            finding.enforcement = "required";
+            finding.artifact = source.artifact;
+            finding.file = analysis.file;
+            CXFile location_file = nullptr;
+            clang_getExpansionLocation(
+                clang_getDiagnosticLocation(diagnostic), &location_file,
+                &finding.line, &finding.column, nullptr
+            );
+            if (location_file != nullptr) {
+                const fs::path path
+                    = to_string(clang_getFileName(location_file));
+                const auto relative = path.lexically_relative(project_root);
+                finding.file = relative.empty() ? path.generic_string()
+                                                : relative.generic_string();
+            }
+            finding.entity_kind = "translation_unit";
+            finding.entity = analysis.file;
+            finding.message
+                = to_string(clang_getDiagnosticSpelling(diagnostic));
+            analysis.findings.push_back(std::move(finding));
         }
         clang_disposeDiagnostic(diagnostic);
     }
@@ -261,34 +296,37 @@ source_analysis analyze_single_file(
 using namespace analysis_support;
 
 cxx_analysis_report analyze_project_sources(
-    const manifest& value,
-    const fs::path& project_root,
-    const std::optional<std::string>& component_filter,
-    const bool include_tests,
-    const bool include_benchmarks
+    const manifest& value, const fs::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact,
+    const bool include_tests, const bool include_benchmarks
 ) {
     cxx_analysis_report report;
     report.project_id = value.id;
+    report.requested_artifact = requested_artifact;
     report.cpp_standard = value.cpp_standard;
     report.tests_included = include_tests;
     report.benchmarks_included = include_benchmarks;
 
-    const std::vector<fs::path> include_dirs
-        = manifest_include_dirs(
-            value,
-            project_root,
-            component_filter,
-            include_tests,
-            include_benchmarks
+    if (requested_artifact && !resolve_artifact(value, requested_artifact)) {
+        report.errors.push_back(
+            "unknown artifact request: "
+            + format_artifact_ref(*requested_artifact)
         );
-    const std::vector<cxx_analysis_source> source_files
-        = cxx_analysis_sources(
-            value,
-            project_root,
-            component_filter,
-            include_tests,
-            include_benchmarks
-        );
+        return report;
+    }
+    manifest selected = value;
+    if (requested_artifact)
+        std::erase_if(selected.components, [&](const component& candidate) {
+            return candidate.id != requested_artifact->component_id
+                || !find_artifact(candidate, requested_artifact->artifact_id);
+        });
+
+    const std::vector<fs::path> include_dirs = manifest_include_dirs(
+        value, project_root, std::nullopt, include_tests, include_benchmarks
+    );
+    const std::vector<cxx_analysis_source> source_files = cxx_analysis_sources(
+        selected, project_root, std::nullopt, include_tests, include_benchmarks
+    );
 
     if (source_files.empty()) {
         report.errors.push_back("no source files available for Clang analysis");
@@ -304,15 +342,24 @@ cxx_analysis_report analyze_project_sources(
             &database_error
         );
         if (database_error != CXCompilationDatabase_NoError) {
-            compilation_database = nullptr;
+            report.errors.push_back(
+                "unable to load compile_commands.json for Clang analysis"
+            );
+            return report;
         }
     }
 
     const std::vector<std::string> system_include_args = detected_system_include_args();
     CXIndex index = clang_createIndex(0, 0);
+    if (index == nullptr) {
+        report.errors.push_back("unable to initialize Clang analysis");
+        if (compilation_database != nullptr)
+            clang_CompilationDatabase_dispose(compilation_database);
+        return report;
+    }
     for (const cxx_analysis_source& source_file : source_files) {
         std::error_code error;
-        if (!fs::exists(source_file.path, error)) {
+        if (!fs::is_regular_file(source_file.path, error)) {
             report.errors.push_back(
                 "missing source file: "
                 + source_file.path.lexically_relative(project_root)
@@ -329,6 +376,11 @@ cxx_analysis_report analyze_project_sources(
             system_include_args,
             source_file
         );
+        if (analysis.error_count > 0)
+            report.errors.push_back(
+                analysis.file
+                + ": C++ analysis incomplete: " + analysis.diagnostics.front()
+            );
         if (analysis.category == "tests") {
             ++report.test_files;
         } else if (analysis.category == "benchmarks") {
@@ -386,6 +438,12 @@ cxx_analysis_report analyze_project_sources(
 json to_json(const cxx_analysis_report& value) {
     json report = json::object();
     report["project"] = value.project_id;
+    report["profile"] = "cxx";
+    report["status"] = !value.errors.empty()                   ? "failed"
+        : (value.total_warnings > 0 || value.total_errors > 0) ? "findings"
+                                                               : "clean";
+    if (value.requested_artifact)
+        report["artifact"] = format_artifact_ref(*value.requested_artifact);
     report["cpp_standard"] = value.cpp_standard;
     report["tests_included"] = value.tests_included;
     report["benchmarks_included"] = value.benchmarks_included;
@@ -401,11 +459,15 @@ json to_json(const cxx_analysis_report& value) {
     report["total_namespaces"] = value.total_namespaces;
 
     json sources = json::array();
+    json findings = json::array();
     for (const source_analysis& source : value.sources) {
+        for (const auto& finding : source.findings)
+            findings.push_back(to_json(finding));
         json source_json = json::object();
         source_json["file"] = source.file;
         source_json["component"] = source.component_id;
         source_json["category"] = source.category;
+        source_json["artifact"] = source.artifact;
         source_json["warning_count"] = source.warning_count;
         source_json["error_count"] = source.error_count;
         source_json["function_count"] = source.function_count;
@@ -415,6 +477,7 @@ json to_json(const cxx_analysis_report& value) {
         sources.push_back(source_json);
     }
     report["sources"] = sources;
+    report["findings"] = findings;
 
     json components = json::array();
     for (const component_analysis_summary& component : value.component_summaries) {

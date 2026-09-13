@@ -20,12 +20,9 @@ struct tidy_check_report {
 };
 
 tidy_check_report run_tidy_check(
-    const manifest& value,
-    const std::filesystem::path& project_root,
-    const std::optional<std::string>& component_filter,
-    bool include_tests,
-    bool include_benchmarks,
-    const std::string& profile
+    const manifest& value, const std::filesystem::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact, bool include_tests,
+    bool include_benchmarks, const std::string& profile
 );
 
 json to_json(const tidy_check_report& value);

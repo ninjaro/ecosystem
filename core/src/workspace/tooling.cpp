@@ -559,7 +559,8 @@ int run_command(
 command_error configure_cmake_source_tree(
     const fs::path& source_dir, const fs::path& build_dir,
     const std::vector<std::string>& cmake_options,
-    const std::string& build_type, std::string* error_message
+    const std::string& build_type, std::string* error_message,
+    const bool capture_output
 ) {
     const tool_status cmake_tool = probe_tool("cmake");
     if (!cmake_tool.available) {
@@ -592,16 +593,16 @@ command_error configure_cmake_source_tree(
     };
     command.insert(command.end(), cmake_options.begin(), cmake_options.end());
 
-    const int configure_status = run_command(
-        command, source_dir,
-        {
-            { "CC",
-              clang_c_tool.available ? clang_c_tool.path : clang_tool.path },
-            { "CXX", clang_tool.path },
-        }
-    );
-    if (configure_status != 0) {
-        assign_error(error_message, "cmake configure failed");
+    const std::vector<std::pair<std::string, std::string>> environment {
+        { "CC", clang_c_tool.available ? clang_c_tool.path : clang_tool.path },
+        { "CXX", clang_tool.path },
+    };
+    const auto result = capture_output
+        ? capture_command_result(command, source_dir, environment)
+        : captured_command { run_command(command, source_dir, environment),
+                             {} };
+    if (result.exit_code != 0) {
+        assign_error(error_message, "cmake configure failed\n" + result.output);
         return command_error::task_failed;
     }
 
@@ -618,7 +619,8 @@ command_error configure_cmake_source_tree(
 command_error configure_build_tree(
     const fs::path& project_root, const manifest& manifest_value,
     const std::string& profile, const bool with_tests, const bool with_coverage,
-    const bool with_benchmarks, std::string* error_message
+    const bool with_benchmarks, std::string* error_message,
+    const bool capture_output
 ) {
     ensure_local_artifacts(project_root, false, false, false);
     const command_error surface_status = ensure_local_developer_surface(
@@ -695,10 +697,19 @@ command_error configure_build_tree(
             "-DECOSYSTEM_PROFILE_ANDROID=ON",
         };
 
-        const int configure_status
-            = run_command(command, local_developer_source_dir(project_root));
-        if (configure_status != 0) {
-            assign_error(error_message, "cmake configure failed");
+        const auto result = capture_output
+            ? capture_command_result(
+                  command, local_developer_source_dir(project_root)
+              )
+            : captured_command { run_command(
+                                     command,
+                                     local_developer_source_dir(project_root)
+                                 ),
+                                 {} };
+        if (result.exit_code != 0) {
+            assign_error(
+                error_message, "cmake configure failed\n" + result.output
+            );
             return command_error::task_failed;
         }
 
@@ -727,7 +738,7 @@ command_error configure_build_tree(
             std::string("-DECOSYSTEM_PROFILE_ANDROID=")
                 + (profile == "android" ? "ON" : "OFF"),
         },
-        cmake_build_type_for_profile(profile), error_message
+        cmake_build_type_for_profile(profile), error_message, capture_output
     );
 }
 

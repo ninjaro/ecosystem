@@ -46,11 +46,17 @@ std::string engels_usage_text() {
     return "usage: engels <command> [options] [arguments]\n"
            "\n"
            "commands:\n"
-           "  list [components|artifacts|profiles|platforms|matrix|projects|groups]\n"
+           "  list "
+           "[components|artifacts|profiles|platforms|matrix|projects|groups]\n"
            "  check <profile> [component:artifact] [--project <project> ...]\n"
            "  doctor [profile] [component:artifact] [--project <project> ...]\n"
            "  doctor <component:artifact> --profile <profile>\n"
-           "  report <kind> [component:artifact] [--project <project> ...]\n";
+           "  report <kind> [component:artifact] [--project <project> ...] "
+           "[--json]\n"
+           "\ncheck profiles: format tidy tests coverage leaks naming style "
+           "repo ci "
+           "doxy sphinx java\n"
+           "report kinds: matrix cxx naming style toolchains\n";
 }
 
 std::optional<engels_request> parse_engels_request(
@@ -98,7 +104,8 @@ std::optional<engels_request> parse_engels_request(
     }
     if (request.command == "report" && request.command_args.empty()) {
         *error_message = expected_usage(
-            "report <kind> [component:artifact] [--project <project> ...]"
+            "report <kind> [component:artifact] [--project <project> ...] "
+            "[--json]"
         );
         return std::nullopt;
     }

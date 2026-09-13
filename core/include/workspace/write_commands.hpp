@@ -11,6 +11,15 @@
 
 namespace ecosystem {
 
+command_error run_format(
+    const std::filesystem::path& project_root, const manifest& manifest_value,
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
+);
+command_error run_workspace_format(
+    const workspace_context& workspace, const workspace_scope& scope,
+    std::ostream& out, std::ostream& err
+);
 command_error run_sync(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     std::ostream& out, std::ostream& err
