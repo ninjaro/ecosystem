@@ -909,15 +909,19 @@ bool write_packages_gz(
     const fs::path& packages_gz_path,
     std::string* error_message
 ) {
-    const std::string gz_contents = capture_command(
-        { gzip_tool.path, "-n", "-c", packages_path.string() },
+    // gzip writes binary bytes directly to its file. Text capture truncates at
+    // embedded NUL bytes and must never carry a compressed archive.
+    const auto result = capture_command_result(
+        { gzip_tool.path, "-n", "-f", "-k", packages_path.string() },
         packages_path.parent_path()
     );
-    if (gz_contents.empty()) {
-        *error_message = "unable to compress Debian package index";
+    if (result.exit_code != 0 || !fs::is_regular_file(packages_gz_path)
+        || fs::file_size(packages_gz_path) == 0U) {
+        *error_message
+            = "unable to compress Debian package index\n" + result.output;
         return false;
     }
-    return write_text_file(packages_gz_path, gz_contents, error_message);
+    return true;
 }
 
 struct debian_release_file {
@@ -1436,15 +1440,13 @@ std::string prerelease_package_name(
         + "-" + normalize_package_token(artifact_value.id);
 }
 
-command_error create_prerelease_packages(
-    const fs::path& project_root,
-    const manifest& manifest_value,
-    const resolved_artifact& resolved,
+static command_error prepare_prerelease_packages(
+    const fs::path& project_root, const fs::path& publication_project_root,
+    const manifest& manifest_value, const resolved_artifact& resolved,
     const fs::path& built_artifact_path,
     const std::optional<std::string>& version_base,
     const prerelease_signing_options& signing_options,
-    prerelease_version* version,
-    prerelease_artifacts* artifacts,
+    prerelease_version* version, prerelease_artifacts* artifacts,
     std::string* error_message
 ) {
     const tool_status tar_tool = probe_tool("tar");
@@ -1462,7 +1464,8 @@ command_error create_prerelease_packages(
     }
 
     std::string state_error;
-    prerelease_state state = load_prerelease_state(project_root, &state_error);
+    prerelease_state state
+        = load_prerelease_state(publication_project_root, &state_error);
     if (!state_error.empty()) {
         *error_message = state_error;
         return command_error::task_failed;
@@ -1490,7 +1493,8 @@ command_error create_prerelease_packages(
     const std::string pacman_architecture = pacman_architecture_for_machine(machine);
     const std::int64_t build_epoch = static_cast<std::int64_t>(std::time(nullptr));
 
-    const fs::path work_dir = local_prerelease_work_dir(project_root)
+    const fs::path work_dir
+        = local_prerelease_work_dir(publication_project_root)
         / (package_state->package_name + "-" + version->logical_version);
     const fs::path payload_root = work_dir / "payload";
     std::uintmax_t installed_size = 0U;
@@ -1540,8 +1544,11 @@ command_error create_prerelease_packages(
         }
     }
 
-    artifacts->deb_repo_dir = local_prerelease_deb_dir(project_root);
-    artifacts->pacman_repo_dir = local_prerelease_pacman_dir(project_root, pacman_architecture);
+    artifacts->deb_repo_dir
+        = local_prerelease_deb_dir(publication_project_root);
+    artifacts->pacman_repo_dir = local_prerelease_pacman_dir(
+        publication_project_root, pacman_architecture
+    );
     std::error_code error;
     fs::create_directories(artifacts->deb_repo_dir, error);
     if (error) {
@@ -1557,17 +1564,12 @@ command_error create_prerelease_packages(
 
     command_error status = create_debian_package(
         work_dir,
-        local_prerelease_deb_pool_dir(project_root, package_state->package_name),
-        tar_tool,
-        ar_tool,
-        package_state->package_name,
-        *version,
-        debian_architecture,
-        package_state->description,
-        packager_string(),
-        payload_root,
-        installed_size,
-        &artifacts->deb_package_path,
+        local_prerelease_deb_pool_dir(
+            publication_project_root, package_state->package_name
+        ),
+        tar_tool, ar_tool, package_state->package_name, *version,
+        debian_architecture, package_state->description, packager_string(),
+        payload_root, installed_size, &artifacts->deb_package_path,
         error_message
     );
     if (status != command_error::ok) {
@@ -1606,54 +1608,258 @@ command_error create_prerelease_packages(
     package_state->latest_build_epoch = build_epoch;
     package_state->latest_files = installed_files;
 
-    if (!save_prerelease_state(project_root, state, error_message)) {
-        return command_error::task_failed;
-    }
-    clear_legacy_debian_flat_indexes(project_root);
+    clear_legacy_debian_flat_indexes(publication_project_root);
     if (!rewrite_debian_repo(
-            state,
-            manifest_value,
-            project_root,
-            gzip_tool,
-            sha256_tool,
-            build_epoch,
-            error_message)) {
+            state, manifest_value, publication_project_root, gzip_tool,
+            sha256_tool, build_epoch, error_message
+        )) {
         return command_error::task_failed;
     }
     if (!rewrite_pacman_repo(
-            state,
-            manifest_value,
-            project_root,
-            pacman_architecture,
-            tar_tool,
-            sha256_tool,
-            error_message)) {
+            state, manifest_value, publication_project_root,
+            pacman_architecture, tar_tool, sha256_tool, error_message
+        )) {
         return command_error::task_failed;
     }
     if (signing_options.sign) {
-        if (!rewrite_debian_signatures(project_root, gpg_tool, signing_options, error_message)) {
+        if (!rewrite_debian_signatures(
+                publication_project_root, gpg_tool, signing_options,
+                error_message
+            )) {
             return command_error::task_failed;
         }
         if (!rewrite_pacman_signatures(
-                state,
-                manifest_value,
-                project_root,
-                pacman_architecture,
-                gpg_tool,
-                signing_options,
-                error_message)) {
+                state, manifest_value, publication_project_root,
+                pacman_architecture, gpg_tool, signing_options, error_message
+            )) {
             return command_error::task_failed;
         }
     } else {
-        clear_debian_signatures(project_root);
-        clear_pacman_signatures(manifest_value, project_root, pacman_architecture);
+        clear_debian_signatures(publication_project_root);
+        clear_pacman_signatures(
+            manifest_value, publication_project_root, pacman_architecture
+        );
     }
 
-    artifacts->deb_packages_path = local_prerelease_deb_packages_path(project_root, debian_architecture);
-    artifacts->deb_packages_gz_path = local_prerelease_deb_packages_gz_path(project_root, debian_architecture);
+    artifacts->deb_packages_path = local_prerelease_deb_packages_path(
+        publication_project_root, debian_architecture
+    );
+    artifacts->deb_packages_gz_path = local_prerelease_deb_packages_gz_path(
+        publication_project_root, debian_architecture
+    );
     artifacts->pacman_db_path = artifacts->pacman_repo_dir
         / (normalize_package_token(manifest_value.id) + "-prerelease.db");
+    if (!save_prerelease_state(
+            publication_project_root, state, error_message
+        )) {
+        return command_error::task_failed;
+    }
     return command_error::ok;
+}
+
+namespace {
+
+    // Limit publication to these three owned entries. Work products remain
+    // available after a failed attempt; a failed rollback must never be erased
+    // by a retry.
+    const std::vector<fs::path> publication_entries { "deb", "pacman",
+                                                      "state.json" };
+
+    bool copy_published_release(
+        const fs::path& source, const fs::path& destination,
+        std::string* error_message
+    ) {
+        std::error_code error;
+        fs::create_directories(destination, error);
+        if (error) {
+            *error_message
+                = "unable to create release candidate: " + error.message();
+            return false;
+        }
+        for (const auto& entry : publication_entries) {
+            const auto path = source / entry;
+            if (!fs::exists(path))
+                continue;
+            // Publication trees contain generated regular files/directories.
+            // Never follow an alias while copying or rewriting a candidate
+            // repository.
+            if (fs::is_symlink(path)) {
+                *error_message = "release publication entry is a symlink: "
+                    + path.string();
+                return false;
+            }
+            if (fs::is_directory(path)) {
+                for (const auto& item :
+                     fs::recursive_directory_iterator(path)) {
+                    if (item.is_symlink()
+                        || (!item.is_directory() && !item.is_regular_file())) {
+                        *error_message
+                            = "unsupported release publication entry: "
+                            + item.path().string();
+                        return false;
+                    }
+                }
+            } else if (!fs::is_regular_file(path)) {
+                *error_message
+                    = "unsupported release publication entry: " + path.string();
+                return false;
+            }
+            fs::copy(
+                path, destination / entry, fs::copy_options::recursive, error
+            );
+            if (error) {
+                *error_message = "unable to copy previous release "
+                    + path.string() + ": " + error.message();
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool publish_release_candidate(
+        const fs::path& candidate, const fs::path& published,
+        const fs::path& previous, std::string* error_message
+    ) {
+        std::vector<fs::path> saved;
+        std::vector<fs::path> installed;
+        std::error_code error;
+        fs::create_directories(previous, error);
+        if (error) {
+            *error_message = "unable to create previous-release storage: "
+                + error.message();
+            return false;
+        }
+        for (const auto& entry : publication_entries) {
+            const bool existed = fs::exists(published / entry, error);
+            if (error)
+                break;
+            if (existed) {
+                fs::rename(published / entry, previous / entry, error);
+                if (error)
+                    break;
+                saved.push_back(entry);
+            }
+            fs::rename(candidate / entry, published / entry, error);
+            if (error)
+                break;
+            installed.push_back(entry);
+        }
+        if (!error) {
+            // Failure to clean the backup is visible on the next invocation,
+            // which refuses to discard it. The newly published release itself
+            // is complete.
+            fs::remove_all(previous, error);
+            return true;
+        }
+
+        *error_message = "unable to publish release: " + error.message();
+        bool restored = true;
+        for (auto item = installed.rbegin(); item != installed.rend(); ++item) {
+            fs::rename(published / *item, candidate / *item, error);
+            if (error) {
+                restored = false;
+                *error_message += "; unable to retire " + item->string() + ": "
+                    + error.message();
+            }
+        }
+        for (auto item = saved.rbegin(); item != saved.rend(); ++item) {
+            fs::rename(previous / *item, published / *item, error);
+            if (error) {
+                restored = false;
+                *error_message += "; unable to restore " + item->string() + ": "
+                    + error.message();
+            }
+        }
+        if (restored)
+            fs::remove(previous, error);
+        else
+            *error_message
+                += "; previous release retained at " + previous.string();
+        return false;
+    }
+
+} // namespace
+
+command_error create_prerelease_packages(
+    const fs::path& project_root, const manifest& manifest_value,
+    const resolved_artifact& resolved, const fs::path& built_artifact_path,
+    const std::optional<std::string>& version_base,
+    const prerelease_signing_options& signing_options,
+    prerelease_version* version, prerelease_artifacts* artifacts,
+    std::string* error_message
+) try {
+    *artifacts = {};
+    error_message->clear();
+    const auto published = local_prerelease_dir(project_root);
+    const auto attempt
+        = local_prerelease_work_dir(project_root) / "publication";
+    const auto previous = attempt / "previous";
+    const auto candidate_project = attempt / "candidate";
+    const auto candidate = local_prerelease_dir(candidate_project);
+    const auto path_errors = validate_project_paths(
+        project_root,
+        { previous.lexically_relative(project_root),
+          candidate.lexically_relative(project_root),
+          (published / "deb").lexically_relative(project_root),
+          (published / "pacman").lexically_relative(project_root),
+          (published / "state.json").lexically_relative(project_root) }
+    );
+    if (!path_errors.empty()) {
+        *error_message = path_errors.front();
+        return command_error::task_failed;
+    }
+    // Containment alone permits internal aliases. An aliased work directory
+    // could overlap the live repository and invalidate preparation isolation.
+    for (const auto& path :
+         { previous, candidate, published / "deb", published / "pacman",
+           published / "state.json" }) {
+        auto current = project_root;
+        for (const auto& part : path.lexically_relative(project_root)) {
+            current /= part;
+            if (fs::is_symlink(current)) {
+                *error_message = "release publication path is a symlink: "
+                    + current.string();
+                return command_error::task_failed;
+            }
+        }
+    }
+    if (fs::exists(previous)) {
+        *error_message = "previous release awaits recovery at "
+            + previous.string()
+            + "; inspect it and restore the release before retrying";
+        return command_error::task_failed;
+    }
+    if (!ensure_clean_directory(candidate_project, error_message)
+        || !copy_published_release(published, candidate, error_message)) {
+        return command_error::task_failed;
+    }
+    prerelease_artifacts prepared;
+    const auto status = prepare_prerelease_packages(
+        project_root, candidate_project, manifest_value, resolved,
+        built_artifact_path, version_base, signing_options, version, &prepared,
+        error_message
+    );
+    if (status != command_error::ok)
+        return status;
+    if (!publish_release_candidate(
+            candidate, published, previous, error_message
+        )) {
+        return command_error::task_failed;
+    }
+    for (auto* path :
+         { &prepared.deb_repo_dir, &prepared.deb_package_path,
+           &prepared.deb_packages_path, &prepared.deb_packages_gz_path,
+           &prepared.pacman_repo_dir, &prepared.pacman_package_path,
+           &prepared.pacman_db_path }) {
+        *path = published / path->lexically_relative(candidate);
+    }
+    *artifacts = std::move(prepared);
+    return command_error::ok;
+} catch (const std::exception& error) {
+
+    *error_message
+        = "unable to prepare prerelease: " + std::string(error.what());
+    return command_error::task_failed;
 }
 
 }  // namespace ecosystem

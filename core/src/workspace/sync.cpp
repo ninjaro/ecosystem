@@ -3,6 +3,7 @@
 #include "packages/package_summary.hpp"
 #include "packages/package_surface.hpp"
 #include "workspace/project.hpp"
+#include "workspace/source_dependencies.hpp"
 #include "workspace/template_text.hpp"
 #include "workspace/tooling.hpp"
 
@@ -233,8 +234,10 @@ namespace sync_support {
     }
 
     struct github_actions_vars {
-        std::string manifesto_repository = "ninjaro/cppr";
-        std::string manifesto_ref = "master";
+        std::string manifesto_bootstrap = "repository";
+        std::string manifesto_repository;
+        std::string manifesto_ref;
+        std::string manifesto_source_path = ".";
         std::string manifesto_setup_action
             = "./.github/actions/setup-manifesto";
         std::string manifesto_build_parallelism = "2";
@@ -439,7 +442,13 @@ namespace sync_support {
         }
 
         assign_string_field(
+            root, "manifesto_bootstrap", &vars.manifesto_bootstrap, errors
+        );
+        assign_string_field(
             root, "manifesto_repository", &vars.manifesto_repository, errors
+        );
+        assign_string_field(
+            root, "manifesto_source_path", &vars.manifesto_source_path, errors
         );
         assign_string_field(root, "manifesto_ref", &vars.manifesto_ref, errors);
         assign_string_field(
@@ -482,10 +491,66 @@ namespace sync_support {
         assign_string_field(
             root, "deploy_pages_action", &vars.deploy_pages_action, errors
         );
-        require_non_empty_field(
-            "manifesto_repository", vars.manifesto_repository, errors
-        );
-        require_non_empty_field("manifesto_ref", vars.manifesto_ref, errors);
+        if (vars.manifesto_bootstrap != "checkout"
+            && vars.manifesto_bootstrap != "repository") {
+            errors->push_back(
+                "manifesto_bootstrap must be checkout or repository in "
+                "manifesto.github.vars.json"
+            );
+        }
+        if (vars.manifesto_repository.empty() != vars.manifesto_ref.empty()) {
+            errors->push_back(
+                "manifesto_repository and manifesto_ref must be configured "
+                "together in manifesto.github.vars.json"
+            );
+        }
+        if (vars.manifesto_bootstrap == "checkout"
+            && (!vars.manifesto_repository.empty()
+                || !vars.manifesto_ref.empty())) {
+            errors->push_back(
+                "checkout bootstrap uses the revision under review; omit "
+                "manifesto_repository and manifesto_ref"
+            );
+        }
+        const fs::path source_path(vars.manifesto_source_path);
+        if (source_path.empty() || source_path.is_absolute()
+            || std::find(source_path.begin(), source_path.end(), fs::path(".."))
+                != source_path.end()) {
+            errors->push_back(
+                "manifesto_source_path must stay within the checkout in "
+                "manifesto.github.vars.json"
+            );
+        }
+        for (const auto* field :
+             { &vars.manifesto_repository, &vars.manifesto_ref,
+               &vars.manifesto_source_path }) {
+            if (std::any_of(
+                    field->begin(), field->end(),
+                    [](const unsigned char character) {
+                        return std::iscntrl(character);
+                    }
+                )
+                || field->find("${{") != std::string::npos) {
+                errors->push_back(
+                    "bootstrap repository, ref and source path must be literal "
+                    "single-line values in manifesto.github.vars.json"
+                );
+            }
+        }
+        if (vars.manifesto_build_parallelism.empty()
+            || vars.manifesto_build_parallelism.front() == '0'
+            || !std::all_of(
+                vars.manifesto_build_parallelism.begin(),
+                vars.manifesto_build_parallelism.end(),
+                [](const unsigned char character) {
+                    return std::isdigit(character);
+                }
+            )) {
+            errors->push_back(
+                "manifesto_build_parallelism must be a positive integer string "
+                "in manifesto.github.vars.json"
+            );
+        }
         require_non_empty_field(
             "manifesto_setup_action", vars.manifesto_setup_action, errors
         );
@@ -1043,8 +1108,11 @@ namespace sync_support {
     ) {
         return {
             { "project_id", value.id },
-            { "manifesto_repository", vars.manifesto_repository },
-            { "manifesto_ref", vars.manifesto_ref },
+            { "manifesto_bootstrap", json(vars.manifesto_bootstrap).dump() },
+            { "manifesto_repository", json(vars.manifesto_repository).dump() },
+            { "manifesto_ref", json(vars.manifesto_ref).dump() },
+            { "manifesto_source_path",
+              json(vars.manifesto_source_path).dump() },
             { "manifesto_setup_action", vars.manifesto_setup_action },
             { "manifesto_build_parallelism", vars.manifesto_build_parallelism },
             { "sphinx_theme", vars.sphinx_theme },
@@ -1239,116 +1307,29 @@ namespace sync_support {
         return std::nullopt;
     }
 
-    struct external_project_spec {
-        std::string repository;
-        std::string revision;
-        std::string component_id;
-    };
-
-    std::optional<external_project_spec>
-    external_project_for(const component& component_value) {
-        if (!component_value.stack.is_object()
-            || !component_value.stack.contains("external_project")) {
-            return std::nullopt;
-        }
-        const json& entry = component_value.stack.at("external_project");
-        if (!entry.is_object() || !entry.contains("repository")
-            || !entry.contains("revision") || !entry.contains("component")
-            || !entry.at("repository").is_string()
-            || !entry.at("revision").is_string()
-            || !entry.at("component").is_string()) {
-            return std::nullopt;
-        }
-        return external_project_spec {
-            entry.at("repository").get<std::string>(),
-            entry.at("revision").get<std::string>(),
-            entry.at("component").get<std::string>(),
-        };
-    }
-
-    std::string external_repository_id(const std::string& repository) {
-        std::string id = repository;
-        while (!id.empty() && id.back() == '/') {
-            id.pop_back();
-        }
-        const std::size_t separator = id.find_last_of('/');
-        if (separator != std::string::npos) {
-            id.erase(0U, separator + 1U);
-        }
-        if (id.ends_with(".git")) {
-            id.resize(id.size() - 4U);
-        }
-        return id;
-    }
-
     std::string render_external_project_component(
-        const std::string& project_id, const component& component_value,
-        const external_project_spec& external,
+        const component& component_value, const source_dependency& external,
         const std::vector<const artifact*>& artifacts
     ) {
-        const std::string variable_prefix
-            = to_upper_identifier(external_repository_id(external.repository));
-        const std::string local_source_variable
-            = variable_prefix + "_SOURCE_DIR";
-        const std::string owner_key = component_value.ownership
-            ? cmake_target_name({ component_value.id, artifacts.front()->id })
-            : component_value.id;
-        const std::string internal_prefix = "_" + project_id + "_" + owner_key;
-        // A private target prefix outside the authored identifier alphabet also
-        // prevents an artifact named external from aliasing its provider step.
-        const std::string external_target = component_value.ownership
-            ? "manifesto-external-" + owner_key
-            : component_value.id + "__external";
-
-        std::ostringstream build_targets;
-        std::ostringstream byproducts;
         std::ostringstream imported_targets;
         for (const artifact* artifact_value : artifacts) {
-            build_targets << "        " << external.component_id << "__"
-                          << artifact_value->id << "\n";
-            const std::string output_file = "${CMAKE_STATIC_LIBRARY_PREFIX}"
-                + artifact_value->name + "${CMAKE_STATIC_LIBRARY_SUFFIX}";
-            byproducts << "        <BINARY_DIR>/artifacts/" << output_file
-                       << "\n";
-
-            const std::string target_name = cmake_target_name(
-                artifact_ref {
-                    component_value.id,
-                    artifact_value->id,
-                }
-            );
+            const auto target
+                = cmake_target_name({ component_value.id, artifact_value->id });
             imported_targets
-                << "add_library(" << target_name << " STATIC IMPORTED GLOBAL)\n"
-                << "set_target_properties(" << target_name << " PROPERTIES\n"
-                << "    IMPORTED_LOCATION \"${" << internal_prefix
-                << "_binary_dir}/artifacts/" << output_file << "\"\n"
-                << "    INTERFACE_INCLUDE_DIRECTORIES \"${" << internal_prefix
-                << "_include_dir}\"\n"
-                << ")\n"
-                << "add_dependencies(" << target_name << " " << external_target
-                << ")\n\n";
+                << "add_library(" << target << " ALIAS " << external.package
+                << "::" << cmake_target_name(external.artifact) << ")\n";
         }
-
         return render_required_sync_template(
             "cmake/component/external_project.tpl",
-            {
-                { "repository_id",
-                  external_repository_id(external.repository) },
-                { "repository", external.repository },
-                { "revision", external.revision },
-                { "local_source_variable", local_source_variable },
-                { "internal_prefix", internal_prefix },
-                { "external_target", external_target },
-                { "component_root", component_value.root },
-                { "build_targets_block", build_targets.str() },
-                { "byproducts_block", byproducts.str() },
-                { "imported_targets_block", imported_targets.str() },
-            }
+            { { "package", external.package },
+              { "provider_target",
+                external.package
+                    + "::" + cmake_target_name(external.artifact) },
+              { "imported_targets_block", imported_targets.str() } }
         );
     }
 
-    std::set<std::string>
-    exported_library_keys(const manifest& value, string_list* warnings) {
+    std::set<std::string> exported_library_keys(const manifest& value) {
         std::set<std::string> keys;
         auto roots = value.install_artifacts;
         roots.push_back(value.facade_entry_artifact);
@@ -1357,27 +1338,11 @@ namespace sync_support {
             const auto ref = parse_artifact_ref(root);
             const auto resolved = resolve_artifact(value, ref);
             if (!resolved || !is_library_kind(resolved->artifact_value->kind)
-                || external_project_for(*resolved->component_value))
+                || source_dependency_for(*resolved->component_value))
                 continue;
             std::set<std::string> closure;
             refs.clear();
             collect_surface_artifacts(value, *ref, &refs, &closure);
-            const bool external = std::any_of(
-                refs.begin(), refs.end(), [&](const auto& dependency) {
-                    const auto item = resolve_artifact(value, dependency);
-                    return item
-                        && external_project_for(*item->component_value)
-                               .has_value();
-                }
-            );
-            if (external) {
-                warnings->push_back(
-                    "Skipping CMake package export for " + root
-                    + ": external_project dependencies require provider "
-                      "install metadata"
-                );
-                continue;
-            }
             keys.insert(closure.begin(), closure.end());
         }
         return keys;
@@ -1389,12 +1354,8 @@ namespace sync_support {
         auto result = value;
         result.components.clear();
         for (const auto* owner : selected_components(value, keys)) {
-            if (installed && external_project_for(*owner))
-                throw template_render_error(
-                    "installed library exports with external_project "
-                    "dependencies require provider install metadata: "
-                    + owner->id
-                );
+            if (installed && source_dependency_for(*owner))
+                continue;
             result.components.push_back(*owner);
             // Preserve every requirement used by component_link_targets,
             // including support targets contributed by tests/benchmarks.
@@ -1416,8 +1377,7 @@ namespace sync_support {
             : tracked_facade_artifact_keys(value);
         const std::vector<const component*> components
             = selected_components(value, selected_artifact_keys);
-        string_list export_warnings;
-        const auto export_keys = exported_library_keys(value, &export_warnings);
+        const auto export_keys = exported_library_keys(value);
         const dependency_summary dependencies = summarize_dependencies(
             package_manifest(value, selected_artifact_keys, false), std::nullopt
         );
@@ -1510,7 +1470,7 @@ namespace sync_support {
         }
 
         for (const component* component_value : components) {
-            if (external_project_for(*component_value).has_value()) {
+            if (source_dependency_for(*component_value).has_value()) {
                 continue;
             }
             const std::string prefix = to_upper_identifier(
@@ -1545,11 +1505,11 @@ namespace sync_support {
                 continue;
             }
 
-            if (const std::optional<external_project_spec> external
-                = external_project_for(*component_value);
+            if (const std::optional<source_dependency> external
+                = source_dependency_for(*component_value);
                 external.has_value()) {
                 stream << render_external_project_component(
-                    value.id, *component_value, *external, artifacts
+                    *component_value, *external, artifacts
                 );
                 continue;
             }
@@ -1816,7 +1776,7 @@ namespace sync_support {
         std::set<std::string> installed_header_components;
         for (const component* component_value :
              selected_components(value, install_artifact_keys)) {
-            if (external_project_for(*component_value).has_value()) {
+            if (source_dependency_for(*component_value).has_value()) {
                 continue;
             }
             for (const artifact* artifact_value :
@@ -1906,8 +1866,6 @@ namespace sync_support {
             }
         }
 
-        for (const auto& warning : export_warnings)
-            stream << "message(WARNING \"" << warning << "\")\n";
         if (!export_keys.empty()) {
             package_surface_options installed_options;
             installed_options.support_targets = true;
@@ -1918,6 +1876,24 @@ namespace sync_support {
                 ),
                 installed_options
             );
+            std::set<std::string> external_packages;
+            std::string first_exported_target;
+            for (const auto& key : export_keys) {
+                const auto resolved
+                    = resolve_artifact(value, parse_artifact_ref(key));
+                const auto external
+                    = source_dependency_for(*resolved->component_value);
+                if (external)
+                    external_packages.insert(external->package);
+                else if (first_exported_target.empty())
+                    first_exported_target
+                        = value.id + "::" + cmake_target_name(resolved->ref);
+            }
+            if (!external_packages.empty())
+                installed_packages += "include(CMakeFindDependencyMacro)\n";
+            for (const auto& package : external_packages)
+                installed_packages
+                    += "find_dependency(" + package + " CONFIG)\n";
             // Restore the consumer's profile variable after finding the
             // provider's dependencies.
             installed_packages = "set(_" + value.id
@@ -1931,11 +1907,7 @@ namespace sync_support {
             stream << render_required_sync_template(
                 "cmake/install_export_package.tpl",
                 { { "project_id", value.id },
-                  { "first_target",
-                    value.id + "::"
-                        + cmake_target_name(
-                            *parse_artifact_ref(*export_keys.begin())
-                        ) },
+                  { "first_target", first_exported_target },
                   { "package_surface", installed_packages } }
             ) << "\n";
         }
@@ -2048,6 +2020,12 @@ namespace sync_support {
 } // namespace sync_support
 
 using namespace sync_support;
+
+bool artifact_has_cmake_export(const manifest& value, const artifact_ref& ref) {
+    const auto resolved = resolve_artifact(value, ref);
+    return resolved && !source_dependency_for(*resolved->component_value)
+        && exported_library_keys(value).contains(format_artifact_ref(ref));
+}
 
 std::string
 generate_cmakelists(const manifest& value, const fs::path& project_root) {

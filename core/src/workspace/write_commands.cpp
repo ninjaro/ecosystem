@@ -1,6 +1,7 @@
 #include "workspace/write_commands.hpp"
 
 #include "command_internal.hpp"
+#include "workspace/source_dependencies.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -559,11 +560,13 @@ command_error run_build(
     if (status != command_error::ok) {
         return status;
     }
-    status = command_support::build_target(
-        project_root, profile, cmake_target_name(resolved->ref), err
-    );
-    if (status != command_error::ok) {
-        return status;
+    if (!source_dependency_for(*resolved->component_value)) {
+        status = command_support::build_target(
+            project_root, profile, cmake_target_name(resolved->ref), err
+        );
+        if (status != command_error::ok) {
+            return status;
+        }
     }
 
     out << "built " << format_artifact_ref(resolved->ref) << " in "

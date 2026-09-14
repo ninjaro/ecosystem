@@ -146,7 +146,7 @@ std::string
 read_text_file(const std::filesystem::path& path, std::string* error_message);
 void ensure_local_artifacts(
     const std::filesystem::path& project_root, bool with_clang_format,
-    bool with_clang_tidy, bool with_doxygen
+    bool with_clang_tidy
 );
 bool write_local_sphinx_conf(
     const std::filesystem::path& project_root, const std::string& project_name,

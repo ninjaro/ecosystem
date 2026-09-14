@@ -884,7 +884,7 @@ std::optional<fs::path> artifact_output_path(
     return std::nullopt;
 }
 
-std::vector<fs::path> format_candidate_files(
+std::vector<fs::path> declared_cpp_files(
     const manifest& value, const fs::path& project_root,
     const std::optional<artifact_ref>& requested_artifact
 ) {
@@ -908,8 +908,16 @@ std::vector<fs::path> format_candidate_files(
         append_unique_paths(&files, component_test_sources(project_root, component_value));
         append_unique_paths(&files, component_benchmark_sources(project_root, component_value));
     }
+    return files;
+}
+
+std::vector<fs::path> format_candidate_files(
+    const manifest& value, const fs::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact
+) {
     std::vector<fs::path> existing_files;
-    for (const fs::path& file : files) {
+    for (const fs::path& file :
+         declared_cpp_files(value, project_root, requested_artifact)) {
         std::error_code error;
         if (fs::exists(file, error) && !error) {
             existing_files.push_back(file);

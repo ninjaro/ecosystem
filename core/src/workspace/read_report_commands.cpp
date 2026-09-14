@@ -140,7 +140,7 @@ command_error run_report(
         );
         return command_error::invalid_request;
     }
-    ensure_local_artifacts(project_root, false, false, false);
+    ensure_local_artifacts(project_root, false, false);
 
     if (kind == "toolchains") {
         const json report = toolchains_report();
@@ -199,7 +199,7 @@ command_error run_workspace_report(
         if (validity != command_error::ok)
             return validity;
     }
-    ensure_local_artifacts(workspace.root, false, false, false);
+    ensure_local_artifacts(workspace.root, false, false);
 
     if (kind == "toolchains") {
         if (workspace_artifact_filter_count(scope) > 0U) {

@@ -379,8 +379,14 @@ namespace manifest_support {
             return;
         }
 
+        check_fields(
+            external,
+            { "repository", "revision", "package", "artifact", "component" },
+            context, errors
+        );
+
         for (const std::string field :
-             { "repository", "revision", "component" }) {
+             { "repository", "revision", "package", "artifact" }) {
             if (!external.contains(field) || !external.at(field).is_string()
                 || trim_copy(external.at(field).get<std::string>()).empty()) {
                 errors->push_back(
@@ -389,13 +395,52 @@ namespace manifest_support {
             }
         }
 
-        if (external.contains("component")
-            && external.at("component").is_string()
-            && !is_valid_id(external.at("component").get<std::string>())) {
+        if (external.contains("component")) {
             errors->push_back(
-                context + ".component must match ^[a-z][a-z0-9_]*$"
+                context
+                + ".component is obsolete; declare package and artifact "
+                  "install identities"
             );
         }
+        if (external.contains("package") && external.at("package").is_string()
+            && !is_valid_id(external.at("package").get<std::string>())) {
+            errors->push_back(
+                context + ".package must be a valid project identifier"
+            );
+        }
+        if (external.contains("artifact")
+            && external.at("artifact").is_string()) {
+            const auto ref = parse_artifact_ref(
+                external.at("artifact").get<std::string>()
+            );
+            if (!ref || !is_valid_id(ref->component_id)
+                || !is_valid_id(ref->artifact_id)) {
+                errors->push_back(
+                    context
+                    + ".artifact must name a valid provider component:artifact"
+                );
+            }
+        }
+        for (const auto* field : { "repository", "revision" }) {
+            if (external.contains(field) && external.at(field).is_string()) {
+                const auto text = external.at(field).get<std::string>();
+                if ((!text.empty() && text.front() == '-')
+                    || std::any_of(
+                        text.begin(), text.end(),
+                        [](const unsigned char character) {
+                            return std::iscntrl(character);
+                        }
+                    )) {
+                    errors->push_back(
+                        context + "." + field
+                        + " must be a literal source selector without control "
+                          "characters or a leading dash"
+                    );
+                }
+            }
+        }
+        if (component_value.artifacts.size() != 1)
+            errors->push_back(context + " must describe one imported artifact");
 
         const fs::path root(component_value.root);
         const std::string normalized = root.lexically_normal().generic_string();
@@ -423,18 +468,12 @@ namespace manifest_support {
             );
         }
         for (const artifact& artifact_value : component_value.artifacts) {
-            if (artifact_value.kind != "static_lib") {
+            if (artifact_value.kind != "static_lib"
+                && artifact_value.kind != "shared_lib"
+                && artifact_value.kind != "interface_lib") {
                 errors->push_back(
-                    "external_project currently supports static_lib "
-                    "artifacts only: "
-                    + component_value.id + ":" + artifact_value.id
-                );
-            }
-            if (trim_copy(artifact_value.name).empty()) {
-                errors->push_back(
-                    "external_project artifacts require their installed "
-                    "output name: "
-                    + component_value.id + ":" + artifact_value.id
+                    "external_project requires a library artifact: "
+                    + component_value.id
                 );
             }
         }

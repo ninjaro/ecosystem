@@ -100,6 +100,11 @@ std::vector<std::filesystem::path> format_candidate_files(
     const manifest& value, const std::filesystem::path& project_root,
     const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
+// All owned C/C++ inputs, including missing files so callers can diagnose them.
+std::vector<std::filesystem::path> declared_cpp_files(
+    const manifest& value, const std::filesystem::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
+);
 std::vector<cxx_analysis_source> cxx_analysis_sources(
     const manifest& value,
     const std::filesystem::path& project_root,

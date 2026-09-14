@@ -2,6 +2,7 @@
 
 #include "analysis/personal.hpp"
 #include "command_internal.hpp"
+#include "workspace/doxygen.hpp"
 #include "workspace/template_text.hpp"
 
 #include <algorithm>
@@ -86,7 +87,7 @@ command_error run_check_leaks(
         return command_error::unsupported_by_manifest;
     }
 
-    ensure_local_artifacts(project_root, false, false, false);
+    ensure_local_artifacts(project_root, false, false);
     std::string error_message;
     const command_error surface_status = ensure_local_developer_surface(
         project_root, manifest_value, &error_message
@@ -333,7 +334,7 @@ command_error run_check_coverage(
         return command_error::task_failed;
     }
 
-    ensure_local_artifacts(project_root, false, false, false);
+    ensure_local_artifacts(project_root, false, false);
     const fs::path report_path = local_report_dir(project_root) / "coverage.json";
     std::vector<std::string> export_args {
         cov_tool.path,
@@ -456,7 +457,7 @@ command_error run_check_tidy(
         );
         return command_error::invalid_request;
     }
-    ensure_local_artifacts(project_root, false, true, false);
+    ensure_local_artifacts(project_root, false, true);
     const bool include_benchmarks = resolved.has_value()
         && component_is_benchmark_only(*resolved->component_value);
     if (probe_tool("clang-tidy").available) {
@@ -528,8 +529,17 @@ command_error run_check_format(
 }
 
 command_error run_check_doxy(
-    const fs::path& project_root, std::ostream& out, std::ostream& err
+    const fs::path& project_root, const manifest& value,
+    const std::optional<artifact_ref>& requested, std::ostream& out,
+    std::ostream& err
 ) {
+    if (requested && !resolve_artifact(value, requested)) {
+        print_error(
+            err, command_error::invalid_request,
+            "unknown artifact request: " + format_artifact_ref(*requested)
+        );
+        return command_error::invalid_request;
+    }
     const tool_status doxygen_tool = probe_tool("doxygen");
     if (!doxygen_tool.available) {
         print_error(
@@ -538,17 +548,76 @@ command_error run_check_doxy(
         );
         return command_error::missing_local_tooling;
     }
-    try {
-        ensure_local_artifacts(project_root, false, false, true);
-    } catch (const template_render_error& error) {
-        print_error(err, command_error::task_failed, error.what());
+    if (!probe_tool("dot", { "-V" }).available) {
+        print_error(
+            err, command_error::missing_local_tooling,
+            "Graphviz dot is required by the shared Doxygen graph policy"
+        );
+        return command_error::missing_local_tooling;
+    }
+    std::string error;
+    if (!write_local_doxygen_config(project_root, value, requested, &error)) {
+        print_error(err, command_error::task_failed, error);
         return command_error::task_failed;
     }
-    if (run_command({ doxygen_tool.path, "Doxyfile" }, project_root) != 0) {
-        print_error(err, command_error::task_failed, "doxygen failed");
+    const auto directory = local_doxygen_dir(project_root, requested);
+    const auto config = (directory / "Doxyfile")
+                            .lexically_relative(project_root)
+                            .generic_string();
+    if (!prepare_local_doxygen_output(project_root, requested, &error)) {
+        print_error(err, command_error::task_failed, error);
         return command_error::task_failed;
     }
-    out << "doxygen generated in .ecosystem/doxygen\n";
+    const auto log = directory / "doxygen.log";
+    const auto result
+        = capture_command_result({ doxygen_tool.path, config }, project_root);
+    if (!write_text_file(log, result.output, &error)) {
+        print_error(err, command_error::task_failed, error);
+        return command_error::task_failed;
+    }
+    const auto warnings = read_text_file(directory / "warnings.log", &error);
+    if (!error.empty()) {
+        print_error(err, command_error::task_failed, error);
+        return command_error::task_failed;
+    }
+    out << "doxygen config: " << config << "\n"
+        << "doxygen log: "
+        << log.lexically_relative(project_root).generic_string() << "\n"
+        << "doxygen warnings: "
+        << (directory / "warnings.log")
+               .lexically_relative(project_root)
+               .generic_string()
+        << "\n";
+    // Doxygen can return zero after reporting execution errors, including a
+    // failed Graphviz process. Match its explicit severity, not warning prose.
+    const std::regex native_error(R"((^|\n)(error:|[^\n]*:[0-9]+: error:))");
+    if (result.exit_code != 0 || std::regex_search(warnings, native_error)
+        || std::regex_search(result.output, native_error)) {
+        err << result.output << warnings;
+        print_error(
+            err, command_error::task_failed,
+            (result.exit_code != 0 ? "doxygen failed (exit "
+                     + std::to_string(result.exit_code) + ")"
+                                   : "doxygen reported errors")
+                + " using " + config
+        );
+        return command_error::task_failed;
+    }
+    std::error_code output_error;
+    const auto index = directory / "html/index.html";
+    if (!fs::is_regular_file(index, output_error) || output_error
+        || fs::file_size(index, output_error) == 0 || output_error) {
+        err << result.output << warnings;
+        print_error(
+            err, command_error::task_failed,
+            "doxygen produced no HTML index using " + config + "; expected "
+                + index.lexically_relative(project_root).generic_string()
+        );
+        return command_error::task_failed;
+    }
+    out << "doxygen generated in "
+        << directory.lexically_relative(project_root).generic_string()
+        << "/html\n";
     return command_error::ok;
 }
 
@@ -720,7 +789,9 @@ command_error run_check(
         return run_check_repo(project_root, manifest_value, out, err);
     }
     if (profile == "doxy") {
-        return run_check_doxy(project_root, out, err);
+        return run_check_doxy(
+            project_root, manifest_value, requested_artifact, out, err
+        );
     }
     if (profile == "sphinx") {
         return run_check_sphinx(

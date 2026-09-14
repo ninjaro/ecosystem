@@ -1,0 +1,115 @@
+{
+  "id": "manifesto",
+  "description": "Self-hosting C++ project workflow with Marx and Engels.",
+  "install_artifacts": [
+    "marx:marx",
+    "engels:engels"
+  ],
+  "facade": "marx:marx",
+  "artifacts": [
+    {
+      "id": "core:core",
+      "kind": "static_lib",
+      "name": "manifesto_core",
+      "root": "core",
+      "owns": [
+        "analysis",
+        "manifest",
+        "packages",
+        "workspace",
+        "tests/manifesto_tests.cpp"
+      ],
+      "packages": {
+        "json": [
+          "nlohmann_json"
+        ],
+        "llvm_clang": [
+          "libclang"
+        ]
+      },
+      "tests": {
+        "selftest": true
+      }
+    },
+    {
+      "id": "frontend_support:cli_support",
+      "kind": "static_lib",
+      "name": "manifesto_frontend_support",
+      "root": "core",
+      "owns": [
+        "cli/common_args",
+        "cli/actor_cli"
+      ],
+      "dependencies": [
+        "core:core"
+      ],
+      "packages": {
+        "cxxopts": [
+          "cxxopts"
+        ]
+      }
+    },
+    {
+      "id": "engels:cli",
+      "kind": "static_lib",
+      "name": "engels_cli",
+      "root": "core",
+      "owns": [
+        "cli/engels_args",
+        "cli/engels_command",
+        "cli/engels_cli"
+      ],
+      "dependencies": [
+        "core:core",
+        "frontend_support:cli_support"
+      ],
+      "packages": {
+        "cxxopts": [
+          "cxxopts"
+        ]
+      }
+    },
+    {
+      "id": "engels:engels",
+      "kind": "exe",
+      "name": "engels",
+      "root": "core",
+      "owns": [],
+      "entry": "src/cli/engels_main.cpp",
+      "dependencies": [
+        "engels:cli"
+      ]
+    },
+    {
+      "id": "marx:cli",
+      "kind": "static_lib",
+      "name": "marx_cli",
+      "root": "core",
+      "owns": [
+        "cli/marx_args",
+        "cli/marx_command",
+        "cli/marx_cli"
+      ],
+      "dependencies": [
+        "core:core",
+        "frontend_support:cli_support"
+      ],
+      "packages": {
+        "cxxopts": [
+          "cxxopts"
+        ]
+      }
+    },
+    {
+      "id": "marx:marx",
+      "kind": "exe",
+      "name": "marx",
+      "root": "core",
+      "owns": [],
+      "entry": "src/cli/marx_main.cpp",
+      "dependencies": [
+        "marx:cli"
+      ]
+    }
+  ]
+}

@@ -18,6 +18,8 @@ struct tracked_surface_file {
     std::string contents;
 };
 
+bool artifact_has_cmake_export(const manifest& value, const artifact_ref& ref);
+
 // String generators throw template_render_error on a required render failure.
 // The tracked-surface generator translates that failure into errors when
 // supplied.

@@ -84,7 +84,7 @@ namespace command_support {
             );
             return command_error::missing_local_tooling;
         }
-        ensure_local_artifacts(project_root, true, false, false);
+        ensure_local_artifacts(project_root, true, false);
         if (files.empty()) {
             out << "format: no files\n";
             return command_error::ok;
@@ -641,7 +641,7 @@ namespace command_support {
     check_profile_supports_multi_artifact_filters(const std::string& profile) {
         return profile == "tests" || profile == "coverage" || profile == "leaks"
             || profile == "tidy" || profile == "format" || profile == "naming"
-            || profile == "style";
+            || profile == "style" || profile == "doxy";
     }
 
     bool is_runnable_artifact(const artifact& artifact_value) {

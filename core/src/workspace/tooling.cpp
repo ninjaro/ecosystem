@@ -1,6 +1,7 @@
 #include "workspace/tooling.hpp"
 
 #include "workspace/project.hpp"
+#include "workspace/source_dependencies.hpp"
 #include "workspace/sync.hpp"
 #include "workspace/template_text.hpp"
 
@@ -622,13 +623,21 @@ command_error configure_build_tree(
     const bool with_benchmarks, std::string* error_message,
     const bool capture_output
 ) {
-    ensure_local_artifacts(project_root, false, false, false);
+    ensure_local_artifacts(project_root, false, false);
     const command_error surface_status = ensure_local_developer_surface(
         project_root, manifest_value, error_message
     );
     if (surface_status != command_error::ok) {
         return surface_status;
     }
+
+    string_list dependency_options;
+    const auto dependency_status = prepare_source_dependencies(
+        project_root, manifest_value, profile, &dependency_options,
+        error_message
+    );
+    if (dependency_status != command_error::ok)
+        return dependency_status;
 
     if (profile == "android") {
         const android_environment environment = detect_android_environment();
@@ -723,21 +732,21 @@ command_error configure_build_tree(
         return command_error::ok;
     }
 
+    dependency_options.insert(
+        dependency_options.end(),
+        { "-DECOSYSTEM_PROJECT_ROOT:PATH=" + project_root.string(),
+          std::string("-DECOSYSTEM_BUILD_TESTS=") + (with_tests ? "ON" : "OFF"),
+          std::string("-DECOSYSTEM_BUILD_BENCHMARKS=")
+              + (with_benchmarks ? "ON" : "OFF"),
+          std::string("-DECOSYSTEM_ENABLE_COVERAGE=")
+              + (with_coverage ? "ON" : "OFF"),
+          std::string("-DECOSYSTEM_PROFILE_KDE=")
+              + (profile == "kde" ? "ON" : "OFF"),
+          "-DECOSYSTEM_PROFILE_ANDROID=OFF" }
+    );
     return configure_cmake_source_tree(
         local_developer_source_dir(project_root),
-        local_build_dir(project_root, profile),
-        {
-            std::string("-DECOSYSTEM_BUILD_TESTS=")
-                + (with_tests ? "ON" : "OFF"),
-            std::string("-DECOSYSTEM_BUILD_BENCHMARKS=")
-                + (with_benchmarks ? "ON" : "OFF"),
-            std::string("-DECOSYSTEM_ENABLE_COVERAGE=")
-                + (with_coverage ? "ON" : "OFF"),
-            std::string("-DECOSYSTEM_PROFILE_KDE=")
-                + (profile == "kde" ? "ON" : "OFF"),
-            std::string("-DECOSYSTEM_PROFILE_ANDROID=")
-                + (profile == "android" ? "ON" : "OFF"),
-        },
+        local_build_dir(project_root, profile), dependency_options,
         cmake_build_type_for_profile(profile), error_message, capture_output
     );
 }
@@ -749,7 +758,7 @@ command_error ensure_local_developer_surface(
     const fs::path cmake_path = local_developer_cmakelists_path(project_root);
     const std::string generated_cmake
         = generate_developer_cmakelists(manifest_value, project_root);
-    ensure_local_artifacts(project_root, false, false, false);
+    ensure_local_artifacts(project_root, false, false);
     std::string read_error;
     const std::string current_contents
         = read_text_file(cmake_path, &read_error);
@@ -908,7 +917,7 @@ std::string read_text_file(const fs::path& path, std::string* error_message) {
 
 void ensure_local_artifacts(
     const fs::path& project_root, const bool with_clang_format,
-    const bool with_clang_tidy, const bool with_doxygen
+    const bool with_clang_tidy
 ) {
     const fs::path state_root = local_state_dir(project_root);
     fs::create_directories(state_root / "source");
@@ -917,24 +926,8 @@ void ensure_local_artifacts(
 
     static_cast<void>(with_clang_format);
     static_cast<void>(with_clang_tidy);
-    // Tracked style surfaces are owned by `ecos sync`;
+    // Tracked style surfaces are owned by `marx sync`;
     // build/check/doctor/report only materialize ignored local artifacts.
-    if (with_doxygen) {
-        const auto path_errors
-            = validate_project_paths(project_root, { "Doxyfile" });
-        if (!path_errors.empty()) {
-            throw template_render_error("Doxyfile: " + path_errors.front());
-        }
-        std::string error_message;
-        if (!write_template_artifact_candidates(
-                project_root / "Doxyfile",
-                { "Doxyfile", "tooling/Doxyfile.tpl" },
-                { { "project_name", project_root.filename().string() } },
-                &error_message
-            )) {
-            throw template_render_error("Doxyfile: " + error_message);
-        }
-    }
 }
 
 bool write_local_sphinx_conf(

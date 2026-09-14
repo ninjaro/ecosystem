@@ -95,7 +95,10 @@ command_error run_doctor(
                 const tool_status doxygen_tool = probe_tool("doxygen");
                 out << "doxygen: "
                     << (doxygen_tool.available ? "ok" : "missing") << "\n";
-                if (!doxygen_tool.available) {
+                const tool_status dot_tool = probe_tool("dot", { "-V" });
+                out << "Graphviz dot: "
+                    << (dot_tool.available ? "ok" : "missing") << "\n";
+                if (!doxygen_tool.available || !dot_tool.available) {
                     return command_error::missing_local_tooling;
                 }
             }
