@@ -29,6 +29,12 @@ struct file_unit {
     std::string kind;
 };
 
+struct qml_module {
+    std::string uri;
+    std::string version;
+    string_list files;
+};
+
 struct source_ownership {
     string_list scopes;
     std::string entry;
@@ -37,6 +43,7 @@ struct source_ownership {
     std::vector<std::filesystem::path> sources;
     std::vector<std::filesystem::path> tests;
     std::vector<std::filesystem::path> benchmarks;
+    std::optional<qml_module> qml;
 };
 
 struct component {

@@ -26,6 +26,10 @@ namespace manifest_support {
     const std::regex project_version_pattern(
         "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
     );
+    const std::regex qml_uri_pattern(
+        "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$"
+    );
+    const std::regex qml_version_pattern("^[0-9]+\\.[0-9]+$");
     const std::set<std::string> artifact_kinds {
         "static_lib", "shared_lib", "interface_lib", "exe", "qt_app",
     };
@@ -294,7 +298,7 @@ namespace manifest_support {
             check_fields(
                 item,
                 { "id", "kind", "name", "description", "root", "owns", "entry",
-                  "dependencies", "packages", "tests", "benchmarks" },
+                  "dependencies", "packages", "tests", "benchmarks", "qml" },
                 context, errors
             );
             const std::string identity
@@ -320,6 +324,21 @@ namespace manifest_support {
             if (item.contains("entry"))
                 owner.ownership->entry
                     = require_string(item, "entry", context, errors);
+            if (item.contains("qml")) {
+                const json qml = require_object(item, "qml", context, errors);
+                qml_module module;
+                module.uri = require_string(qml, "uri", context + ".qml", errors);
+                module.version
+                    = require_string(qml, "version", context + ".qml", errors);
+                module.files = authored_list(
+                    qml, "files", context + ".qml", errors, true
+                );
+                check_fields(
+                    qml, { "uri", "version", "files" }, context + ".qml",
+                    errors
+                );
+                owner.ownership->qml = std::move(module);
+            }
             for (const auto& [field, destination] :
                  std::vector<std::pair<std::string, json*>> {
                      { "packages", &owner.stack },
@@ -744,6 +763,55 @@ string_list validate_manifest(const manifest& value) {
                         "library artifact must not declare an entry: "
                         + component_value.id + ":" + item.id
                     );
+                if (owned.qml.has_value()) {
+                    if (item.kind != "qt_app")
+                        errors.push_back(
+                            "artifact.qml requires a qt_app artifact: "
+                            + component_value.id + ":" + item.id
+                        );
+                    if (component_value.root != "app")
+                        errors.push_back(
+                            "artifact.qml must be rooted at app/: "
+                            + component_value.id + ":" + item.id
+                        );
+                    if (!std::regex_match(owned.qml->uri, qml_uri_pattern))
+                        errors.push_back(
+                            "artifact.qml.uri must be a dotted QML module "
+                            "identifier: "
+                            + component_value.id + ":" + item.id
+                        );
+                    if (!std::regex_match(
+                            owned.qml->version, qml_version_pattern
+                        ))
+                        errors.push_back(
+                            "artifact.qml.version must have major.minor "
+                            "form: "
+                            + component_value.id + ":" + item.id
+                        );
+                    std::set<std::string> qml_files;
+                    for (const std::string& file : owned.qml->files) {
+                        const fs::path path(file);
+                        if (!safe_owned_path(file)
+                            || path.extension() != ".qml"
+                            || path.begin()->string() != "qml") {
+                            errors.push_back(
+                                "artifact.qml.files must contain safe "
+                                "qml/*.qml paths: "
+                                + component_value.id + ":" + file
+                            );
+                        }
+                        if (!qml_files.insert(file).second)
+                            errors.push_back(
+                                "duplicate artifact.qml file: "
+                                + component_value.id + ":" + file
+                            );
+                    }
+                    if (owned.qml->files.empty())
+                        errors.push_back(
+                            "artifact.qml.files must not be empty: "
+                            + component_value.id + ":" + item.id
+                        );
+                }
             }
         }
 
@@ -1340,6 +1408,14 @@ json to_json(const manifest& value) {
                 authored["tests"] = owner.tests;
             if ((owner.ownership || index == 0) && !owner.benchmarks.empty())
                 authored["benchmarks"] = owner.benchmarks;
+            if (owner.ownership && owner.ownership->qml.has_value()) {
+                const qml_module& module = *owner.ownership->qml;
+                authored["qml"] = {
+                    { "uri", module.uri },
+                    { "version", module.version },
+                    { "files", module.files },
+                };
+            }
             root["artifacts"].push_back(std::move(authored));
         }
     }
