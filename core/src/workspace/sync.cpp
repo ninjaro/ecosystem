@@ -196,6 +196,23 @@ namespace sync_support {
         return files;
     }
 
+    std::vector<fs::path> component_qml_files(
+        const fs::path& project_root, const component& component_value
+    ) {
+        std::vector<fs::path> files;
+        if (!component_value.ownership
+            || !component_value.ownership->qml.has_value()) {
+            return files;
+        }
+        for (const std::string& file :
+             component_value.ownership->qml->files) {
+            files.push_back(
+                (project_root / component_value.root / file).lexically_normal()
+            );
+        }
+        return files;
+    }
+
     std::string link_scope_for_artifact(const artifact& artifact_value) {
         if (artifact_value.kind == "interface_lib") {
             return "INTERFACE";
@@ -727,6 +744,48 @@ namespace sync_support {
         return render_runnable_artifact_block(
             "cmake/artifact/qt_app.tpl", target_name, header_lines,
             source_lines, indent
+        );
+    }
+
+    std::string source_path_expression(
+        const std::string& source_root_expression, const fs::path& project_root,
+        const fs::path& path
+    );
+
+    std::string render_qml_module_block(
+        const std::string& target_name, const qml_module& module,
+        const std::vector<fs::path>& files, const fs::path& project_root,
+        const std::string& source_root_expression,
+        const std::string& indent
+    ) {
+        std::vector<std::string> qml_file_lines;
+        std::vector<std::string> resource_alias_lines;
+        for (std::size_t index = 0; index < files.size(); ++index) {
+            const fs::path& file = files.at(index);
+            qml_file_lines.push_back(source_path_expression(
+                source_root_expression, project_root, file
+            ));
+            const fs::path alias = fs::path(module.files.at(index))
+                                       .lexically_relative(fs::path("qml"));
+            resource_alias_lines.push_back(
+                "set_source_files_properties("
+                + qml_file_lines.back()
+                + " PROPERTIES QT_RESOURCE_ALIAS "
+                + alias.generic_string() + ")"
+            );
+        }
+        return render_indented_sync_template(
+            "cmake/artifact/qt_qml_module.tpl",
+            {
+                { "target_name", target_name },
+                { "qml_uri", module.uri },
+                { "qml_version", module.version },
+                { "resource_alias_block",
+                  newline_terminated_lines(resource_alias_lines) },
+                { "qml_files_block",
+                  indented_lines_block(qml_file_lines, "    ") },
+            },
+            indent
         );
     }
 
@@ -1598,6 +1657,15 @@ namespace sync_support {
                     stream << render_qt_app_artifact_block(
                         target_name, header_lines, source_lines, indent
                     ) << "\n";
+                    if (component_value->ownership
+                        && component_value->ownership->qml.has_value()) {
+                        stream << render_qml_module_block(
+                            target_name,
+                            *component_value->ownership->qml,
+                            component_qml_files(project_root, *component_value),
+                            project_root, source_root_expression, indent
+                        ) << "\n";
+                    }
                 } else {
                     const std::vector<std::string> source_lines
                         = runnable_source_lines(
