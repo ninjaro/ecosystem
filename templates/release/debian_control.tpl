@@ -6,3 +6,4 @@ Architecture: {{architecture}}
 Installed-Size: {{installed_size_kib}}
 Maintainer: {{packager}}
 Description: {{description}}
+{{dependencies}}

@@ -1,5 +1,6 @@
 #include "workspace/release.hpp"
 
+#include "packages/package_cache.hpp"
 #include "workspace/template_text.hpp"
 
 #include <algorithm>
@@ -8,11 +9,14 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <iomanip>
+#include <map>
 #include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -22,6 +26,21 @@ namespace ecosystem {
 namespace release_support {
 
 const std::regex semver_pattern("^[0-9]+\\.[0-9]+\\.[0-9]+$");
+const std::regex pacman_package_pattern("^[a-zA-Z0-9@_+][a-zA-Z0-9@._+-]*$");
+const std::regex pacman_version_pattern("^[a-zA-Z0-9._+:~-]+$");
+const std::regex debian_package_pattern("^[a-z0-9][a-z0-9+.-]+(:[a-z0-9-]+)?$");
+const std::regex debian_dependency_pattern(
+    "^[a-z0-9][a-z0-9+.-]+(:[a-z0-9-]+)? \\(>= [a-zA-Z0-9._+:~-]+\\)$"
+);
+
+bool valid_pacman_dependency(const std::string& value) {
+    const auto separator = value.find(">=");
+    return separator != std::string::npos
+        && std::regex_match(value.substr(0, separator), pacman_package_pattern)
+        && std::regex_match(
+               value.substr(separator + 2), pacman_version_pattern
+        );
+}
 
 struct prerelease_package_state {
     std::string package_name;
@@ -39,6 +58,8 @@ struct prerelease_package_state {
     std::uintmax_t latest_installed_size = 0U;
     std::int64_t latest_build_epoch = 0;
     std::vector<std::string> latest_files;
+    string_list latest_pacman_dependencies;
+    string_list latest_debian_dependencies;
 };
 
 struct prerelease_state {
@@ -246,11 +267,13 @@ json package_state_to_json(const prerelease_package_state& value) {
         root["latest_debian_version"] = value.latest_debian_version;
         root["latest_debian_architecture"] = value.latest_debian_architecture;
         root["latest_debian_package"] = value.latest_debian_package;
+        root["latest_debian_dependencies"] = value.latest_debian_dependencies;
     }
     if (!value.latest_pacman_version.empty()) {
         root["latest_pacman_version"] = value.latest_pacman_version;
         root["latest_pacman_architecture"] = value.latest_pacman_architecture;
         root["latest_pacman_package"] = value.latest_pacman_package;
+        root["latest_pacman_dependencies"] = value.latest_pacman_dependencies;
     }
     if (value.latest_installed_size > 0U) {
         root["latest_installed_size"] = value.latest_installed_size;
@@ -315,6 +338,46 @@ prerelease_package_state package_state_from_json(const json& root) {
             if (entry.is_string()) {
                 value.latest_files.push_back(entry.get<std::string>());
             }
+        }
+    }
+    if (root.contains("latest_pacman_dependencies")) {
+        const auto& dependencies = root.at("latest_pacman_dependencies");
+        if (!dependencies.is_array())
+            throw std::runtime_error(
+                "invalid persisted Pacman dependencies for "
+                + value.package_name
+            );
+        for (const auto& dependency : dependencies) {
+            if (!dependency.is_string()
+                || !valid_pacman_dependency(dependency.get<std::string>()))
+                throw std::runtime_error(
+                    "invalid persisted Pacman dependency for "
+                    + value.package_name
+                );
+            value.latest_pacman_dependencies.push_back(
+                dependency.get<std::string>()
+            );
+        }
+    }
+    if (root.contains("latest_debian_dependencies")) {
+        const auto& dependencies = root.at("latest_debian_dependencies");
+        if (!dependencies.is_array())
+            throw std::runtime_error(
+                "invalid persisted Debian dependencies for "
+                + value.package_name
+            );
+        for (const auto& dependency : dependencies) {
+            if (!dependency.is_string()
+                || !std::regex_match(
+                    dependency.get<std::string>(), debian_dependency_pattern
+                ))
+                throw std::runtime_error(
+                    "invalid persisted Debian dependency for "
+                    + value.package_name
+                );
+            value.latest_debian_dependencies.push_back(
+                dependency.get<std::string>()
+            );
         }
     }
     return value;
@@ -594,12 +657,9 @@ std::vector<std::string> collect_relative_files(const fs::path& root) {
 }
 
 bool stage_package_payload(
-    const fs::path& project_root,
-    const resolved_artifact& resolved,
-    const fs::path& built_artifact_path,
-    const fs::path& stage_root,
-    std::uintmax_t* installed_size,
-    std::vector<std::string>* installed_files,
+    const fs::path& project_root, const resolved_artifact& resolved,
+    const fs::path& built_artifact_path, const fs::path& stage_root,
+    const bool install_assets, std::map<fs::path, fs::path>* payload_sources,
     std::string* error_message
 ) {
     const std::string install_subdirectory = package_install_subdirectory(*resolved.artifact_value);
@@ -632,15 +692,459 @@ bool stage_package_payload(
         return false;
     }
 
-    if ((resolved.artifact_value->kind == "exe" || resolved.artifact_value->kind == "qt_app")
-        && project_has_assets_dir(project_root)
-        && !copy_directory_tree(project_root / "assets", install_dir / "assets", error_message)) {
+    if ((resolved.artifact_value->kind == "exe"
+         || resolved.artifact_value->kind == "qt_app")
+        && install_assets && project_has_assets_dir(project_root)
+        && !copy_directory_tree(
+            project_root / "assets", install_dir / "assets", error_message
+        )) {
         return false;
     }
 
-    *installed_size = directory_file_size(stage_root);
-    *installed_files = collect_relative_files(stage_root);
+    payload_sources->emplace(destination, built_artifact_path);
     return true;
+}
+
+bool stage_tooling_templates(
+    const fs::path& project_root, const manifest& value,
+    const artifact_ref& primary, const fs::path& stage_root,
+    std::string* error_message
+) {
+    if (value.id != "manifesto")
+        return true;
+    bool has_actor = false;
+    for (const auto& ref : distribution_artifacts(value, primary)) {
+        const auto item = resolve_artifact(value, ref);
+        if (!item || item->artifact_value->kind != "exe")
+            continue;
+        const auto name = artifact_output_name(
+            value, *item->component_value, *item->artifact_value
+        );
+        has_actor = has_actor || name == "marx" || name == "engels";
+    }
+    if (!has_actor)
+        return true;
+
+    // Packages have a fixed /usr/bin + /usr/share layout. Reject a differently
+    // configured tooling build instead of shipping data its actors cannot find.
+    if (const auto cache
+        = load_cmake_cache(local_build_cache_path(project_root, "release"))) {
+        auto directory
+            = [&](const std::string& key, const std::string& fallback) {
+                  const auto entry = cache->entries.find(key);
+                  return entry == cache->entries.end() || entry->second.empty()
+                      ? fallback
+                      : entry->second;
+              };
+        if (directory("CMAKE_INSTALL_BINDIR", "bin") != "bin"
+            || directory(
+                   "CMAKE_INSTALL_DATADIR",
+                   directory("CMAKE_INSTALL_DATAROOTDIR", "share")
+               ) != "share") {
+            *error_message
+                = "tooling prerelease requires CMAKE_INSTALL_BINDIR=bin and "
+                  "CMAKE_INSTALL_DATADIR=share; "
+                  "use those directories in the release build or use cmake "
+                  "--install for a custom layout";
+            return false;
+        }
+    }
+
+    const auto source = project_root / "templates";
+    if (!fs::is_directory(source) || fs::is_symlink(source)) {
+        *error_message
+            = "tooling package requires its source template bundle at "
+            + source.string();
+        return false;
+    }
+    bool has_files = false;
+    for (const auto& entry : fs::recursive_directory_iterator(source)) {
+        if (entry.is_symlink()
+            || (!entry.is_directory() && !entry.is_regular_file())) {
+            *error_message = "unsupported tooling template entry: "
+                + entry.path().string();
+            return false;
+        }
+        has_files = has_files || entry.is_regular_file();
+    }
+    if (!has_files) {
+        *error_message = "tooling template bundle is empty: " + source.string();
+        return false;
+    }
+    // Ship the built project's data, independently of execution-time template
+    // overrides and install_assets. Hidden tracked/ directories are included.
+    return copy_directory_tree(
+        source, stage_root / "usr/share/manifesto/templates", error_message
+    );
+}
+
+bool is_elf_file(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    char magic[4] {};
+    input.read(magic, sizeof(magic));
+    return input.gcount() == 4 && magic[0] == '\x7f' && magic[1] == 'E'
+        && magic[2] == 'L' && magic[3] == 'F';
+}
+
+std::string cmake_path_argument(const fs::path& path) {
+    const auto value = path.generic_string();
+    if (value.find_first_of(";\r\n") != std::string::npos)
+        throw std::runtime_error(
+            "package runtime paths cannot contain semicolons or line breaks: "
+            + value
+        );
+    std::string delimiter = "=";
+    while (value.find("]" + delimiter + "]") != std::string::npos)
+        delimiter += "=";
+    return "[" + delimiter + "[" + value + "]" + delimiter + "]";
+}
+
+bool path_within(const fs::path& path, const fs::path& root) {
+    const auto relative = path.lexically_relative(root);
+    return !relative.empty() && !relative.is_absolute()
+        && std::find(relative.begin(), relative.end(), fs::path(".."))
+        == relative.end();
+}
+
+bool stage_runtime_dependencies(
+    const fs::path& project_root, const fs::path& stage_root,
+    const fs::path& work_dir, std::map<fs::path, fs::path>* payload_sources,
+    std::set<fs::path>* system_libraries, std::string* error_message
+) {
+    std::string executables;
+    std::string libraries;
+    for (const auto& [destination, source] : *payload_sources) {
+        if (!is_elf_file(source))
+            continue;
+        auto& inputs = destination.parent_path() == stage_root / "usr/bin"
+            ? executables
+            : libraries;
+        inputs += "    " + cmake_path_argument(source) + "\n";
+    }
+    if (executables.empty() && libraries.empty())
+        return true;
+
+    const auto cmake = find_command_path("cmake");
+    if (cmake.empty()) {
+        *error_message
+            = "ELF package runtime inspection requires cmake and objdump";
+        return false;
+    }
+    const auto resolved_path = work_dir / "runtime-libraries.txt";
+    const auto script_path = work_dir / "runtime-scan.cmake";
+    const auto script = render_text_template(
+        "release/runtime_scan.cmake.tpl",
+        { { "executables", executables },
+          { "libraries", libraries },
+          { "directories", "" },
+          { "resolved_path", cmake_path_argument(resolved_path) } },
+        error_message
+    );
+    if (!error_message->empty()
+        || !write_text_file(script_path, script, error_message))
+        return false;
+    const auto scanned = capture_command_result(
+        { cmake, "-P", script_path.string() }, work_dir
+    );
+    if (!write_text_file(
+            work_dir / "runtime-scan.log", scanned.output, error_message
+        ))
+        return false;
+    if (scanned.exit_code != 0) {
+        *error_message = "package runtime dependency inspection failed:\n"
+            + scanned.output;
+        return false;
+    }
+    const auto resolved_text = read_text_file(resolved_path, error_message);
+    if (!error_message->empty())
+        return false;
+    std::istringstream resolved(resolved_text);
+    json inventory { { "bundled", json::array() },
+                     { "system", json::array() } };
+    const auto owned_root = fs::canonical(project_root);
+    for (std::string line; std::getline(resolved, line);) {
+        if (line.empty())
+            continue;
+        const fs::path dependency(line);
+        const auto canonical = fs::canonical(dependency);
+        if (!path_within(canonical, owned_root)) {
+            bool system = false;
+            for (const auto& prefix :
+                 { "/lib", "/lib64", "/usr/lib", "/usr/lib64" }) {
+                if (path_within(canonical, fs::weakly_canonical(prefix))) {
+                    system = true;
+                    break;
+                }
+            }
+            if (!system) {
+                *error_message = "unsupported package runtime library outside "
+                                 "the project and system library directories: "
+                    + dependency.string()
+                    + "; use an installed system package or a managed source "
+                      "provider";
+                return false;
+            }
+            inventory["system"].push_back(dependency.generic_string());
+            system_libraries->insert(canonical);
+            continue;
+        }
+
+        // Keep every name in a SONAME symlink chain. Regular payload copies
+        // remain compatible with the existing archive and file-list machinery.
+        fs::path source = dependency;
+        std::set<fs::path> seen;
+        while (seen.insert(source).second) {
+            const auto destination = stage_root / "usr/lib" / source.filename();
+            const auto existing = payload_sources->find(destination);
+            if (existing != payload_sources->end()) {
+                if (!fs::equivalent(existing->second, source)) {
+                    *error_message = "package runtime payload collision: "
+                        + destination.string() + " from " + source.string()
+                        + " and " + existing->second.string();
+                    return false;
+                }
+            } else {
+                std::error_code error;
+                fs::create_directories(destination.parent_path(), error);
+                if (!error)
+                    fs::copy_file(
+                        source, destination, fs::copy_options::none, error
+                    );
+                if (error) {
+                    *error_message = "unable to stage runtime library "
+                        + source.string() + ": " + error.message();
+                    return false;
+                }
+                payload_sources->emplace(destination, source);
+            }
+            inventory["bundled"].push_back(
+                { { "source", source.generic_string() },
+                  { "installed",
+                    destination.lexically_relative(stage_root)
+                        .generic_string() } }
+            );
+            if (!fs::is_symlink(source))
+                break;
+            const auto target = fs::read_symlink(source);
+            source = (target.is_absolute() ? target
+                                           : source.parent_path() / target)
+                         .lexically_normal();
+        }
+    }
+
+    std::string files;
+    executables.clear();
+    libraries.clear();
+    for (const auto& [destination, source] : *payload_sources) {
+        if (!is_elf_file(source))
+            continue;
+        const auto argument = "    " + cmake_path_argument(destination) + "\n";
+        files += argument;
+        auto& inputs = destination.parent_path() == stage_root / "usr/bin"
+            ? executables
+            : libraries;
+        inputs += argument;
+    }
+    const auto strip_path = work_dir / "runtime-relocate.cmake";
+    const auto strip = render_text_template(
+        "release/runtime_relocate.cmake.tpl", { { "files", files } },
+        error_message
+    );
+    if (!error_message->empty()
+        || !write_text_file(strip_path, strip, error_message))
+        return false;
+    const auto relocated = capture_command_result(
+        { cmake, "-P", strip_path.string() }, work_dir
+    );
+    if (!write_text_file(
+            work_dir / "runtime-relocate.log", relocated.output, error_message
+        ))
+        return false;
+    if (relocated.exit_code != 0) {
+        *error_message = "unable to remove build paths from package payload:\n"
+            + relocated.output;
+        return false;
+    }
+    // Inspect the shipped copies as well. This rejects any dependency that
+    // still resolves into a private tree after relocation, including absolute
+    // DT_NEEDED entries that cannot be repaired by removing an RPATH.
+    const auto verified_path = work_dir / "runtime-installed-libraries.txt";
+    const auto verify_path = work_dir / "runtime-verify.cmake";
+    const auto verify = render_text_template(
+        "release/runtime_scan.cmake.tpl",
+        { { "executables", executables },
+          { "libraries", libraries },
+          { "directories",
+            "    " + cmake_path_argument(stage_root / "usr/lib") + "\n" },
+          { "resolved_path", cmake_path_argument(verified_path) } },
+        error_message
+    );
+    if (!error_message->empty()
+        || !write_text_file(verify_path, verify, error_message))
+        return false;
+    const auto verified = capture_command_result(
+        { cmake, "-P", verify_path.string() }, work_dir
+    );
+    if (!write_text_file(
+            work_dir / "runtime-verify.log", verified.output, error_message
+        ))
+        return false;
+    if (verified.exit_code != 0) {
+        *error_message
+            = "packaged runtime verification failed:\n" + verified.output;
+        return false;
+    }
+    const auto verified_text = read_text_file(verified_path, error_message);
+    if (!error_message->empty())
+        return false;
+    std::istringstream installed(verified_text);
+    for (std::string line; std::getline(installed, line);) {
+        if (line.empty())
+            continue;
+        const auto dependency = fs::canonical(line);
+        if (!path_within(dependency, fs::canonical(stage_root))
+            && !system_libraries->contains(dependency)) {
+            *error_message
+                = "packaged runtime still depends on a private library: "
+                + line;
+            return false;
+        }
+    }
+    return write_text_file(
+        work_dir / "runtime.json", inventory.dump(2) + "\n", error_message
+    );
+}
+
+bool resolve_runtime_package_dependencies(
+    const std::set<fs::path>& libraries, const std::string& package_name,
+    const fs::path& work_dir, prerelease_artifacts* artifacts,
+    std::string* error_message
+) {
+    artifacts->pacman_dependencies.clear();
+    artifacts->debian_dependencies.clear();
+    json mapping { { "scope", "ELF system libraries" },
+                   { "libraries", json::array() },
+                   { "dependencies", json::array() } };
+    const auto pacman = find_command_path("pacman");
+    const auto dpkg = find_command_path("dpkg-query");
+    const bool use_pacman = !pacman.empty();
+    const std::string backend = use_pacman ? "Pacman" : "Debian";
+    mapping["backend"] = libraries.empty() ? "none" : backend;
+    if (!libraries.empty() && pacman.empty() && dpkg.empty()) {
+        *error_message = "ELF runtime dependency mapping requires pacman or "
+                         "dpkg-query and its installed package database; build "
+                         "on Arch/Manjaro or Debian/Ubuntu";
+        return false;
+    }
+    std::map<std::string, std::string> versions;
+    for (const auto& library : libraries) {
+        captured_command owned;
+        std::string owner;
+        if (use_pacman) {
+            owned = capture_command_result(
+                { pacman, "-Qqo", "--", library.string() }, work_dir,
+                { { "LC_ALL", "C" } }
+            );
+            owner = trim_copy(owned.output);
+        } else {
+            std::vector<fs::path> candidates { library };
+            // Merged-/usr hosts can retain pre-merge paths in dpkg's file
+            // lists.
+            if (library.string().starts_with("/usr/lib")) {
+                const fs::path alias = library.string().substr(4);
+                std::error_code error;
+                if (fs::equivalent(alias, library, error) && !error)
+                    candidates.push_back(alias);
+            }
+            for (const auto& candidate : candidates) {
+                owned = capture_command_result(
+                    { dpkg, "-S", candidate.string() }, work_dir,
+                    { { "LC_ALL", "C" } }
+                );
+                if (owned.exit_code != 0)
+                    continue;
+                const auto record = trim_copy(owned.output);
+                const auto separator = record.find(": ");
+                if (separator != std::string::npos
+                    && record.substr(separator + 2) == candidate.string())
+                    owner = record.substr(0, separator);
+                break;
+            }
+        }
+        if (owned.exit_code != 0
+            || !std::regex_match(
+                owner,
+                use_pacman ? pacman_package_pattern : debian_package_pattern
+            )) {
+            *error_message = "unable to identify one installed " + backend
+                + " owner for runtime library " + library.string() + ":\n"
+                + owned.output;
+            return false;
+        }
+        if (owner.substr(0, owner.find(':')) == package_name) {
+            *error_message
+                = "release package name conflicts with required system package "
+                + owner;
+            return false;
+        }
+        if (!versions.contains(owner)) {
+            const auto queried = capture_command_result(
+                use_pacman ? string_list { pacman, "-Q", "--", owner }
+                           : string_list { dpkg, "-W",
+                                           "-f=${Package} ${Version} "
+                                           "${db:Status-Status}\\n",
+                                           "--", owner },
+                work_dir, { { "LC_ALL", "C" } }
+            );
+            std::istringstream record(queried.output);
+            std::string name, version, extra, installed_status;
+            record >> name >> version;
+            if (!use_pacman)
+                record >> installed_status;
+            if (queried.exit_code != 0
+                || name != owner.substr(0, owner.find(':'))
+                || (!use_pacman && installed_status != "installed")
+                || !std::regex_match(version, pacman_version_pattern)
+                || (record >> extra)) {
+                *error_message = "unable to read installed " + backend
+                    + " version for " + owner + ":\n" + queried.output;
+                return false;
+            }
+            versions.emplace(owner, version);
+        }
+        mapping["libraries"].push_back(
+            { { "path", library.generic_string() },
+              { "package", owner },
+              { "version", versions.at(owner) } }
+        );
+    }
+    auto& dependencies = use_pacman ? artifacts->pacman_dependencies
+                                    : artifacts->debian_dependencies;
+    for (const auto& [name, version] : versions)
+        dependencies.push_back(
+            use_pacman ? name + ">=" + version : name + " (>= " + version + ")"
+        );
+    mapping["dependencies"] = dependencies;
+    if (!libraries.empty()) {
+        const std::string other_backend = use_pacman ? "Debian" : "Pacman";
+        artifacts->warnings.push_back(
+            other_backend
+            + " runtime dependency metadata is incomplete; that archive "
+              "requires manual dependency review. "
+            + backend + " dependencies were resolved from this host."
+        );
+    }
+    return write_text_file(
+        work_dir / "runtime-packages.json", mapping.dump(2) + "\n",
+        error_message
+    );
+}
+
+std::string debian_dependency_line(const string_list& dependencies) {
+    std::string line;
+    for (const auto& dependency : dependencies)
+        line += (line.empty() ? "Depends: " : ", ") + dependency;
+    return line.empty() ? line : line + "\n";
 }
 
 std::string render_required_release_template(
@@ -670,19 +1174,17 @@ std::string newline_terminated_block(const std::vector<std::string>& lines) {
 }
 
 std::string debian_control_contents(
-    const std::string& package_name,
-    const prerelease_version& version,
-    const std::string& architecture,
-    const std::string& description,
-    const std::string& packager,
-    const std::uintmax_t installed_size,
-    std::string* error_message
+    const std::string& package_name, const prerelease_version& version,
+    const std::string& architecture, const std::string& description,
+    const std::string& packager, const std::uintmax_t installed_size,
+    const string_list& dependencies, std::string* error_message
 ) {
     return render_required_release_template(
         "release/debian_control.tpl",
         {
             { "package_name", package_name },
             { "debian_version", version.debian_version },
+            { "dependencies", debian_dependency_line(dependencies) },
             { "architecture", architecture },
             { "installed_size_kib",
               std::to_string((installed_size + 1023U) / 1024U) },
@@ -694,15 +1196,15 @@ std::string debian_control_contents(
 }
 
 std::string pacman_pkginfo_contents(
-    const std::string& package_name,
-    const prerelease_version& version,
-    const std::string& architecture,
-    const std::string& description,
-    const std::string& packager,
-    const std::uintmax_t installed_size,
-    const std::int64_t build_epoch,
+    const std::string& package_name, const prerelease_version& version,
+    const std::string& architecture, const std::string& description,
+    const std::string& packager, const std::uintmax_t installed_size,
+    const std::int64_t build_epoch, const string_list& dependencies,
     std::string* error_message
 ) {
+    std::string dependency_lines;
+    for (const auto& dependency : dependencies)
+        dependency_lines += "depend = " + dependency + "\n";
     return render_required_release_template(
         "release/pacman_pkginfo.tpl",
         {
@@ -713,25 +1215,20 @@ std::string pacman_pkginfo_contents(
             { "installed_size", std::to_string(installed_size) },
             { "build_epoch", std::to_string(build_epoch) },
             { "packager", packager },
+            { "dependencies", dependency_lines },
         },
         error_message
     );
 }
 
 command_error create_debian_package(
-    const fs::path& work_dir,
-    const fs::path& package_dir,
-    const tool_status& tar_tool,
-    const tool_status& ar_tool,
-    const std::string& package_name,
-    const prerelease_version& version,
-    const std::string& architecture,
-    const std::string& description,
-    const std::string& packager,
-    const fs::path& payload_root,
-    const std::uintmax_t installed_size,
-    fs::path* package_path,
-    std::string* error_message
+    const fs::path& work_dir, const fs::path& package_dir,
+    const tool_status& tar_tool, const tool_status& ar_tool,
+    const std::string& package_name, const prerelease_version& version,
+    const std::string& architecture, const std::string& description,
+    const std::string& packager, const fs::path& payload_root,
+    const std::uintmax_t installed_size, const string_list& dependencies,
+    fs::path* package_path, std::string* error_message
 ) {
     const std::string file_name = package_name + "_" + version.debian_version + "_" + architecture + ".deb";
     *package_path = package_dir / file_name;
@@ -742,13 +1239,8 @@ command_error create_debian_package(
         return command_error::task_failed;
     }
     const std::string control_contents = debian_control_contents(
-        package_name,
-        version,
-        architecture,
-        description,
-        packager,
-        installed_size,
-        error_message
+        package_name, version, architecture, description, packager,
+        installed_size, dependencies, error_message
     );
     if (!error_message->empty()) {
         return command_error::task_failed;
@@ -776,6 +1268,9 @@ command_error create_debian_package(
     if (run_command(
             {
                 tar_tool.path,
+                "--owner=0",
+                "--group=0",
+                "--numeric-owner",
                 "-czf",
                 control_archive.string(),
                 "-C",
@@ -791,6 +1286,9 @@ command_error create_debian_package(
     if (run_command(
             {
                 tar_tool.path,
+                "--owner=0",
+                "--group=0",
+                "--numeric-owner",
                 "-czf",
                 data_archive.string(),
                 "-C",
@@ -822,19 +1320,13 @@ command_error create_debian_package(
 }
 
 command_error create_pacman_package(
-    const fs::path& work_dir,
-    const fs::path& repo_dir,
-    const tool_status& tar_tool,
-    const std::string& package_name,
-    const prerelease_version& version,
-    const std::string& architecture,
-    const std::string& description,
-    const std::string& packager,
-    const fs::path& payload_root,
-    const std::uintmax_t installed_size,
-    const std::int64_t build_epoch,
-    fs::path* package_path,
-    std::string* error_message
+    const fs::path& work_dir, const fs::path& repo_dir,
+    const tool_status& tar_tool, const std::string& package_name,
+    const prerelease_version& version, const std::string& architecture,
+    const std::string& description, const std::string& packager,
+    const fs::path& payload_root, const std::uintmax_t installed_size,
+    const std::int64_t build_epoch, const string_list& dependencies,
+    fs::path* package_path, std::string* error_message
 ) {
     const std::string file_name
         = package_name + "-" + version.pacman_version + "-1-" + architecture + ".pkg.tar.gz";
@@ -845,14 +1337,8 @@ command_error create_pacman_package(
         return command_error::task_failed;
     }
     const std::string pkginfo_contents = pacman_pkginfo_contents(
-        package_name,
-        version,
-        architecture,
-        description,
-        packager,
-        installed_size,
-        build_epoch,
-        error_message
+        package_name, version, architecture, description, packager,
+        installed_size, build_epoch, dependencies, error_message
     );
     if (!error_message->empty()) {
         return command_error::task_failed;
@@ -876,11 +1362,16 @@ command_error create_pacman_package(
     if (run_command(
             {
                 tar_tool.path,
+                "--owner=0",
+                "--group=0",
+                "--numeric-owner",
                 "-czf",
                 package_path->string(),
                 "-C",
                 package_root.string(),
-                ".",
+                "--",
+                ".PKGINFO",
+                "usr",
             },
             work_dir
         )
@@ -986,6 +1477,8 @@ std::string debian_packages_entry_contents(
         {
             { "package_name", package.package_name },
             { "debian_version", package.latest_debian_version },
+            { "dependencies",
+              debian_dependency_line(package.latest_debian_dependencies) },
             { "architecture", package.latest_debian_architecture },
             { "packager", packager_string() },
             { "description", package.description },
@@ -1212,18 +1705,24 @@ std::string pacman_desc_contents(
             { "filename", package.latest_pacman_package },
             { "package_name", package.package_name },
             { "pacman_version", package.latest_pacman_version },
+            { "dependencies_block",
+              package.latest_pacman_dependencies.empty()
+                  ? std::string()
+                  : "%DEPENDS%\n"
+                      + newline_terminated_block(
+                          package.latest_pacman_dependencies
+                      )
+                      + "\n" },
             { "description", package.description },
             { "compressed_size",
               std::to_string(fs::file_size(package_path, error)) },
-            { "installed_size",
-              std::to_string(package.latest_installed_size) },
+            { "installed_size", std::to_string(package.latest_installed_size) },
             { "architecture", package.latest_pacman_architecture },
             { "build_epoch", std::to_string(package.latest_build_epoch) },
             { "packager", packager_string() },
             { "sha256_block",
-              sha256.empty()
-                  ? std::string()
-                  : "%SHA256SUM%\n" + sha256 + "\n\n" },
+              sha256.empty() ? std::string()
+                             : "%SHA256SUM%\n" + sha256 + "\n\n" },
         },
         error_message
     );
@@ -1251,18 +1750,15 @@ bool write_pacman_repo_archive(
 ) {
     std::error_code error;
     fs::remove(archive_path, error);
-    if (run_command(
-            {
-                tar_tool.path,
-                "-czf",
-                archive_path.string(),
-                "-C",
-                work_root.string(),
-                ".",
-            },
-            working_directory
-        )
-        != 0) {
+    std::vector<std::string> entries;
+    for (const auto& entry : fs::directory_iterator(work_root))
+        entries.push_back(entry.path().filename().string());
+    std::sort(entries.begin(), entries.end());
+    std::vector<std::string> command { tar_tool.path,         "-czf",
+                                       archive_path.string(), "-C",
+                                       work_root.string(),    "--" };
+    command.insert(command.end(), entries.begin(), entries.end());
+    if (run_command(command, working_directory) != 0) {
         *error_message = "unable to write Pacman repository metadata";
         return false;
     }
@@ -1297,9 +1793,12 @@ bool rewrite_pacman_repo(
         if (!fs::exists(package_path, error) || error) {
             continue;
         }
-        const fs::path db_entry_dir = db_root / (package.package_name + "-" + package.latest_pacman_version);
-        const fs::path files_entry_dir
-            = files_root / (package.package_name + "-" + package.latest_pacman_version);
+        const fs::path db_entry_dir = db_root
+            / (package.package_name + "-" + package.latest_pacman_version
+               + "-1");
+        const fs::path files_entry_dir = files_root
+            / (package.package_name + "-" + package.latest_pacman_version
+               + "-1");
         fs::create_directories(db_entry_dir, error);
         if (error) {
             *error_message = "unable to create " + db_entry_dir.string() + ": " + error.message();
@@ -1499,17 +1998,14 @@ static command_error prepare_prerelease_packages(
     const fs::path payload_root = work_dir / "payload";
     std::uintmax_t installed_size = 0U;
     std::vector<std::string> installed_files;
+    std::map<fs::path, fs::path> payload_sources;
     if (!ensure_clean_directory(payload_root, error_message)) {
         return command_error::task_failed;
     }
     if (!stage_package_payload(
-            project_root,
-            resolved,
-            built_artifact_path,
-            payload_root,
-            &installed_size,
-            &installed_files,
-            error_message)) {
+            project_root, resolved, built_artifact_path, payload_root,
+            manifest_value.install_assets, &payload_sources, error_message
+        )) {
         return command_error::task_failed;
     }
 
@@ -1537,12 +2033,33 @@ static command_error prepare_prerelease_packages(
             return command_error::task_failed;
         }
         if (!stage_package_payload(
-                project_root, *item, *path, payload_root, &installed_size,
-                &installed_files, error_message
+                project_root, *item, *path, payload_root,
+                manifest_value.install_assets, &payload_sources, error_message
             )) {
             return command_error::task_failed;
         }
     }
+
+    if (!stage_tooling_templates(
+            project_root, manifest_value, resolved.ref, payload_root,
+            error_message
+        )) {
+        return command_error::task_failed;
+    }
+    std::set<fs::path> system_libraries;
+    if (!stage_runtime_dependencies(
+            project_root, payload_root, work_dir, &payload_sources,
+            &system_libraries, error_message
+        )) {
+        return command_error::task_failed;
+    }
+    if (!resolve_runtime_package_dependencies(
+            system_libraries, package_state->package_name, work_dir, artifacts,
+            error_message
+        ))
+        return command_error::task_failed;
+    installed_size = directory_file_size(payload_root);
+    installed_files = collect_relative_files(payload_root);
 
     artifacts->deb_repo_dir
         = local_prerelease_deb_dir(publication_project_root);
@@ -1569,27 +2086,19 @@ static command_error prepare_prerelease_packages(
         ),
         tar_tool, ar_tool, package_state->package_name, *version,
         debian_architecture, package_state->description, packager_string(),
-        payload_root, installed_size, &artifacts->deb_package_path,
-        error_message
+        payload_root, installed_size, artifacts->debian_dependencies,
+        &artifacts->deb_package_path, error_message
     );
     if (status != command_error::ok) {
         return status;
     }
 
     status = create_pacman_package(
-        work_dir,
-        artifacts->pacman_repo_dir,
-        tar_tool,
-        package_state->package_name,
-        *version,
-        pacman_architecture,
-        package_state->description,
-        packager_string(),
-        payload_root,
-        installed_size,
-        build_epoch,
-        &artifacts->pacman_package_path,
-        error_message
+        work_dir, artifacts->pacman_repo_dir, tar_tool,
+        package_state->package_name, *version, pacman_architecture,
+        package_state->description, packager_string(), payload_root,
+        installed_size, build_epoch, artifacts->pacman_dependencies,
+        &artifacts->pacman_package_path, error_message
     );
     if (status != command_error::ok) {
         return status;
@@ -1607,6 +2116,8 @@ static command_error prepare_prerelease_packages(
     package_state->latest_installed_size = installed_size;
     package_state->latest_build_epoch = build_epoch;
     package_state->latest_files = installed_files;
+    package_state->latest_pacman_dependencies = artifacts->pacman_dependencies;
+    package_state->latest_debian_dependencies = artifacts->debian_dependencies;
 
     clear_legacy_debian_flat_indexes(publication_project_root);
     if (!rewrite_debian_repo(
@@ -1841,6 +2352,13 @@ command_error create_prerelease_packages(
     );
     if (status != command_error::ok)
         return status;
+    // Tool probes can tolerate a native failure. A failed transcript must not
+    // be ignored in the same way or permit an unrecorded publication.
+    if (const auto log_error = scoped_command_log::active_error();
+        !log_error.empty()) {
+        *error_message = log_error;
+        return command_error::task_failed;
+    }
     if (!publish_release_candidate(
             candidate, published, previous, error_message
         )) {

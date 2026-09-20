@@ -69,6 +69,13 @@ command_error run_doctor(
             if (!cmake_tool.available || !clang_tool.available) {
                 return command_error::missing_local_tooling;
             }
+            if (*profile == "android") {
+                const auto environment = detect_android_environment();
+                out << "android environment:\n"
+                    << android_environment_report(environment).dump(2) << "\n";
+                if (!environment.errors.empty())
+                    return command_error::missing_local_tooling;
+            }
         } else if (contains_string(known_check_profiles, *profile)) {
             if (!supports_check_profile(manifest_value, *profile)) {
                 print_error(

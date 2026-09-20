@@ -17,7 +17,8 @@
         "manifest",
         "packages",
         "workspace",
-        "tests/manifesto_tests.cpp"
+        "tests/manifesto_tests.cpp",
+        "tests/suite"
       ],
       "packages": {
         "json": [

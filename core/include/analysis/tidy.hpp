@@ -14,6 +14,7 @@ struct tidy_check_report {
     bool clang_tidy_available = false;
     std::string clang_tidy_path;
     bool clang_tidy_used = false;
+    bool clang_tidy_configuration_error = false;
     int clang_tidy_exit_code = 0;
     string_list clang_tidy_output;
     std::string clang_tidy_skip_reason;

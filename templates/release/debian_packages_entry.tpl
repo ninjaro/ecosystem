@@ -7,4 +7,5 @@ Section: devel
 Priority: optional
 Filename: {{filename}}
 Size: {{size}}
+{{dependencies}}
 {{sha256_line}}

@@ -1,4 +1,8 @@
 if (ECOSYSTEM_PROFILE_ANDROID)
+    if (Qt6_VERSION VERSION_LESS 6.7)
+        message(FATAL_ERROR "MANIFESTO Android packaging requires Qt 6.7 or newer for per-target APK directories")
+    endif ()
+    set(QT_USE_TARGET_ANDROID_BUILD_DIR ON CACHE BOOL "Keep Android application payloads separate" FORCE)
     if (COMMAND qt_policy)
         qt_policy(SET QTP0002 NEW)
     endif ()

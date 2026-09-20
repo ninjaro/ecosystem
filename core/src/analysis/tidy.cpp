@@ -33,6 +33,18 @@ string_list split_nonempty_lines(const std::string& value) {
     return lines;
 }
 
+bool has_configuration_error(const string_list& lines) {
+    return std::any_of(
+        lines.begin(), lines.end(),
+        [](const std::string& line) {
+            return (line.find(".clang-tidy:") != std::string::npos
+                    && line.find("error:") != std::string::npos)
+                || (line.find("Error parsing ") != std::string::npos
+                    && line.find(".clang-tidy") != std::string::npos);
+        }
+    );
+}
+
 }  // namespace tidy_support
 
 using namespace tidy_support;
@@ -144,6 +156,8 @@ tidy_check_report run_tidy_check(
     report.clang_tidy_used = true;
     report.clang_tidy_exit_code = result.exit_code;
     report.clang_tidy_output = split_nonempty_lines(result.output);
+    report.clang_tidy_configuration_error
+        = has_configuration_error(report.clang_tidy_output);
     return report;
 }
 
@@ -155,6 +169,8 @@ json to_json(const tidy_check_report& value) {
     report["clang_tidy_available"] = value.clang_tidy_available;
     report["clang_tidy_path"] = value.clang_tidy_path;
     report["clang_tidy_used"] = value.clang_tidy_used;
+    report["clang_tidy_configuration_error"]
+        = value.clang_tidy_configuration_error;
     report["clang_tidy_exit_code"] = value.clang_tidy_exit_code;
     report["clang_tidy_output"] = value.clang_tidy_output;
     report["clang_tidy_skip_reason"] = value.clang_tidy_skip_reason;

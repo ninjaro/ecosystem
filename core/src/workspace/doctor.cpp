@@ -131,7 +131,8 @@ namespace doctor_support {
             project_root, build_dir / "CMakeCache.txt",
             doctor_probe_freshness_inputs(project_root, source_dir)
         );
-        if (result.cache_status.exists && !result.cache_status.stale) {
+        if (result.cache_status.exists && !result.cache_status.stale
+            && cache_profile != "android") {
             return result;
         }
 
@@ -142,11 +143,16 @@ namespace doctor_support {
                 + (cache_profile == "kde" ? "ON" : "OFF")
             );
         }
-        result.status = configure_cmake_source_tree(
-            source_dir, build_dir, configure_options,
-            cache_profile == "release" ? "Release" : "Debug",
-            &result.error_message
-        );
+        result.status = cache_profile == "android"
+            ? configure_android_source_tree(
+                  project_root, source_dir, build_dir, configure_options,
+                  &result.error_message
+              )
+            : configure_cmake_source_tree(
+                  source_dir, build_dir, configure_options,
+                  cache_profile == "release" ? "Release" : "Debug",
+                  &result.error_message
+              );
         result.cache_status = inspect_cache_file(
             project_root, build_dir / "CMakeCache.txt",
             doctor_probe_freshness_inputs(project_root, source_dir)
@@ -210,7 +216,8 @@ doctor_cache_refresh_result refresh_doctor_cache(
     if (!dependency_summary_has_entries(dependencies)) {
         return result;
     }
-    if (result.cache_status.exists && !result.cache_status.stale) {
+    if (result.cache_status.exists && !result.cache_status.stale
+        && cache_profile != "android") {
         return result;
     }
     if (requested_artifact.has_value()) {

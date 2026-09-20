@@ -1,0 +1,229 @@
+#pragma once
+
+#include <filesystem>
+
+namespace ecosystem_test_support {
+
+// Analysis.
+void test_cli_check_naming_reports_identifier_overflow_and_honors_allowlist();
+void test_personal_naming_uses_declarations_and_exact_policy_boundaries();
+void test_personal_naming_reports_analysis_failures_and_owned_headers();
+void test_personal_style_measures_control_bodies_and_local_scopes();
+void test_personal_style_indexes_referents_and_measures_volume_without_size_gates();
+void test_cli_personal_style_preserves_workspace_scope_and_failure_status();
+void test_clang_analysis_reports_unusable_inputs();
+void test_clang_analysis_runs_on_sample_project();
+void test_clang_analysis_skips_benchmarks_and_generated_sources_by_default();
+void test_clang_analysis_includes_benchmark_component_when_requested();
+
+// Android.
+void test_android_application_id_is_manifest_owned();
+void test_android_environment_selection_is_explicit_and_reported();
+void test_cli_run_android_deploys_selected_artifact();
+
+// Benchmarks.
+void test_cli_benchmark_accepts_generic_programs_and_preserves_results();
+void test_cli_benchmark_builds_release_benchmarks_and_writes_reports();
+
+// Build.
+void test_installed_libraries_are_relocatable();
+void test_install_artifacts_build_and_install_independent_executables();
+void test_visitor_facade_tracks_selected_artifact();
+void test_visitor_facade_handles_runtime_output_layouts();
+void test_visitor_facade_rejects_conflicting_output_names();
+void test_library_facade_installs_library_target_and_headers();
+void test_interface_library_facade_installs_headers_without_target();
+void test_runnable_facade_skips_linked_static_library_install_surface();
+void test_runnable_facade_installs_linked_shared_library_closure();
+void test_project_assets_are_staged_and_installed();
+void test_installed_actors_use_their_template_bundle();
+void test_build_tree_layout_nests_project_and_probe_profiles();
+
+// Checks.
+void test_cli_check_leaks_runs_sanitized_tests();
+void test_cli_check_tidy_uses_clang_tidy_when_available();
+void test_cli_check_tidy_fails_when_clang_tidy_reports_diagnostics();
+void test_tidy_requires_tool_and_complete_compilation_database();
+void test_cli_check_tidy_honors_full_artifact_identity_and_configuration();
+void test_cli_format_shares_verifier_selection_and_tool();
+void test_cli_workspace_format_respects_selected_projects_and_artifacts();
+void test_cli_check_java_builds_shared_libraries_and_runs_gradle_tests();
+
+// Ci.
+void test_ci_stage_reports_intermediate_and_pipeline_failures();
+void test_ci_required_result_enforces_failures_and_missing_evidence();
+void test_github_bootstrap_vars_validate_explicit_selection();
+void test_ci_bootstrap_builds_reviewed_checkout_and_repository_layouts();
+void test_ci_bootstrap_rejects_missing_inputs_and_escaping_layouts();
+void test_generated_builds_reject_compiler_warnings_in_c_and_cxx();
+void test_cli_required_checks_propagate_failures_and_reject_empty_ctest_runs();
+void test_cli_check_ci_fails_fast_on_repository_policy_drift();
+
+// Cli workspace.
+void test_workspace_conformance_reports_all_projects();
+void test_cli_list_artifacts();
+void test_cli_actor_batches_preserve_ownership();
+void test_cli_actor_help_and_queue_validation();
+void test_cli_all_operations_have_one_actor();
+void test_cli_engels_rejects_marx_commands();
+void test_cli_marx_rejects_engels_commands();
+void test_cli_workspace_list();
+void test_invalid_workspace_projects_remain_visible();
+void test_invalid_workspace_group_and_root_manifest();
+void test_cli_workspace_list_groups();
+void test_cli_workspace_group_filter_selects_configured_projects();
+void test_cli_workspace_group_filter_rejects_unknown_groups();
+void test_cli_workspace_config_rejects_unknown_group_project_selector();
+void test_cli_workspace_build_on_sample_workspace();
+void test_cli_workspace_build_supports_multiple_artifact_filters();
+void test_cli_workspace_sync_supports_project_filter();
+void test_cli_workspace_sync_supports_multi_project_filter();
+void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection();
+void test_cli_run_executes_facade_entry();
+void test_cli_run_executes_requested_artifact_with_passthrough_args();
+void test_cli_workspace_run_executes_selected_project();
+void test_cli_workspace_run_rejects_multiple_artifact_filters();
+void test_cli_workspace_check_ci_rejects_multiple_artifact_filters();
+void test_cli_build_release_uses_release_build_type();
+void test_cli_check_repo_rejects_legacy_repository_entries();
+void test_cli_check_repo_rejects_tracked_surface_drift();
+void test_cli_workspace_check_repo_rejects_gitlink_project_scripts();
+
+// Documentation.
+void test_doxygen_configuration_uses_exact_ownership_and_service_state();
+void test_cli_doxygen_generates_native_scoped_documentation();
+void test_cli_doxy_propagates_native_graphviz_errors_with_zero_tool_exit();
+void test_cli_doxy_retains_tool_failures_and_requires_fresh_output();
+void test_cli_doxy_rejects_service_output_aliases_before_writing();
+void test_cli_workspace_doxy_keeps_selected_artifact_outputs_separate();
+void test_cli_check_doxy_rejects_failed_configuration();
+void test_cli_check_sphinx_generates_local_conf_with_rtd_theme();
+void test_cli_check_sphinx_theme_flag_sets_theme_override();
+
+// Generation.
+void test_sync_matches_tracked_surfaces();
+void test_tracked_facade_limits_surface_to_entry_artifact_closure();
+void test_developer_surface_materializes_full_build_graph();
+void test_forbidden_repository_entries_report_legacy_scaffolding();
+void test_forbidden_repository_entries_fall_back_for_gitlink_roots();
+void test_tracked_surface_generation_uses_github_vars_file();
+void test_tracked_surface_generation_supports_remote_setup_action();
+void test_required_template_failures_preserve_generated_state();
+void test_required_developer_template_failure_is_reported();
+void test_required_missing_and_unreadable_templates_fail();
+void test_sync_project_removes_obsolete_tracked_surface_files();
+void test_template_loader_renders_repo_owned_templates();
+void test_ensure_local_artifacts_keeps_tracked_style_surfaces_sync_owned();
+
+// Manifest.
+void test_file_writers_report_late_io_failures();
+void test_self_manifest_loads();
+void test_qml_modules_preserve_optional_ownership_and_generation();
+void test_authored_artifacts_round_trip_and_mutate();
+void test_authored_artifacts_reject_obsolete_and_ambiguous_intent();
+void test_owned_test_targets_are_independent();
+void test_owned_scope_discovery_and_build();
+void test_manifest_rejects_unsafe_paths_and_invalid_dependency_graphs();
+void test_owned_paths_reject_symlink_escapes();
+void test_owned_paths_allow_internal_symlinks_and_missing_files();
+void test_owned_paths_preflight_mutations_without_changes();
+void test_owned_paths_preflight_sync_and_manifest_destinations();
+void test_manifest_rejects_output_and_target_collisions();
+void test_manifest_rejects_generated_test_collisions();
+
+// Mutation.
+void test_mutate_add_module_updates_manifest_and_files();
+void test_mutate_add_component_scaffolds_templates();
+void test_mutate_add_component_supports_custom_artifact_ids_and_links();
+void test_mutate_add_component_infers_facade_library_closure();
+void test_mutate_add_component_infers_facade_component_library_closure();
+void test_mutate_add_component_infers_direct_runnable_library_links();
+void test_mutate_add_file_unit_supports_h_variants();
+void test_cli_mutate_add_component_supports_artifact_id_and_link_options();
+
+// Packages.
+void test_package_surface_includes_qttest_component();
+void test_component_package_link_targets_include_qttest_target();
+void test_component_package_link_targets_include_cxxopts_target();
+void test_component_package_link_targets_follow_descriptor_rules();
+void test_summarize_dependencies_follows_descriptor_sources();
+void test_summarize_dependencies_collects_cxxopts_stack_values();
+void test_declared_package_sections_group_kde_by_profile();
+void test_configured_package_sections_report_component_and_profile_state();
+void test_package_descriptors_bind_dependency_ids();
+void test_package_descriptors_bind_rule_types();
+void test_registered_packages_keep_stable_order();
+void test_enabled_surface_blocks_deduplicate_kde_block();
+void test_dependency_entry_for_id_returns_matching_entry();
+void test_package_surface_block_order_is_stable();
+void test_package_group_heading_is_stable();
+void test_configured_status_for_package_reports_profile_disabled_kde();
+void test_configured_status_for_package_requires_all_jni_cache_keys();
+void test_configured_status_for_package_detects_cxxopts_dir();
+void test_find_package_surface_rule_returns_qt_rule();
+void test_render_package_surface_block_keeps_header_only_json_cross_compilable();
+void test_render_package_surface_block_renders_kde_support();
+void test_render_package_surface_block_renders_qt_support();
+void test_render_package_surface_block_renders_llvm_support();
+void test_render_package_surface_block_renders_opencv_support();
+void test_render_package_surface_block_renders_cxxopts_support();
+
+// Release.
+void test_prerelease_command_log_preserves_output_and_fails_closed();
+void test_cli_prerelease_retains_attempt_logs_and_summaries();
+void test_cli_prerelease_rejects_unusable_attempt_storage();
+void test_cli_prerelease_builds_shareable_repos_and_auto_increments_version();
+void test_prerelease_preserves_published_state_on_late_failures();
+void test_prerelease_retains_recovery_state_and_rejects_publication_aliases();
+void test_prerelease_rejects_colliding_install_payloads();
+void test_cli_prerelease_includes_install_companions();
+void test_cli_prerelease_signs_repo_metadata_when_requested();
+
+// Release runtime.
+void test_prerelease_packages_linked_runtime_closure();
+void test_prerelease_maps_native_dependencies_and_preserves_state_on_query_failures();
+// Opt-in integration acceptance: uses native cached distribution packages and
+// user namespaces. It is intentionally outside the ordinary portable suite.
+void test_prerelease_installs_in_an_isolated_pacman_root(
+    const std::filesystem::path& cache
+);
+void test_prerelease_packages_installed_source_provider_runtime();
+void test_prerelease_retains_soname_aliases_and_rejects_runtime_conflicts();
+void test_prerelease_runtime_failures_preserve_previous_release();
+void test_prerelease_tooling_archives_carry_their_template_bundle();
+void test_prerelease_rejects_missing_or_aliased_tooling_data();
+void test_prerelease_respects_asset_install_intent();
+
+// Reports.
+void test_cli_report_matrix();
+void test_cli_workspace_report_matrix_records_group_selection();
+void test_cli_workspace_report_matrix();
+void test_cli_workspace_report_matrix_supports_filters();
+void test_cli_workspace_report_matrix_supports_multiple_artifact_filters();
+void test_cli_workspace_report_matrix_supports_multi_project_filters();
+void test_render_benchmark_svg_uses_template_backed_surface();
+void test_cli_doctor_reports_declared_dependency_guidance();
+void test_cli_doctor_artifact_scope_filters_declared_dependencies();
+void test_cli_doctor_reports_configured_package_state_from_cache();
+void test_cli_doctor_artifact_scope_filters_configured_package_state();
+void test_cli_doctor_uses_requested_kde_cache_for_package_state();
+void test_cli_doctor_reports_tracked_surface_drift();
+void test_cli_doctor_materializes_missing_configure_cache();
+void test_cli_doctor_refreshes_stale_configure_cache();
+void test_cli_doctor_artifact_scope_refresh_uses_scoped_probe_cache();
+void test_cli_doctor_refreshes_stale_configure_state_without_cache_changes();
+void test_cli_report_cxx_preserves_artifact_scope_and_failure_status();
+void test_cli_workspace_report_cxx_preserves_each_selected_owner();
+void test_cli_personal_reports_share_findings_and_presentation();
+void test_cli_workspace_personal_reports_keep_all_selected_results();
+
+// Source dependencies.
+void test_external_project_generates_imported_library();
+void test_source_dependency_local_override_builds_and_installs_before_consumer();
+void test_source_dependency_repository_selection_is_stable_and_explicit();
+void test_source_dependency_consumer_exports_are_relocatable();
+void test_source_dependency_shared_and_interface_usage_requirements();
+void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure();
+void test_source_dependency_rejects_ambiguous_authored_metadata();
+
+} // namespace ecosystem_test_support

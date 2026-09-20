@@ -494,6 +494,15 @@ command_error run_check_tidy(
         );
         return failure;
     }
+    if (report.clang_tidy_configuration_error) {
+        for (const auto& line : report.clang_tidy_output)
+            err << line << "\n";
+        print_error(
+            err, command_error::task_failed,
+            "clang-tidy configuration is invalid"
+        );
+        return command_error::task_failed;
+    }
     if (report.clang_tidy_exit_code != 0) {
         for (const auto& line : report.clang_tidy_output)
             err << line << "\n";

@@ -1145,109 +1145,170 @@ namespace command_support {
         return command_error::ok;
     }
 
-    std::string android_serial_from_devices_output(
-        const std::string& devices_output, const bool emulator
+    struct android_boot_deadline {
+        std::string timeout_path;
+        std::chrono::steady_clock::time_point expires_at;
+
+        captured_command capture(const std::vector<std::string>& args) const {
+            const auto remaining
+                = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    expires_at - std::chrono::steady_clock::now()
+                );
+            // A zero timeout disables the upstream limit, so never invoke it
+            // once less than one millisecond remains.
+            if (remaining.count() <= 0)
+                return { 124, "Android boot timeout expired" };
+            std::vector<std::string> bounded {
+                timeout_path, "--signal=KILL",
+                std::to_string(static_cast<double>(remaining.count()) / 1000.0)
+                    + "s"
+            };
+            bounded.insert(bounded.end(), args.begin(), args.end());
+            auto result = capture_command_result(bounded);
+            if (std::chrono::steady_clock::now() >= expires_at) {
+                result.exit_code = 124;
+                result.output
+                    = "Android boot timeout expired\n" + result.output;
+            }
+            return result;
+        }
+
+        void pause() const {
+            std::this_thread::sleep_until(
+                std::min(
+                    expires_at,
+                    std::chrono::steady_clock::now() + std::chrono::seconds(1)
+                )
+            );
+        }
+    };
+
+    command_error query_android_serial(
+        const std::string& adb_path, const std::string& mode,
+        const std::string& requested, const bool waiting_for_emulator,
+        const android_boot_deadline& boot, std::string* serial,
+        std::ostream& err
     ) {
-        std::istringstream stream(devices_output);
+        serial->clear();
+        const auto result = boot.capture({ adb_path, "devices", "-l" });
+        if (result.exit_code != 0) {
+            print_error(
+                err, command_error::task_failed,
+                "adb devices failed (exit " + std::to_string(result.exit_code)
+                    + "): " + result.output
+            );
+            return command_error::task_failed;
+        }
+
+        std::set<std::string> emulators, devices;
+        string_list unavailable;
+        bool requested_seen = false;
+        std::istringstream stream(result.output);
         std::string line;
         while (std::getline(stream, line)) {
             const std::string trimmed = trim_copy(line);
             if (trimmed.empty()
-                || starts_with(trimmed, "List of devices attached")) {
+                || starts_with(trimmed, "List of devices attached")
+                || starts_with(trimmed, "*")) {
                 continue;
             }
-            const std::string serial
-                = trimmed.substr(0U, trimmed.find_first_of(" \t"));
-            if (serial.empty()) {
+            std::istringstream record(trimmed);
+            std::string candidate, state;
+            if (!(record >> candidate >> state)
+                || (!requested.empty() && candidate != requested)) {
                 continue;
             }
-            const bool is_emulator = starts_with(serial, "emulator-");
-            if (is_emulator == emulator) {
-                return serial;
+            const bool emulator = starts_with(candidate, "emulator-");
+            const bool mode_matches = mode == "auto"
+                || (mode == "emulator" && emulator)
+                || (mode == "device" && !emulator);
+            if (!requested.empty()) {
+                requested_seen = true;
+                if (!mode_matches) {
+                    print_error(
+                        err, command_error::invalid_request,
+                        "ANDROID_SERIAL=" + requested
+                            + " conflicts with --android-mode " + mode
+                    );
+                    return command_error::invalid_request;
+                }
             }
+            if (!mode_matches)
+                continue;
+            if (state == "device")
+                (emulator ? emulators : devices).insert(candidate);
+            else
+                unavailable.push_back(
+                    candidate + " ("
+                    + (state == "no"
+                           ? trim_copy(trimmed.substr(candidate.size()))
+                           : state)
+                    + ")"
+                );
         }
-        return {};
+        if (!requested.empty() && !requested_seen) {
+            print_error(
+                err, command_error::task_failed,
+                "ANDROID_SERIAL=" + requested
+                    + " was not found by adb devices; connect it or choose "
+                      "a listed serial"
+            );
+            return command_error::task_failed;
+        }
+        const auto& candidates = emulators.empty() ? devices : emulators;
+        if (candidates.size() > 1U) {
+            print_error(
+                err, command_error::invalid_request,
+                "multiple ready Android targets: "
+                    + join_strings(
+                        string_list(candidates.begin(), candidates.end()), ", "
+                    )
+                    + "; set ANDROID_SERIAL to select one"
+            );
+            return command_error::invalid_request;
+        }
+        if (!candidates.empty()) {
+            *serial = *candidates.begin();
+            return command_error::ok;
+        }
+        if (!unavailable.empty() && !waiting_for_emulator) {
+            print_error(
+                err, command_error::task_failed,
+                "no ready Android target: " + join_strings(unavailable, ", ")
+                    + "; authorize/reconnect the target or set ANDROID_SERIAL "
+                      "to a ready device listed by adb devices -l"
+            );
+            return command_error::task_failed;
+        }
+        return command_error::ok;
     }
 
-    std::string android_emulator_serial(const std::string& adb_path) {
-        return android_serial_from_devices_output(
-            capture_command({ adb_path, "devices", "-l" }), true
-        );
-    }
-
-    std::string android_device_serial(const std::string& adb_path) {
-        return android_serial_from_devices_output(
-            capture_command({ adb_path, "devices", "-l" }), false
-        );
-    }
-
-    std::optional<fs::path> android_apk_path(
-        const fs::path& build_dir, const std::string& target_name
+    command_error build_android_apk(
+        const fs::path& project_root, const resolved_artifact& resolved,
+        fs::path* apk_path, std::ostream& out, std::ostream& err
     ) {
-        std::vector<fs::path> candidates;
+        const auto target = cmake_target_name(resolved.ref);
+        *apk_path = local_build_dir(project_root, "android")
+            / ("android-build-" + target) / (target + ".apk");
+        const auto status
+            = build_target(project_root, "android", target + "_make_apk", err);
+        if (status != command_error::ok)
+            return status;
         std::error_code error;
-        if (!fs::exists(build_dir, error) || error) {
-            return std::nullopt;
+        if (!fs::is_regular_file(*apk_path, error) || error
+            || fs::file_size(*apk_path, error) == 0U || error) {
+            print_error(
+                err, command_error::task_failed,
+                "Android packaging did not produce a nonempty APK for "
+                    + format_artifact_ref(resolved.ref) + ": "
+                    + apk_path->generic_string()
+            );
+            return command_error::task_failed;
         }
-
-        const fs::path target_apk
-            = build_dir / "android-build" / (target_name + ".apk");
-        if (fs::is_regular_file(target_apk, error) && !error) {
-            return target_apk;
-        }
-        error.clear();
-
-        const std::string preferred_abi = []() {
-            const char* value = std::getenv("ANDROID_ABI");
-            return value == nullptr ? std::string() : std::string(value);
-        }();
-        const std::string path_hint = []() {
-            const char* value = std::getenv("ANDROID_APK_PATH_HINT");
-            return value == nullptr ? std::string() : std::string(value);
-        }();
-
-        fs::recursive_directory_iterator iterator(build_dir, error);
-        const fs::recursive_directory_iterator end;
-        while (!error && iterator != end) {
-            if (iterator->is_regular_file(error)) {
-                const std::string filename
-                    = iterator->path().filename().generic_string();
-                if (iterator->path().extension() == ".apk"
-                    && filename.find("-debug.apk") != std::string::npos) {
-                    candidates.push_back(iterator->path());
-                }
-            }
-            error.clear();
-            iterator.increment(error);
-        }
-
-        std::sort(candidates.begin(), candidates.end());
-        if (candidates.empty()) {
-            return std::nullopt;
-        }
-
-        const auto narrow_candidates = [&candidates](const std::string& hint) {
-            if (hint.empty()) {
-                return;
-            }
-
-            std::vector<fs::path> matches;
-            for (const fs::path& candidate : candidates) {
-                if (candidate.generic_string().find(hint)
-                    != std::string::npos) {
-                    matches.push_back(candidate);
-                }
-            }
-            if (!matches.empty()) {
-                candidates = std::move(matches);
-            }
-        };
-        narrow_candidates(target_name);
-        narrow_candidates(path_hint);
-        narrow_candidates(preferred_abi);
-
-        return candidates.size() == 1U ? std::make_optional(candidates.front())
-                                       : std::nullopt;
+        out << "apk: "
+            << apk_path->lexically_relative(project_root).generic_string()
+            << "\n";
+        return command_error::ok;
     }
 
     std::optional<std::string> android_apk_package_name(
@@ -1280,34 +1341,33 @@ namespace command_support {
 
     bool android_wait_for_boot(
         const std::string& adb_path, const std::string& serial,
-        const int timeout_seconds
+        const android_boot_deadline& boot
     ) {
-        if (run_command(
-                { adb_path, "-s", serial, "wait-for-device" }, fs::path()
-            )
+        if (boot.capture({ adb_path, "-s", serial, "wait-for-device" })
+                .exit_code
             != 0) {
             return false;
         }
 
-        const auto deadline = std::chrono::steady_clock::now()
-            + std::chrono::seconds(timeout_seconds);
-        while (std::chrono::steady_clock::now() < deadline) {
-            if (trim_copy(capture_command(
-                    { adb_path, "-s", serial, "shell", "getprop",
-                      "sys.boot_completed" }
-                ))
-                == "1") {
+        while (std::chrono::steady_clock::now() < boot.expires_at) {
+            const auto result = boot.capture(
+                { adb_path, "-s", serial, "shell", "getprop",
+                  "sys.boot_completed" }
+            );
+            if (result.exit_code != 0)
+                return false;
+            if (trim_copy(result.output) == "1") {
                 return true;
             }
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            boot.pause();
         }
         return false;
     }
 
     command_error resolve_android_serial(
         const fs::path& project_root, const android_environment& environment,
-        const std::string& android_mode, std::string* serial, std::ostream& out,
-        std::ostream& err
+        const std::string& android_mode, const android_boot_deadline& boot,
+        std::string* serial, std::ostream& out, std::ostream& err
     ) {
         if (!path_is_executable(environment.adb_bin)) {
             print_error(
@@ -1317,29 +1377,21 @@ namespace command_support {
             return command_error::missing_local_tooling;
         }
 
+        const char* requested = std::getenv("ANDROID_SERIAL");
+        const auto query_status = query_android_serial(
+            environment.adb_bin, android_mode,
+            requested == nullptr ? std::string() : std::string(requested),
+            false, boot, serial, err
+        );
+        if (query_status != command_error::ok || !serial->empty())
+            return query_status;
         if (android_mode == "device") {
-            *serial = android_device_serial(environment.adb_bin);
-            if (serial->empty()) {
-                print_error(
-                    err, command_error::task_failed,
-                    "no physical Android device detected; connect a device or "
-                    "use --android-mode emulator"
-                );
-                return command_error::task_failed;
-            }
-            return command_error::ok;
-        }
-
-        *serial = android_emulator_serial(environment.adb_bin);
-        if (!serial->empty()) {
-            return command_error::ok;
-        }
-
-        if (android_mode == "auto") {
-            *serial = android_device_serial(environment.adb_bin);
-            if (!serial->empty()) {
-                return command_error::ok;
-            }
+            print_error(
+                err, command_error::task_failed,
+                "no physical Android device detected; connect a device or "
+                "use --android-mode emulator"
+            );
+            return command_error::task_failed;
         }
 
         if (!path_is_executable(environment.emulator_bin)) {
@@ -1351,11 +1403,6 @@ namespace command_support {
             return command_error::missing_local_tooling;
         }
 
-        const std::optional<int> boot_timeout = parse_positive_int([]() {
-            const char* value = std::getenv("ANDROID_EMULATOR_BOOT_TIMEOUT");
-            return value == nullptr ? std::string() : std::string(value);
-        }());
-        const int timeout_seconds = boot_timeout.value_or(300);
         const fs::path log_path = local_state_dir(project_root) / "android"
             / ("emulator-" + environment.avd_name + ".log");
         out << "starting android emulator " << environment.avd_name << " (log: "
@@ -1382,14 +1429,16 @@ namespace command_support {
             return launch_status;
         }
 
-        const auto deadline = std::chrono::steady_clock::now()
-            + std::chrono::seconds(timeout_seconds);
-        while (std::chrono::steady_clock::now() < deadline) {
-            *serial = android_emulator_serial(environment.adb_bin);
+        while (std::chrono::steady_clock::now() < boot.expires_at) {
+            const auto poll_status = query_android_serial(
+                environment.adb_bin, "emulator", "", true, boot, serial, err
+            );
+            if (poll_status != command_error::ok)
+                return poll_status;
             if (!serial->empty()) {
                 return command_error::ok;
             }
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            boot.pause();
         }
 
         print_error(
@@ -1441,30 +1490,21 @@ namespace command_support {
             return status;
         }
 
-        status = build_target(
-            project_root, "android", cmake_target_name(resolved.ref), err
-        );
+        fs::path apk_path;
+        status = build_android_apk(project_root, resolved, &apk_path, out, err);
         if (status != command_error::ok) {
             return status;
-        }
-
-        status = build_target(project_root, "android", "apk", err);
-        if (status != command_error::ok) {
-            return status;
-        }
-        const std::optional<fs::path> apk_path = android_apk_path(
-            local_build_dir(project_root, "android"),
-            cmake_target_name(resolved.ref)
-        );
-        if (!apk_path.has_value()) {
-            print_error(
-                err, command_error::task_failed,
-                "android build did not produce a debug APK"
-            );
-            return command_error::task_failed;
         }
 
         const android_environment environment = detect_android_environment();
+        if (!environment.deployment_errors.empty()) {
+            print_error(
+                err, command_error::missing_local_tooling,
+                "Android deployment tools are unavailable:\n"
+                    + join_strings(environment.deployment_errors, "\n")
+            );
+            return command_error::missing_local_tooling;
+        }
         if (!path_is_executable(environment.aapt_bin)) {
             print_error(
                 err, command_error::missing_local_tooling,
@@ -1475,37 +1515,53 @@ namespace command_support {
         }
 
         const std::optional<std::string> package_name
-            = android_apk_package_name(environment, *apk_path);
+            = android_apk_package_name(environment, apk_path);
         if (!package_name.has_value()) {
             print_error(
                 err, command_error::task_failed,
                 "unable to derive Android package name from "
-                    + apk_path->generic_string()
+                    + apk_path.generic_string()
             );
             return command_error::task_failed;
         }
 
+        auto timeout_path = find_command_path("timeout");
+        if (timeout_path.empty())
+            timeout_path = find_command_path("gtimeout");
+        if (timeout_path.empty()) {
+            print_error(
+                err, command_error::missing_local_tooling,
+                "android run requires GNU Coreutils timeout (or gtimeout) "
+                "on PATH to bound device readiness checks"
+            );
+            return command_error::missing_local_tooling;
+        }
+        const int timeout_seconds
+            = parse_positive_int([]() {
+                  const char* value
+                      = std::getenv("ANDROID_EMULATOR_BOOT_TIMEOUT");
+                  return value == nullptr ? std::string() : std::string(value);
+              }())
+                  .value_or(300);
+        const android_boot_deadline boot {
+            timeout_path,
+            std::chrono::steady_clock::now()
+                + std::chrono::seconds(timeout_seconds)
+        };
         std::string serial;
         status = resolve_android_serial(
-            project_root, environment, android_mode, &serial, out, err
+            project_root, environment, android_mode, boot, &serial, out, err
         );
         if (status != command_error::ok) {
             return status;
         }
-        if (!android_wait_for_boot(
-                environment.adb_bin, serial,
-                parse_positive_int([]() {
-                    const char* value
-                        = std::getenv("ANDROID_EMULATOR_BOOT_TIMEOUT");
-                    return value == nullptr ? std::string()
-                                            : std::string(value);
-                }())
-                    .value_or(300)
-            )) {
+        if (!android_wait_for_boot(environment.adb_bin, serial, boot)) {
             print_error(
                 err, command_error::task_failed,
                 "android device " + serial
-                    + " did not finish booting before deployment"
+                    + " did not finish booting before deployment (boot "
+                      "timeout: "
+                    + std::to_string(timeout_seconds) + "s)"
             );
             return command_error::task_failed;
         }
@@ -1518,7 +1574,7 @@ namespace command_support {
                     serial,
                     "install",
                     "-r",
-                    apk_path->string(),
+                    apk_path.string(),
                 },
                 build_dir
             )
@@ -1548,7 +1604,7 @@ namespace command_support {
         }
 
         out << "ran " << format_artifact_ref(resolved.ref) << " from "
-            << apk_path->lexically_relative(project_root).generic_string()
+            << apk_path.lexically_relative(project_root).generic_string()
             << " on android device " << serial << "\n";
         return command_error::ok;
     }

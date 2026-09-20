@@ -469,6 +469,10 @@ validate_manifest_paths(const manifest& value, const fs::path& project_root) {
     std::vector<fs::path> trees;
     for (const component& owner : value.components) {
         paths.emplace_back(owner.root);
+        if (owner.ownership && owner.ownership->qml) {
+            for (const auto& file : owner.ownership->qml->files)
+                paths.push_back(fs::path(owner.root) / file);
+        }
         for (const std::string directory :
              { "include", "src", "tests", "benchmarks" }) {
             paths.push_back(fs::path(owner.root) / directory);
