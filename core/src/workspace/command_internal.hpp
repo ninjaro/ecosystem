@@ -177,5 +177,9 @@ command_error run_android_artifact(
     const std::optional<std::string>& requested_mode,
     const string_list& passthrough_args, std::ostream& out, std::ostream& err
 );
+command_error build_android_apk(
+    const fs::path& project_root, const resolved_artifact& resolved,
+    fs::path* apk_path, std::ostream& out, std::ostream& err
+);
 
 }  // namespace ecosystem::command_support

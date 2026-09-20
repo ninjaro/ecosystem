@@ -26,9 +26,8 @@ namespace manifest_support {
     const std::regex project_version_pattern(
         "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
     );
-    const std::regex qml_uri_pattern(
-        "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$"
-    );
+    const std::regex
+        qml_uri_pattern("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$");
     const std::regex qml_version_pattern("^[0-9]+\\.[0-9]+$");
     const std::set<std::string> artifact_kinds {
         "static_lib", "shared_lib", "interface_lib", "exe", "qt_app",
@@ -140,6 +139,12 @@ namespace manifest_support {
 
     std::vector<fs::path> ownership_candidates(const component& owner) {
         std::vector<fs::path> result;
+        if (owner.ownership->qml) {
+            for (const auto& file : owner.ownership->qml->files) {
+                if (safe_owned_path(file))
+                    result.push_back(fs::path(owner.root) / file);
+            }
+        }
         for (const std::string& scope : owner.ownership->scopes) {
             if (!safe_owned_path(scope, true))
                 continue;
@@ -327,15 +332,15 @@ namespace manifest_support {
             if (item.contains("qml")) {
                 const json qml = require_object(item, "qml", context, errors);
                 qml_module module;
-                module.uri = require_string(qml, "uri", context + ".qml", errors);
+                module.uri
+                    = require_string(qml, "uri", context + ".qml", errors);
                 module.version
                     = require_string(qml, "version", context + ".qml", errors);
                 module.files = authored_list(
                     qml, "files", context + ".qml", errors, true
                 );
                 check_fields(
-                    qml, { "uri", "version", "files" }, context + ".qml",
-                    errors
+                    qml, { "uri", "version", "files" }, context + ".qml", errors
                 );
                 owner.ownership->qml = std::move(module);
             }
@@ -764,6 +769,13 @@ string_list validate_manifest(const manifest& value) {
                         + component_value.id + ":" + item.id
                     );
                 if (owned.qml.has_value()) {
+                    const auto qt
+                        = component_stack_values(component_value, "qt");
+                    if (std::find(qt.begin(), qt.end(), "Qml") == qt.end())
+                        errors.push_back(
+                            "artifact.qml requires packages.qt to include Qml: "
+                            + component_value.id + ":" + item.id
+                        );
                     if (item.kind != "qt_app")
                         errors.push_back(
                             "artifact.qml requires a qt_app artifact: "
@@ -791,8 +803,7 @@ string_list validate_manifest(const manifest& value) {
                     std::set<std::string> qml_files;
                     for (const std::string& file : owned.qml->files) {
                         const fs::path path(file);
-                        if (!safe_owned_path(file)
-                            || path.extension() != ".qml"
+                        if (!safe_owned_path(file) || path.extension() != ".qml"
                             || path.begin()->string() != "qml") {
                             errors.push_back(
                                 "artifact.qml.files must contain safe "
@@ -1132,6 +1143,17 @@ discover_owned_files(manifest* value, const fs::path& project_root) {
         errors.insert(errors.end(), path_errors.begin(), path_errors.end());
         if (!path_errors.empty())
             continue;
+        if (owner.ownership->qml) {
+            for (const auto& file : owner.ownership->qml->files) {
+                std::error_code error;
+                const auto path = fs::path(owner.root) / file;
+                if (!fs::is_regular_file(base / path, error) || error)
+                    errors.push_back(
+                        "QML file must exist and be a regular file: " + identity
+                        + ": " + path.generic_string()
+                    );
+            }
+        }
         for (const auto& candidate : candidates) {
             std::error_code error;
             const auto resolved = fs::weakly_canonical(base / candidate, error);

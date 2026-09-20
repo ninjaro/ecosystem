@@ -3,10 +3,13 @@
 #include "command_internal.hpp"
 #include "workspace/source_dependencies.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace ecosystem {
@@ -560,7 +563,14 @@ command_error run_build(
     if (status != command_error::ok) {
         return status;
     }
-    if (!source_dependency_for(*resolved->component_value)) {
+    if (profile == "android" && resolved->artifact_value->kind == "qt_app") {
+        std::filesystem::path apk_path;
+        status = command_support::build_android_apk(
+            project_root, *resolved, &apk_path, out, err
+        );
+        if (status != command_error::ok)
+            return status;
+    } else if (!source_dependency_for(*resolved->component_value)) {
         status = command_support::build_target(
             project_root, profile, cmake_target_name(resolved->ref), err
         );
@@ -577,12 +587,12 @@ command_error run_build(
     return command_error::ok;
 }
 
-command_error run_prerelease(
+static command_error run_prerelease_attempt(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::optional<artifact_ref>& requested_artifact,
     const std::optional<std::string>& version_base,
     const prerelease_signing_options& signing_options, std::ostream& out,
-    std::ostream& err
+    std::ostream& err, json& summary
 ) {
     const std::optional<resolved_artifact> resolved
         = resolve_artifact(manifest_value, requested_artifact);
@@ -599,10 +609,12 @@ command_error run_prerelease(
         );
         return command_error::invalid_request;
     }
+    summary["artifact"] = format_artifact_ref(resolved->ref);
 
     const bool with_tests = component_is_test_only(*resolved->component_value);
     const bool with_benchmarks
         = component_is_benchmark_only(*resolved->component_value);
+    summary["stage"] = "configure";
     command_error status = command_support::run_configure_build_tree(
         project_root, manifest_value, "release", with_tests, false,
         with_benchmarks, err
@@ -610,6 +622,8 @@ command_error run_prerelease(
     if (status != command_error::ok) {
         return status;
     }
+    summary["stage"] = "build";
+    summary["build_artifact"] = format_artifact_ref(resolved->ref);
     status = command_support::build_target(
         project_root, "release", cmake_target_name(resolved->ref), err
     );
@@ -639,6 +653,7 @@ command_error run_prerelease(
             == format_artifact_ref(resolved->ref)) {
             continue;
         }
+        summary["build_artifact"] = format_artifact_ref(companion);
         status = command_support::build_target(
             project_root, "release", cmake_target_name(companion), err
         );
@@ -647,6 +662,7 @@ command_error run_prerelease(
         }
     }
     std::string error_message;
+    summary["stage"] = "package";
     status = create_prerelease_packages(
         project_root, manifest_value, *resolved, *built_path, version_base,
         signing_options, &version, &artifacts, &error_message
@@ -658,6 +674,33 @@ command_error run_prerelease(
         return status;
     }
 
+    summary["stage"] = "published";
+    summary["version"] = version.logical_version;
+    summary["pacman_dependencies"] = artifacts.pacman_dependencies;
+    summary["debian_dependencies"] = artifacts.debian_dependencies;
+    summary["warnings"] = artifacts.warnings;
+    summary["artifacts"]
+        = { { "debian_repo",
+              artifacts.deb_repo_dir.lexically_relative(project_root)
+                  .generic_string() },
+            { "debian_package",
+              artifacts.deb_package_path.lexically_relative(project_root)
+                  .generic_string() },
+            { "debian_index",
+              artifacts.deb_packages_path.lexically_relative(project_root)
+                  .generic_string() },
+            { "debian_compressed_index",
+              artifacts.deb_packages_gz_path.lexically_relative(project_root)
+                  .generic_string() },
+            { "pacman_repo",
+              artifacts.pacman_repo_dir.lexically_relative(project_root)
+                  .generic_string() },
+            { "pacman_package",
+              artifacts.pacman_package_path.lexically_relative(project_root)
+                  .generic_string() },
+            { "pacman_database",
+              artifacts.pacman_db_path.lexically_relative(project_root)
+                  .generic_string() } };
     out << "prerelease " << format_artifact_ref(resolved->ref)
         << " version " << version.logical_version << "\n";
     out << "debian repo: "
@@ -679,7 +722,145 @@ command_error run_prerelease(
     if (signing_options.sign) {
         out << "signed prerelease metadata\n";
     }
+    for (const auto& warning : artifacts.warnings)
+        err << "warning: " << warning << "\n";
     return command_error::ok;
+}
+
+command_error run_prerelease(
+    const std::filesystem::path& project_root, const manifest& manifest_value,
+    const std::optional<artifact_ref>& requested_artifact,
+    const std::optional<std::string>& version_base,
+    const prerelease_signing_options& signing_options, std::ostream& out,
+    std::ostream& err
+) {
+    namespace fs = std::filesystem;
+    const auto now_ms = [] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch()
+        )
+            .count();
+    };
+    const auto started = now_ms();
+    fs::path attempt;
+    std::string error_message;
+    try {
+        const auto attempts = local_prerelease_dir(project_root) / "attempts";
+        const auto errors = validate_project_paths(
+            project_root, { attempts.lexically_relative(project_root) }
+        );
+        if (!errors.empty())
+            throw std::runtime_error(errors.front());
+        auto current = project_root;
+        for (const auto& part : attempts.lexically_relative(project_root)) {
+            current /= part;
+            if (fs::is_symlink(current))
+                throw std::runtime_error(
+                    "prerelease attempt path is a symlink: " + current.string()
+                );
+        }
+        fs::create_directories(attempts);
+        const std::string prefix
+            = std::to_string(started) + "-" + std::to_string(::getpid()) + "-";
+        for (int index = 0; index < 128; ++index) {
+            const auto candidate = attempts / (prefix + std::to_string(index));
+            if (fs::create_directory(candidate)) {
+                attempt = candidate;
+                break;
+            }
+        }
+        if (attempt.empty())
+            throw std::runtime_error(
+                "unable to allocate prerelease attempt directory"
+            );
+    } catch (const std::exception& error) {
+        command_support::print_error(
+            err, command_error::task_failed, error.what()
+        );
+        return command_error::task_failed;
+    }
+
+    const auto summary_path = attempt / "summary.json";
+    const auto log_path = attempt / "commands.log";
+    out << "prerelease summary: "
+        << summary_path.lexically_relative(project_root).generic_string()
+        << "\n";
+    out << "prerelease commands: "
+        << log_path.lexically_relative(project_root).generic_string() << "\n";
+    json summary { { "schema_version", 1 },
+                   { "status", "running" },
+                   { "stage", "validate" },
+                   { "started_unix_ms", started },
+                   { "project", manifest_value.id },
+                   { "requested_artifact",
+                     requested_artifact.has_value()
+                         ? json(format_artifact_ref(*requested_artifact))
+                         : json(nullptr) },
+                   { "requested_version_base",
+                     version_base.has_value() ? json(*version_base)
+                                              : json(nullptr) },
+                   { "sign", signing_options.sign },
+                   { "log", "commands.log" } };
+    // Replace the summary only after a complete write, preserving the initial
+    // running marker if final reporting fails or the process is interrupted.
+    const auto save_summary = [&]() {
+        const auto temporary = attempt / "summary.tmp";
+        if (!write_text_file(
+                temporary,
+                summary.dump(2, ' ', false, json::error_handler_t::replace)
+                    + "\n",
+                &error_message
+            ))
+            return false;
+        std::error_code error;
+        fs::rename(temporary, summary_path, error);
+        if (error) {
+            error_message
+                = "unable to publish prerelease summary: " + error.message();
+            return false;
+        }
+        return true;
+    };
+    if (!save_summary()) {
+        command_support::print_error(
+            err, command_error::task_failed, error_message
+        );
+        return command_error::task_failed;
+    }
+
+    scoped_command_log log(log_path);
+    std::ostringstream diagnostics;
+    auto status = command_error::task_failed;
+    try {
+        if (log.error().empty()) {
+            status = run_prerelease_attempt(
+                project_root, manifest_value, requested_artifact, version_base,
+                signing_options, out, diagnostics, summary
+            );
+        }
+    } catch (const std::exception& error) {
+        command_support::print_error(
+            diagnostics, command_error::task_failed, error.what()
+        );
+    }
+    if (!log.error().empty())
+        command_support::print_error(
+            diagnostics, command_error::task_failed, log.error()
+        );
+    summary["status"] = status == command_error::ok ? "succeeded" : "failed";
+    summary["exit_code"] = exit_code(status);
+    summary["finished_unix_ms"] = now_ms();
+    summary["diagnostics"] = diagnostics.str();
+    err << diagnostics.str();
+    if (!save_summary()) {
+        // Publication has already completed on success. Report the reporting
+        // failure without pretending that the packages were rolled back.
+        err << "warning: " << error_message << "; prerelease "
+            << (status == command_error::ok ? "was published" : "failed")
+            << "; initial summary retained at " << summary_path.string()
+            << "\n";
+    }
+    return status;
 }
 
 command_error run_benchmark(

@@ -29,3 +29,4 @@
 {{packager}}
 
 {{sha256_block}}
+{{dependencies_block}}

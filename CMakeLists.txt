@@ -146,6 +146,8 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/command_internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_cases.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_support.hpp
 )
 set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang.cpp
@@ -470,4 +472,3 @@ install(TARGETS marx__marx
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
-

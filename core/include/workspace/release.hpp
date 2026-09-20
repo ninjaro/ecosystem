@@ -30,6 +30,9 @@ struct prerelease_artifacts {
     std::filesystem::path pacman_repo_dir;
     std::filesystem::path pacman_package_path;
     std::filesystem::path pacman_db_path;
+    string_list pacman_dependencies;
+    string_list debian_dependencies;
+    string_list warnings;
 };
 
 std::filesystem::path local_prerelease_dir(const std::filesystem::path& project_root);

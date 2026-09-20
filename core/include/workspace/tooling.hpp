@@ -3,6 +3,7 @@
 #include "manifest.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -47,10 +48,13 @@ struct android_environment {
     std::string qt_host_path;
     std::string qt_arch;
     std::string qt_cmake_bin;
+    std::string abi;
     std::string emulator_bin;
     std::string avd_name;
     std::string adb_bin;
     std::string aapt_bin;
+    string_list errors;
+    string_list deployment_errors;
 };
 
 struct build_tree_layout {
@@ -115,6 +119,43 @@ int run_command(
     const std::filesystem::path& working_directory,
     const std::vector<std::pair<std::string, std::string>>& environment = {}
 );
+
+// Records native commands on this thread for the lifetime of the scope.
+// Environment values are deliberately excluded from the transcript.
+class scoped_command_log {
+public:
+    explicit scoped_command_log(const std::filesystem::path& path);
+    ~scoped_command_log();
+    scoped_command_log(const scoped_command_log&) = delete;
+    scoped_command_log& operator=(const scoped_command_log&) = delete;
+
+    const std::string& error() const;
+    static std::string active_error();
+
+private:
+    friend captured_command capture_command_result(
+        const std::vector<std::string>&, const std::filesystem::path&,
+        const std::vector<std::pair<std::string, std::string>>&
+    );
+    friend int run_command(
+        const std::vector<std::string>&, const std::filesystem::path&,
+        const std::vector<std::pair<std::string, std::string>>&
+    );
+    static captured_command capture(
+        const std::vector<std::string>& args,
+        const std::filesystem::path& working_directory,
+        const std::vector<std::pair<std::string, std::string>>& environment,
+        bool echo_output
+    );
+    void append(const std::string& text);
+
+    static thread_local scoped_command_log* active_;
+    scoped_command_log* previous_;
+    std::filesystem::path path_;
+    std::ofstream stream_;
+    std::string error_;
+};
+
 command_error configure_cmake_source_tree(
     const std::filesystem::path& source_dir,
     const std::filesystem::path& build_dir,
@@ -128,6 +169,12 @@ command_error configure_build_tree(
     bool with_benchmarks, std::string* error_message,
     bool capture_output = false
 );
+command_error configure_android_source_tree(
+    const std::filesystem::path& project_root,
+    const std::filesystem::path& source_dir,
+    const std::filesystem::path& build_dir, const string_list& cmake_options,
+    std::string* error_message, bool capture_output = false
+);
 command_error ensure_local_developer_surface(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     std::string* error_message
@@ -137,6 +184,7 @@ tool_status probe_tool(
     const std::vector<std::string>& version_args = { "--version" }
 );
 android_environment detect_android_environment();
+json android_environment_report(const android_environment& environment);
 
 bool write_text_file(
     const std::filesystem::path& path, const std::string& contents,

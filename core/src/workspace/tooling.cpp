@@ -5,11 +5,15 @@
 #include "workspace/sync.hpp"
 #include "workspace/template_text.hpp"
 
+#include <algorithm>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <sys/wait.h>
@@ -144,7 +148,9 @@ namespace tooling_support {
     }
 
     bool executable_exists(const fs::path& path) {
-        return !path.empty() && ::access(path.c_str(), X_OK) == 0;
+        std::error_code error;
+        return !path.empty() && fs::is_regular_file(path, error) && !error
+            && ::access(path.c_str(), X_OK) == 0;
     }
 
     bool directory_tree_has_extension(
@@ -176,36 +182,60 @@ namespace tooling_support {
                             : (fs::path(home) / relative).string();
     }
 
-    std::optional<std::string> detect_android_sdk_root_impl() {
-        for (const std::string& candidate : {
-                 env_or_empty("ANDROID_SDK_ROOT"),
-                 env_or_empty("ANDROID_HOME"),
-                 default_home_path(fs::path("Android") / "Sdk"),
-                 std::string("/opt/android-sdk"),
-             }) {
-            if (directory_exists(candidate)) {
-                return candidate;
-            }
-        }
+    std::string normalized_android_path(const fs::path& path) {
+        if (path.empty())
+            return {};
+        std::error_code error;
+        const auto normalized = fs::weakly_canonical(fs::absolute(path), error);
+        return error ? path.string() : normalized.string();
+    }
 
-        for (const std::string& tool :
-             { find_command_path("adb"), find_command_path("emulator") }) {
-            if (!tool.empty()) {
-                const fs::path root
-                    = fs::path(tool).parent_path().parent_path();
-                if (directory_exists(root)) {
-                    return root.string();
-                }
-            }
+    std::vector<fs::path> android_subdirectories(const fs::path& root) {
+        std::vector<fs::path> paths;
+        std::error_code error;
+        for (fs::directory_iterator it(root, error), end; !error && it != end;
+             it.increment(error)) {
+            if (it->is_directory(error))
+                paths.push_back(it->path());
         }
+        std::sort(paths.begin(), paths.end());
+        return paths;
+    }
 
-        return std::nullopt;
+    std::string select_android_path(
+        const std::vector<fs::path>& candidates, const std::string& name,
+        const std::string& setting, string_list* errors
+    ) {
+        std::set<std::string> unique;
+        for (const auto& candidate : candidates)
+            unique.insert(normalized_android_path(candidate));
+        if (unique.size() == 1U)
+            return *unique.begin();
+        std::string message = unique.empty() ? "missing " : "ambiguous ";
+        message += name + "; set " + setting;
+        for (const auto& candidate : unique)
+            message += "\n  " + candidate;
+        errors->push_back(message);
+        return {};
+    }
+
+    std::string android_ndk_revision(const fs::path& root) {
+        if (root.empty())
+            return {};
+        std::ifstream input(root / "source.properties");
+        for (std::string line; std::getline(input, line);) {
+            const auto separator = line.find('=');
+            if (separator != std::string::npos
+                && trim_copy(line.substr(0, separator)) == "Pkg.Revision")
+                return trim_copy(line.substr(separator + 1));
+        }
+        return {};
     }
 
     std::string detect_android_adb_impl(const std::string& sdk_root) {
         const std::string adb_override = env_or_empty("ADB_BIN");
-        if (executable_exists(adb_override)) {
-            return adb_override;
+        if (!adb_override.empty()) {
+            return normalized_android_path(adb_override);
         }
 
         if (!sdk_root.empty()) {
@@ -222,8 +252,8 @@ namespace tooling_support {
     std::string detect_android_emulator_impl(const std::string& sdk_root) {
         const std::string emulator_override
             = env_or_empty("ANDROID_EMULATOR_BIN");
-        if (executable_exists(emulator_override)) {
-            return emulator_override;
+        if (!emulator_override.empty()) {
+            return normalized_android_path(emulator_override);
         }
 
         if (!sdk_root.empty()) {
@@ -238,40 +268,31 @@ namespace tooling_support {
     }
 
     std::string detect_android_aapt_impl(
-        const std::string& sdk_root, const std::string& build_tools_version
+        const std::string& sdk_root, const std::string& build_tools_version,
+        string_list* errors
     ) {
         const std::string aapt_override = env_or_empty("AAPT_BIN");
-        if (executable_exists(aapt_override)) {
-            return aapt_override;
+        if (!aapt_override.empty()) {
+            return normalized_android_path(aapt_override);
         }
 
         if (!sdk_root.empty()) {
             if (!build_tools_version.empty()) {
                 const fs::path preferred = fs::path(sdk_root) / "build-tools"
                     / build_tools_version / "aapt";
-                if (executable_exists(preferred)) {
-                    return preferred.string();
-                }
+                return preferred.string();
             }
 
-            const fs::path build_tools_dir = fs::path(sdk_root) / "build-tools";
-            std::error_code error;
-            if (fs::exists(build_tools_dir, error) && !error) {
-                fs::recursive_directory_iterator iterator(
-                    build_tools_dir, error
+            std::vector<fs::path> candidates;
+            for (const auto& version :
+                 android_subdirectories(fs::path(sdk_root) / "build-tools"))
+                if (executable_exists(version / "aapt"))
+                    candidates.push_back(version / "aapt");
+            if (!candidates.empty())
+                return select_android_path(
+                    candidates, "Android aapt",
+                    "AAPT_BIN or ANDROID_BUILD_TOOLS_VERSION", errors
                 );
-                const fs::recursive_directory_iterator end;
-                while (!error && iterator != end) {
-                    if (iterator->is_regular_file(error)
-                        && iterator->path().filename().generic_string()
-                            == "aapt"
-                        && executable_exists(iterator->path())) {
-                        return iterator->path().string();
-                    }
-                    error.clear();
-                    iterator.increment(error);
-                }
-            }
         }
 
         return find_command_path("aapt");
@@ -279,6 +300,50 @@ namespace tooling_support {
 
     fs::path configure_stamp_path(const fs::path& build_dir) {
         return build_dir / ".ecosystem_configured.stamp";
+    }
+
+    bool android_cache_matches(
+        const fs::path& build_dir, const android_environment& environment,
+        std::string* error_message
+    ) {
+        const auto qt_toolchain
+            = fs::path(environment.qt_cmake_bin).parent_path().parent_path()
+            / "lib/cmake/Qt6/qt.toolchain.cmake";
+        const std::vector<std::pair<std::string, std::string>> settings {
+            { "ANDROID_ABI", environment.abi },
+            { "CMAKE_ANDROID_ARCH_ABI", environment.abi },
+            { "ANDROID_NDK", environment.ndk_root },
+            { "ANDROID_NDK_ROOT", environment.ndk_root },
+            { "CMAKE_ANDROID_NDK", environment.ndk_root },
+            { "QT_HOST_PATH", environment.qt_host_path },
+            { "CMAKE_TOOLCHAIN_FILE",
+              fs::is_regular_file(qt_toolchain)
+                  ? normalized_android_path(qt_toolchain)
+                  : std::string() }
+        };
+        std::ifstream cache(build_dir / "CMakeCache.txt");
+        for (std::string line; std::getline(cache, line);)
+            for (const auto& [name, expected] : settings) {
+                if (expected.empty() || !line.starts_with(name + ":"))
+                    continue;
+                const auto separator = line.find('=');
+                if (separator == std::string::npos)
+                    continue;
+                auto actual = line.substr(separator + 1);
+                if (name != "ANDROID_ABI" && name != "CMAKE_ANDROID_ARCH_ABI")
+                    actual = normalized_android_path(actual);
+                if (actual == expected)
+                    continue;
+                assign_error(
+                    error_message,
+                    "Android build cache conflicts with selected " + name + ": "
+                        + actual + " (selected " + expected
+                        + "); use a fresh Android build directory: "
+                        + build_dir.string()
+                );
+                return false;
+            }
+        return true;
     }
 
     std::optional<std::string>
@@ -520,21 +585,102 @@ captured_command capture_command_result(
     const std::vector<std::string>& args, const fs::path& working_directory,
     const std::vector<std::pair<std::string, std::string>>& environment
 ) {
+    return scoped_command_log::capture(
+        args, working_directory, environment, false
+    );
+}
+
+thread_local scoped_command_log* scoped_command_log::active_ = nullptr;
+
+scoped_command_log::scoped_command_log(const fs::path& path)
+    : previous_(active_)
+    , path_(path)
+    , stream_(path, std::ios::binary) {
+    active_ = this;
+    append("");
+}
+
+scoped_command_log::~scoped_command_log() { active_ = previous_; }
+
+const std::string& scoped_command_log::error() const { return error_; }
+
+std::string scoped_command_log::active_error() {
+    return active_ == nullptr ? std::string() : active_->error();
+}
+
+void scoped_command_log::append(const std::string& text) {
+    if (!error_.empty())
+        return;
+    stream_ << text;
+    stream_.flush();
+    if (!stream_)
+        error_ = "unable to write command log: " + path_.string();
+}
+
+captured_command scoped_command_log::capture(
+    const std::vector<std::string>& args, const fs::path& working_directory,
+    const std::vector<std::pair<std::string, std::string>>& environment,
+    const bool echo_output
+) {
     captured_command result;
-    const std::string command
-        = build_shell_command(args, working_directory, environment) + " 2>&1";
+    if (active_ != nullptr) {
+        const json command { { "argv", args },
+                             { "cwd",
+                               working_directory.empty()
+                                   ? fs::current_path().string()
+                                   : working_directory.string() } };
+        active_->append("\n>>> " + command.dump() + "\n");
+        if (!active_->error().empty()) {
+            result.output = active_->error();
+            return result;
+        }
+    }
+    const std::string command = "("
+        + build_shell_command(args, working_directory, environment) + ") 2>&1";
     FILE* pipe = ::popen(command.c_str(), "r");
     if (pipe == nullptr) {
+        result.output = "unable to start command\n";
+        if (active_ != nullptr)
+            active_->append(result.output + "<<< {\"exit_code\":-1}\n");
         return result;
     }
 
-    char buffer[256];
-    while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), pipe)
-           != nullptr) {
-        result.output += buffer;
+    bool read_failed = false;
+    char buffer[4096];
+    for (;;) {
+        const auto count = ::read(::fileno(pipe), buffer, sizeof(buffer));
+        if (count == 0)
+            break;
+        if (count < 0) {
+            if (errno == EINTR)
+                continue;
+            read_failed = true;
+            break;
+        }
+        const std::string chunk(buffer, static_cast<std::size_t>(count));
+        if (echo_output) {
+            std::cout << chunk;
+            std::cout.flush();
+        } else {
+            result.output += chunk;
+        }
+        if (active_ != nullptr)
+            active_->append(chunk);
     }
     const int status = ::pclose(pipe);
-    result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : status;
+    result.exit_code = status == -1 || read_failed ? -1
+        : WIFEXITED(status)                        ? WEXITSTATUS(status)
+        : WIFSIGNALED(status)                      ? 128 + WTERMSIG(status)
+                                                   : status;
+    if (active_ != nullptr) {
+        active_->append(
+            "\n<<< " + json { { "exit_code", result.exit_code } }.dump() + "\n"
+        );
+        if (!active_->error().empty()) {
+            result.exit_code = -1;
+            result.output += "\n" + active_->error();
+        }
+    }
     return result;
 }
 
@@ -542,6 +688,11 @@ int run_command(
     const std::vector<std::string>& args, const fs::path& working_directory,
     const std::vector<std::pair<std::string, std::string>>& environment
 ) {
+    if (scoped_command_log::active_ != nullptr)
+        return scoped_command_log::capture(
+                   args, working_directory, environment, true
+        )
+            .exit_code;
     const std::string command
         = build_shell_command(args, working_directory, environment);
     const int status = std::system(command.c_str());
@@ -617,6 +768,78 @@ command_error configure_cmake_source_tree(
     return command_error::ok;
 }
 
+command_error configure_android_source_tree(
+    const fs::path& project_root, const fs::path& source_dir,
+    const fs::path& build_dir, const string_list& cmake_options,
+    std::string* error_message, const bool capture_output
+) {
+    const android_environment environment = detect_android_environment();
+    const auto report_path
+        = local_state_dir(project_root) / "android/environment.json";
+    if (!write_text_file(
+            report_path, android_environment_report(environment).dump(2) + "\n",
+            error_message
+        ))
+        return command_error::task_failed;
+    if (!environment.errors.empty()) {
+        std::string message = "Android environment selection failed ("
+            + report_path.string() + ")";
+        for (const auto& issue : environment.errors)
+            message += "\n" + issue;
+        assign_error(error_message, message);
+        return command_error::missing_local_tooling;
+    }
+
+    std::error_code fs_error;
+    if (!android_cache_matches(build_dir, environment, error_message))
+        return command_error::invalid_request;
+    if (!reset_build_dir_for_source_change(
+            source_dir, build_dir, error_message
+        )) {
+        return command_error::task_failed;
+    }
+    fs::create_directories(build_dir, fs_error);
+    if (fs_error) {
+        assign_error(error_message, fs_error.message());
+        return command_error::task_failed;
+    }
+
+    std::vector<std::string> command {
+        environment.qt_cmake_bin,
+        "-S",
+        source_dir.string(),
+        "-B",
+        build_dir.string(),
+        "-DCMAKE_BUILD_TYPE=Debug",
+        std::string("-DQT_HOST_PATH=") + environment.qt_host_path,
+        std::string("-DANDROID_ABI=") + environment.abi,
+        std::string("-DANDROID_SDK_ROOT=") + environment.sdk_root,
+        std::string("-DANDROID_NDK_ROOT=") + environment.ndk_root,
+        "-DECOSYSTEM_PROFILE_KDE=OFF",
+        "-DECOSYSTEM_PROFILE_ANDROID=ON",
+    };
+    if (!environment.platform.empty())
+        command.push_back("-DANDROID_PLATFORM=" + environment.platform);
+    command.insert(command.end(), cmake_options.begin(), cmake_options.end());
+
+    const auto result = capture_output
+        ? capture_command_result(command, source_dir)
+        : captured_command { run_command(command, source_dir), {} };
+    if (result.exit_code != 0) {
+        assign_error(error_message, "cmake configure failed\n" + result.output);
+        return command_error::task_failed;
+    }
+
+    std::string ignored_error;
+    if (!write_text_file(
+            configure_stamp_path(build_dir), "configured\n", &ignored_error
+        )) {
+        assign_error(error_message, ignored_error);
+        return command_error::task_failed;
+    }
+    return command_error::ok;
+}
+
 command_error configure_build_tree(
     const fs::path& project_root, const manifest& manifest_value,
     const std::string& profile, const bool with_tests, const bool with_coverage,
@@ -627,10 +850,8 @@ command_error configure_build_tree(
     const command_error surface_status = ensure_local_developer_surface(
         project_root, manifest_value, error_message
     );
-    if (surface_status != command_error::ok) {
+    if (surface_status != command_error::ok)
         return surface_status;
-    }
-
     string_list dependency_options;
     const auto dependency_status = prepare_source_dependencies(
         project_root, manifest_value, profile, &dependency_options,
@@ -638,98 +859,18 @@ command_error configure_build_tree(
     );
     if (dependency_status != command_error::ok)
         return dependency_status;
-
     if (profile == "android") {
-        const android_environment environment = detect_android_environment();
-        if (!executable_exists(environment.qt_cmake_bin)) {
-            assign_error(
-                error_message,
-                "android configure requires a Qt Android qt-cmake binary; "
-                "set ANDROID_CMAKE_BIN or QT_DIR/QT_VER/ANDROID_QT_ARCH"
-            );
-            return command_error::missing_local_tooling;
-        }
-        if (!directory_exists(environment.sdk_root)) {
-            assign_error(
-                error_message,
-                "android configure requires ANDROID_SDK_ROOT (or "
-                "ANDROID_HOME) to point at an installed Android SDK"
-            );
-            return command_error::missing_local_tooling;
-        }
-        if (!directory_exists(environment.ndk_root)) {
-            assign_error(
-                error_message,
-                "android configure requires ANDROID_NDK_ROOT (or "
-                "ANDROID_NDK_VERSION under the Android SDK)"
-            );
-            return command_error::missing_local_tooling;
-        }
-
-        std::error_code fs_error;
-        const fs::path build_dir = local_build_dir(project_root, profile);
-        if (!reset_build_dir_for_source_change(
-                local_developer_source_dir(project_root), build_dir,
-                error_message
-            )) {
-            return command_error::task_failed;
-        }
-        fs::create_directories(build_dir, fs_error);
-        if (fs_error) {
-            assign_error(error_message, fs_error.message());
-            return command_error::task_failed;
-        }
-
-        std::vector<std::string> command {
-            environment.qt_cmake_bin,
-            "-S",
-            local_developer_source_dir(project_root).string(),
-            "-B",
-            build_dir.string(),
-            std::string("-DCMAKE_BUILD_TYPE=")
-                + cmake_build_type_for_profile(profile),
-            std::string("-DQT_HOST_PATH=") + environment.qt_host_path,
-            std::string("-DANDROID_ABI=")
-                + (env_or_empty("ANDROID_ABI").empty()
-                       ? std::string("x86_64")
-                       : env_or_empty("ANDROID_ABI")),
-            std::string("-DANDROID_PLATFORM=") + environment.platform,
-            std::string("-DANDROID_SDK_ROOT=") + environment.sdk_root,
-            std::string("-DANDROID_NDK=") + environment.ndk_root,
-            std::string("-DECOSYSTEM_BUILD_TESTS=")
-                + (with_tests ? "ON" : "OFF"),
-            std::string("-DECOSYSTEM_BUILD_BENCHMARKS=")
-                + (with_benchmarks ? "ON" : "OFF"),
-            std::string("-DECOSYSTEM_ENABLE_COVERAGE=")
-                + (with_coverage ? "ON" : "OFF"),
-            "-DECOSYSTEM_PROFILE_KDE=OFF",
-            "-DECOSYSTEM_PROFILE_ANDROID=ON",
-        };
-
-        const auto result = capture_output
-            ? capture_command_result(
-                  command, local_developer_source_dir(project_root)
-              )
-            : captured_command { run_command(
-                                     command,
-                                     local_developer_source_dir(project_root)
-                                 ),
-                                 {} };
-        if (result.exit_code != 0) {
-            assign_error(
-                error_message, "cmake configure failed\n" + result.output
-            );
-            return command_error::task_failed;
-        }
-
-        std::string ignored_error;
-        if (!write_text_file(
-                configure_stamp_path(build_dir), "configured\n", &ignored_error
-            )) {
-            assign_error(error_message, ignored_error);
-            return command_error::task_failed;
-        }
-        return command_error::ok;
+        return configure_android_source_tree(
+            project_root, local_developer_source_dir(project_root),
+            local_build_dir(project_root, profile),
+            { std::string("-DECOSYSTEM_BUILD_TESTS=")
+                  + (with_tests ? "ON" : "OFF"),
+              std::string("-DECOSYSTEM_BUILD_BENCHMARKS=")
+                  + (with_benchmarks ? "ON" : "OFF"),
+              std::string("-DECOSYSTEM_ENABLE_COVERAGE=")
+                  + (with_coverage ? "ON" : "OFF") },
+            error_message, capture_output
+        );
     }
 
     dependency_options.insert(
@@ -795,72 +936,197 @@ tool_status probe_tool(
 
 android_environment detect_android_environment() {
     android_environment environment;
-
-    const std::optional<std::string> detected_sdk_root
-        = detect_android_sdk_root_impl();
-    environment.sdk_root = env_or_empty("ANDROID_SDK_ROOT");
+    const auto sdk_home = normalized_android_path(env_or_empty("ANDROID_HOME"));
+    const auto sdk_root
+        = normalized_android_path(env_or_empty("ANDROID_SDK_ROOT"));
+    if (!sdk_home.empty() && !sdk_root.empty() && sdk_home != sdk_root)
+        environment.errors.push_back(
+            "ANDROID_HOME and ANDROID_SDK_ROOT name different SDKs"
+        );
+    environment.sdk_root = sdk_home.empty() ? sdk_root : sdk_home;
     if (environment.sdk_root.empty()) {
-        environment.sdk_root = env_or_empty("ANDROID_HOME");
+        std::vector<fs::path> candidates;
+        for (const auto& candidate :
+             { default_home_path(fs::path("Android") / "Sdk"),
+               std::string("/opt/android-sdk") })
+            if (!candidate.empty()
+                && directory_exists(fs::path(candidate) / "platform-tools"))
+                candidates.emplace_back(candidate);
+        for (const auto& tool :
+             { find_command_path("adb"), find_command_path("emulator") }) {
+            const fs::path path = normalized_android_path(tool);
+            if (path.parent_path().filename() == "platform-tools"
+                || path.parent_path().filename() == "emulator")
+                candidates.push_back(path.parent_path().parent_path());
+        }
+        environment.sdk_root = select_android_path(
+            candidates, "Android SDK", "ANDROID_HOME (or ANDROID_SDK_ROOT)",
+            &environment.errors
+        );
     }
-    if (environment.sdk_root.empty() && detected_sdk_root.has_value()) {
-        environment.sdk_root = *detected_sdk_root;
-    }
-    if (environment.sdk_root.empty()) {
-        environment.sdk_root = default_home_path(fs::path("Android") / "Sdk");
-    }
+    if (!directory_exists(environment.sdk_root))
+        environment.errors.push_back(
+            "Android SDK directory is unavailable: " + environment.sdk_root
+        );
 
-    environment.ndk_version = env_or_empty("ANDROID_NDK_VERSION");
-    if (environment.ndk_version.empty()) {
-        environment.ndk_version = "27.2.12479018";
-    }
-    environment.ndk_root = env_or_empty("ANDROID_NDK_ROOT");
+    const auto requested_ndk = env_or_empty("ANDROID_NDK_VERSION");
+    environment.ndk_root
+        = normalized_android_path(env_or_empty("ANDROID_NDK_ROOT"));
     if (environment.ndk_root.empty() && !environment.sdk_root.empty()) {
-        environment.ndk_root
-            = (fs::path(environment.sdk_root) / "ndk" / environment.ndk_version)
-                  .string();
+        const fs::path ndks = fs::path(environment.sdk_root) / "ndk";
+        if (!requested_ndk.empty()) {
+            environment.ndk_root
+                = normalized_android_path(ndks / requested_ndk);
+        } else {
+            std::vector<fs::path> candidates;
+            for (const auto& candidate : android_subdirectories(ndks))
+                if (fs::is_regular_file(
+                        candidate / "build/cmake/android.toolchain.cmake"
+                    ))
+                    candidates.push_back(candidate);
+            environment.ndk_root = select_android_path(
+                candidates, "Android NDK",
+                "ANDROID_NDK_ROOT or ANDROID_NDK_VERSION", &environment.errors
+            );
+        }
     }
+    if (environment.ndk_root.empty()
+        || !fs::is_regular_file(
+            fs::path(environment.ndk_root)
+            / "build/cmake/android.toolchain.cmake"
+        ))
+        environment.errors.push_back(
+            "Android NDK lacks build/cmake/android.toolchain.cmake: "
+            + environment.ndk_root
+        );
+    environment.ndk_version = android_ndk_revision(environment.ndk_root);
+    if (environment.ndk_version.empty())
+        environment.errors.push_back(
+            "Android NDK lacks Pkg.Revision in source.properties: "
+            + environment.ndk_root
+        );
+    else if (!requested_ndk.empty() && requested_ndk != environment.ndk_version)
+        environment.errors.push_back(
+            "ANDROID_NDK_VERSION does not match the selected NDK revision "
+            + environment.ndk_version
+        );
 
+    // The selected Qt toolchain owns its minimum API default. An explicit
+    // override is forwarded unchanged for upstream validation.
     environment.platform = env_or_empty("ANDROID_PLATFORM");
-    if (environment.platform.empty()) {
-        environment.platform = "android-24";
-    }
-
     environment.build_tools_version
         = env_or_empty("ANDROID_BUILD_TOOLS_VERSION");
-    if (environment.build_tools_version.empty()) {
-        environment.build_tools_version = "34.0.0";
-    }
-
     environment.qt_dir = env_or_empty("QT_DIR");
-    if (environment.qt_dir.empty()) {
+    if (environment.qt_dir.empty())
         environment.qt_dir = default_home_path("Qt");
-    }
-
+    environment.qt_dir = normalized_android_path(environment.qt_dir);
     environment.qt_version = env_or_empty("QT_VER");
-    if (environment.qt_version.empty()) {
-        environment.qt_version = "6.8.2";
-    }
-
-    environment.qt_host_path = env_or_empty("QT_HOST_PATH");
-    if (environment.qt_host_path.empty() && !environment.qt_dir.empty()) {
-        environment.qt_host_path
-            = (fs::path(environment.qt_dir) / environment.qt_version / "gcc_64")
-                  .string();
-    }
-
     environment.qt_arch = env_or_empty("ANDROID_QT_ARCH");
-    if (environment.qt_arch.empty()) {
-        environment.qt_arch = "android_x86_64";
+    environment.abi = env_or_empty("ANDROID_ABI");
+    const std::vector<std::pair<std::string, std::string>> architectures {
+        { "android_arm64_v8a", "arm64-v8a" },
+        { "android_armv7", "armeabi-v7a" },
+        { "android_x86", "x86" },
+        { "android_x86_64", "x86_64" }
+    };
+    for (const auto& [arch, abi] : architectures) {
+        if (environment.qt_arch == arch && environment.abi.empty())
+            environment.abi = abi;
+        if (environment.abi == abi && environment.qt_arch.empty())
+            environment.qt_arch = arch;
     }
-
-    environment.qt_cmake_bin = env_or_empty("ANDROID_CMAKE_BIN");
-    if (environment.qt_cmake_bin.empty() && !environment.qt_dir.empty()) {
-        environment.qt_cmake_bin
-            = (fs::path(environment.qt_dir) / environment.qt_version
-               / environment.qt_arch / "bin" / "qt-cmake")
-                  .string();
+    if (!environment.abi.empty()
+        && std::none_of(
+            architectures.begin(), architectures.end(),
+            [&](const auto& item) { return item.second == environment.abi; }
+        ))
+        environment.errors.push_back(
+            "unsupported ANDROID_ABI: " + environment.abi
+        );
+    if (!environment.qt_arch.empty()
+        && std::none_of(
+            architectures.begin(), architectures.end(), [&](const auto& item) {
+                return item.first == environment.qt_arch
+                    && item.second == environment.abi;
+            }
+        ))
+        environment.errors.push_back(
+            "ANDROID_QT_ARCH is unsupported or conflicts with ANDROID_ABI: "
+            + environment.qt_arch
+        );
+    environment.qt_cmake_bin
+        = normalized_android_path(env_or_empty("ANDROID_CMAKE_BIN"));
+    if (environment.qt_cmake_bin.empty()) {
+        std::vector<fs::path> versions = environment.qt_version.empty()
+            ? android_subdirectories(environment.qt_dir)
+            : std::vector<fs::path> { fs::path(environment.qt_dir)
+                                      / environment.qt_version };
+        std::vector<fs::path> candidates;
+        for (const auto& version : versions)
+            for (const auto& [arch, abi] : architectures) {
+                const auto binary = version / arch / "bin/qt-cmake";
+                if ((environment.qt_arch.empty() || environment.qt_arch == arch)
+                    && (environment.abi.empty() || environment.abi == abi)
+                    && executable_exists(binary))
+                    candidates.push_back(binary);
+            }
+        environment.qt_cmake_bin = select_android_path(
+            candidates, "Qt Android kit",
+            "ANDROID_CMAKE_BIN or QT_DIR/QT_VER with ANDROID_ABI (or "
+            "ANDROID_QT_ARCH)",
+            &environment.errors
+        );
     }
-
+    const fs::path kit
+        = fs::path(environment.qt_cmake_bin).parent_path().parent_path();
+    if (kit.filename() == "gcc_64" || kit.filename() == "clang_64"
+        || kit.filename() == "macos")
+        environment.errors.push_back(
+            "ANDROID_CMAKE_BIN selects a desktop Qt kit: " + kit.string()
+        );
+    for (const auto& [arch, abi] : architectures)
+        if (kit.filename() == arch) {
+            if ((!environment.abi.empty() && environment.abi != abi)
+                || (!environment.qt_arch.empty()
+                    && environment.qt_arch != arch))
+                environment.errors.push_back(
+                    "selected Qt Android kit conflicts with "
+                    "ANDROID_ABI/ANDROID_QT_ARCH: "
+                    + kit.string()
+                );
+            environment.qt_arch = arch;
+            environment.abi = abi;
+            environment.qt_version = kit.parent_path().filename().string();
+        }
+    if (environment.abi.empty())
+        environment.errors.push_back(
+            "cannot infer Android ABI; set ANDROID_ABI for the selected "
+            "qt-cmake"
+        );
+    if (!executable_exists(environment.qt_cmake_bin))
+        environment.errors.push_back(
+            "Qt Android qt-cmake is not executable: " + environment.qt_cmake_bin
+        );
+    environment.qt_host_path
+        = normalized_android_path(env_or_empty("QT_HOST_PATH"));
+    if (environment.qt_host_path.empty() && !environment.qt_cmake_bin.empty()) {
+        std::vector<fs::path> candidates;
+        for (const auto* host : { "gcc_64", "clang_64", "macos" }) {
+            const auto candidate = kit.parent_path() / host;
+            if (fs::is_regular_file(
+                    candidate / "lib/cmake/Qt6/Qt6Config.cmake"
+                ))
+                candidates.push_back(candidate);
+        }
+        environment.qt_host_path = select_android_path(
+            candidates, "Qt host kit", "QT_HOST_PATH", &environment.errors
+        );
+    }
+    if (!directory_exists(environment.qt_host_path))
+        environment.errors.push_back(
+            "Qt host directory is unavailable; set QT_HOST_PATH: "
+            + environment.qt_host_path
+        );
     environment.emulator_bin
         = detect_android_emulator_impl(environment.sdk_root);
     environment.avd_name = env_or_empty("ANDROID_AVD_NAME");
@@ -870,10 +1136,41 @@ android_environment detect_android_environment() {
 
     environment.adb_bin = detect_android_adb_impl(environment.sdk_root);
     environment.aapt_bin = detect_android_aapt_impl(
-        environment.sdk_root, environment.build_tools_version
+        environment.sdk_root, environment.build_tools_version,
+        &environment.deployment_errors
     );
+    if (!executable_exists(environment.aapt_bin))
+        environment.deployment_errors.push_back(
+            "aapt is unavailable; set AAPT_BIN or ANDROID_BUILD_TOOLS_VERSION: "
+            + environment.aapt_bin
+        );
+    if (!executable_exists(environment.adb_bin))
+        environment.deployment_errors.push_back(
+            "adb is unavailable; set ADB_BIN or install SDK platform-tools: "
+            + environment.adb_bin
+        );
 
     return environment;
+}
+
+json android_environment_report(const android_environment& environment) {
+    return { { "sdk_root", environment.sdk_root },
+             { "ndk_root", environment.ndk_root },
+             { "ndk_version", environment.ndk_version },
+             { "qt_cmake_bin", environment.qt_cmake_bin },
+             { "qt_host_path", environment.qt_host_path },
+             { "qt_version", environment.qt_version },
+             { "qt_arch", environment.qt_arch },
+             { "abi", environment.abi },
+             { "platform",
+               environment.platform.empty() ? "Qt toolchain default"
+                                            : environment.platform },
+             { "aapt_bin", environment.aapt_bin },
+             { "adb_bin", environment.adb_bin },
+             { "emulator_bin", environment.emulator_bin },
+             { "avd_name", environment.avd_name },
+             { "errors", environment.errors },
+             { "deployment_errors", environment.deployment_errors } };
 }
 
 bool write_text_file(
