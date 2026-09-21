@@ -84,16 +84,6 @@ function(ecosystem_apply_defaults target_name)
         )
     endif ()
 endfunction()
-function(ecosystem_stage_assets target_name)
-    add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/assets
-            $<TARGET_FILE_DIR:${target_name}>/assets
-    )
-endfunction()
-
-
 
 # Runtime data belongs to the tooling install, independently of project assets.
 file(RELATIVE_PATH MANIFESTO_INSTALL_TEMPLATE_PATH
@@ -370,8 +360,6 @@ set_target_properties(engels__engels PROPERTIES OUTPUT_NAME engels)
 
 ecosystem_apply_defaults(engels__engels)
 
-ecosystem_stage_assets(engels__engels)
-
 
 add_library(marx__cli STATIC
     ${MANIFESTO_MARX_CLI_HEADERS}
@@ -413,8 +401,6 @@ target_link_libraries(marx__marx PRIVATE
 set_target_properties(marx__marx PROPERTIES OUTPUT_NAME marx)
 
 ecosystem_apply_defaults(marx__marx)
-
-ecosystem_stage_assets(marx__marx)
 
 
 # The visitor name is generated state; the selected target keeps its identity.
@@ -472,3 +458,4 @@ install(TARGETS marx__marx
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+
