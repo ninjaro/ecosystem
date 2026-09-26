@@ -277,6 +277,294 @@ void test_render_benchmark_svg_uses_template_backed_surface() {
     );
 }
 
+void test_cli_doctor_and_toolchain_report_share_probe_facts() {
+    temp_dir root;
+    write_sample_build_project(root.path(), "tool_facts");
+    require_sync_success(root.path(), "tool-fact fixture must sync");
+    const auto bin = root.path() / "bin";
+    fs::create_directory(bin);
+    for (const std::string name :
+         { "cmake", "clang++", "clang", "ctest", "clang-tidy", "clang-format",
+           "doxygen", "dot", "llvm-cov", "llvm-profdata", "sphinx-build",
+           "java", "javac", "gradle" }) {
+        const std::string argument = name == "dot" ? "-V"
+            : name == "java" || name == "javac"    ? "-version"
+                                                   : "--version";
+        write_executable_script(
+            bin / name,
+            "#!/bin/sh\n[ \"$1\" = '" + argument
+                + "' ] || exit 12\n"
+                  "printf '\\n"
+                + name + " version 1.2.3\\n' >&2\n"
+        );
+    }
+    write_executable_script(
+        bin / "llvm-cov",
+        "#!/bin/sh\nprintf 'LLVM (https://llvm.org/):\\n  LLVM version "
+        "22.1.8\\n  Optimized build.\\n'\n"
+    );
+    scoped_env path("PATH", bin.string());
+    auto result = run_engels_cli(root.path(), "report toolchains");
+    require_true(
+        result.exit_code == 0, "inventory must render: " + result.output
+    );
+    auto report = json::parse(result.output);
+    require_true(
+        report
+            == json::parse(
+                read_text(root.path() / ".ecosystem/reports/toolchains.json")
+            ),
+        "persisted tool facts must equal stdout"
+    );
+    for (const std::string name :
+         { "clang-tidy", "dot", "java", "llvm-cov", "llvm-profdata" }) {
+        const auto& fact = report.at(name);
+        require_true(
+            fact.at("available") == true
+                && fact.at("path") == (bin / name).string()
+                && fact.at("version")
+                    == (name == "llvm-cov" ? "LLVM version 22.1.8"
+                                           : name + " version 1.2.3")
+                && fact.at("version_exit_code") == 0,
+            "inventory must preserve resolved paths and correct version "
+            "arguments: "
+                + name
+        );
+    }
+    result = run_engels_cli(root.path(), "doctor tidy");
+    require_true(
+        result.exit_code == 0,
+        "tidy preflight must use the inventory: " + result.output
+    );
+    require_contains(
+        result.output, report.at("clang-tidy").at("path").get<std::string>(),
+        "Doctor must expose the same executable"
+    );
+    require_contains(
+        result.output, report.at("clang-tidy").at("version").get<std::string>(),
+        "Doctor must expose the same version"
+    );
+
+    // An executable directory must not hide a real tool later in PATH.
+    const auto first = root.path() / "first";
+    fs::create_directories(first / "clang-tidy");
+    {
+        scoped_env path_with_directory(
+            "PATH", first.string() + ":" + bin.string()
+        );
+        const auto tool = ecosystem::probe_tool("clang-tidy");
+        require_true(
+            tool.available && tool.path == (bin / "clang-tidy").string(),
+            "tool lookup must skip directories"
+        );
+    }
+    fs::remove(bin / "clang-tidy");
+    result = run_engels_cli(root.path(), "report toolchains");
+    report = json::parse(result.output);
+    const auto& missing = report.at("clang-tidy");
+    require_true(
+        missing.at("available") == false && missing.at("path") == ""
+            && missing.at("version") == ""
+            && missing.at("version_exit_code") == -1,
+        "missing tools must not retain stale successful facts"
+    );
+    result = run_engels_cli(root.path(), "doctor tidy");
+    require_true(
+        result.exit_code == 4, "missing clang-tidy must fail preflight"
+    );
+}
+
+void test_cli_doctor_reports_all_profile_requirements_before_configure() {
+    temp_dir root;
+    write_sample_leak_check_project(root.path());
+    require_sync_success(root.path(), "profile preflight fixture must sync");
+    const auto bin = root.path() / "bin";
+    fs::create_directory(bin);
+    scoped_env path("PATH", bin.string());
+    for (const std::string profile :
+         { "tidy", "tests", "coverage", "leaks", "ci" }) {
+        const auto result = run_engels_cli(root.path(), "doctor " + profile);
+        require_true(
+            result.exit_code == 4,
+            "missing prerequisites must fail: " + result.output
+        );
+        for (const auto* tool : { "cmake", "clang++" })
+            require_contains(
+                result.output, std::string(tool) + ": missing [required]",
+                "report all build prerequisites, not only the first missing "
+                "tool"
+            );
+        if (profile != "tidy")
+            require_contains(
+                result.output, "ctest: missing [required]",
+                "test runs need CTest"
+            );
+        if (profile == "coverage") {
+            require_contains(
+                result.output, "llvm-cov: missing [required]",
+                "coverage needs llvm-cov"
+            );
+            require_contains(
+                result.output, "llvm-profdata: missing [required]",
+                "coverage needs profdata"
+            );
+        }
+        if (profile == "tidy" || profile == "ci")
+            require_contains(
+                result.output, "clang-tidy: missing [required]",
+                "tidy is required"
+            );
+        if (profile == "ci")
+            require_contains(
+                result.output, "clang-format: missing [required]",
+                "CI includes formatting"
+            );
+        if (profile == "leaks")
+            require_contains(
+                result.output, "availability is not a sanitizer runtime test",
+                "scope leak preflight"
+            );
+        require_not_contains(
+            result.output, "doxygen: missing",
+            "dormant docs must not block ordinary checks"
+        );
+        require_true(
+            !fs::exists(ecosystem::local_developer_source_dir(root.path())),
+            "missing prerequisites must fail before configure or generation"
+        );
+    }
+    auto result = run_engels_cli(root.path(), "doctor tests core:lib");
+    require_true(
+        result.exit_code == 3,
+        "an artifact without tests must fail before probing tools"
+    );
+    require_contains(
+        result.output, "no test targets resolve",
+        "explain the invalid test scope"
+    );
+    result = run_engels_cli(root.path(), "doctor unknown_profile");
+    require_true(result.exit_code == 2, "unknown profile must fail");
+    require_contains(
+        result.output, "valid profiles:", "offer valid alternatives"
+    );
+}
+
+void test_cli_doctor_nonbuild_profiles_avoid_unrelated_tools_and_refresh() {
+    temp_dir root;
+    write_sample_json_project(root.path());
+    require_sync_success(root.path(), "nonbuild fixture must sync");
+    write_text(root.path() / "docs/index.md", "# Fixture\n");
+    const auto bin = root.path() / "bin";
+    fs::create_directory(bin);
+    for (const auto* name :
+         { "clang-format", "doxygen", "dot", "sphinx-build", "clang++" })
+        write_executable_script(
+            bin / name, "#!/bin/sh\nprintf 'fixture version 3.2.1\\n'\n"
+        );
+    scoped_env path("PATH", bin.string());
+    for (const std::string profile :
+         { "format", "repo", "doxy", "sphinx", "naming", "style" }) {
+        const auto result = run_engels_cli(root.path(), "doctor " + profile);
+        require_true(
+            result.exit_code == 0,
+            "nonbuild profiles must not require CMake: " + result.output
+        );
+        require_not_contains(
+            result.output, "cmake: missing",
+            "do not widen the operation's tools"
+        );
+        require_true(
+            !fs::exists(ecosystem::local_developer_source_dir(root.path())),
+            "nonbuild preflight must not materialize or configure CMake"
+        );
+        require_contains(
+            result.output, "nlohmann_json", "preserve declared package guidance"
+        );
+    }
+    write_executable_script(
+        bin / "clang-format",
+        "#!/bin/sh\nprintf 'fixture missing shared library\\n' >&2\nexit 7\n"
+    );
+    const auto result = run_engels_cli(root.path(), "doctor format");
+    require_true(result.exit_code == 4, "an unusable required tool must fail");
+    require_contains(
+        result.output, "version probe failed", "do not call failed probes ok"
+    );
+    require_contains(
+        result.output, "fixture missing shared library",
+        "retain the probe failure reason"
+    );
+    const auto report = ecosystem::toolchains_report("format");
+    require_true(
+        report.at("clang-format").at("available") == true
+            && report.at("clang-format").at("version") == ""
+            && report.at("clang-format").at("version_exit_code") == 7,
+        "separate executable presence from a successful version probe"
+    );
+}
+
+void test_cli_doctor_java_and_ci_follow_selected_gradle_wrapper() {
+    temp_dir root;
+    write_sample_java_binding_project(root.path());
+    require_sync_success(root.path(), "Java doctor fixture must sync");
+    write_sample_cmake_cache(root.path(), "debug", "JNI_FOUND:BOOL=TRUE\n");
+    const auto bin = root.path() / "bin";
+    fs::create_directory(bin);
+    for (const auto* name :
+         { "cmake", "clang++", "java", "javac", "clang-tidy", "clang-format" })
+        write_executable_script(
+            bin / name, "#!/bin/sh\nprintf 'fixture version 1.0\\n'\n"
+        );
+    const auto wrapper = root.path() / "java/gradlew";
+    write_executable_script(
+        wrapper,
+        "#!/bin/sh\n[ \"$1\" = '--version' ] || exit 19\n"
+        "printf '\\n----------\\nGradle 9.1-fixture\\n----------\\n'\n"
+    );
+    scoped_env path("PATH", bin.string());
+    for (const std::string profile : { "java", "ci" }) {
+        const auto result = run_engels_cli(root.path(), "doctor " + profile);
+        require_true(
+            result.exit_code == 0,
+            "doctor must honor the local Gradle wrapper: " + result.output
+        );
+        require_contains(
+            result.output, wrapper.string(), "show the selected wrapper path"
+        );
+        require_contains(
+            result.output, "Gradle 9.1-fixture",
+            "show the actual version, not the banner"
+        );
+        require_not_contains(
+            result.output, "ctest: missing",
+            "CI without C++ tests does not require CTest"
+        );
+    }
+    fs::remove(wrapper);
+    const auto result = run_engels_cli(root.path(), "doctor ci");
+    require_true(
+        result.exit_code == 4,
+        "CI's Java stage requires a usable Gradle command"
+    );
+    require_contains(
+        result.output, "gradle (or java/gradlew): missing",
+        "explain both Gradle paths"
+    );
+    auto manifest = json::parse(read_text(root.path() / "manifest.json"));
+    for (auto& artifact : manifest["artifacts"])
+        artifact["kind"] = "static_lib";
+    write_text(root.path() / "manifest.json", manifest.dump(2));
+    const auto invalid = run_engels_cli(root.path(), "doctor ci");
+    require_true(
+        invalid.exit_code == 3,
+        "CI must reject an impossible Java stage before probing or configuring"
+    );
+    require_contains(
+        invalid.output, "shared library artifact",
+        "CI preflight must explain the same Java prerequisite as check java"
+    );
+}
+
 void test_cli_doctor_reports_declared_dependency_guidance() {
     temp_dir root;
     write_sample_dependency_project(root.path());

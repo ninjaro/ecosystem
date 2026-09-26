@@ -61,6 +61,7 @@ void test_ci_bootstrap_rejects_missing_inputs_and_escaping_layouts();
 void test_generated_builds_reject_compiler_warnings_in_c_and_cxx();
 void test_cli_required_checks_propagate_failures_and_reject_empty_ctest_runs();
 void test_cli_check_ci_fails_fast_on_repository_policy_drift();
+void test_cli_check_ci_keeps_optional_features_out_of_required_checks();
 
 // Cli workspace.
 void test_workspace_conformance_reports_all_projects();
@@ -102,6 +103,7 @@ void test_cli_workspace_doxy_keeps_selected_artifact_outputs_separate();
 void test_cli_check_doxy_rejects_failed_configuration();
 void test_cli_check_sphinx_generates_local_conf_with_rtd_theme();
 void test_cli_check_sphinx_theme_flag_sets_theme_override();
+void test_cli_check_sphinx_rejects_output_aliases_before_writing();
 
 // Generation.
 void test_sync_matches_tracked_surfaces();
@@ -205,6 +207,10 @@ void test_cli_workspace_report_matrix_supports_filters();
 void test_cli_workspace_report_matrix_supports_multiple_artifact_filters();
 void test_cli_workspace_report_matrix_supports_multi_project_filters();
 void test_render_benchmark_svg_uses_template_backed_surface();
+void test_cli_doctor_and_toolchain_report_share_probe_facts();
+void test_cli_doctor_reports_all_profile_requirements_before_configure();
+void test_cli_doctor_nonbuild_profiles_avoid_unrelated_tools_and_refresh();
+void test_cli_doctor_java_and_ci_follow_selected_gradle_wrapper();
 void test_cli_doctor_reports_declared_dependency_guidance();
 void test_cli_doctor_artifact_scope_filters_declared_dependencies();
 void test_cli_doctor_reports_configured_package_state_from_cache();

@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -61,6 +61,8 @@ void test_ci_stage_reports_intermediate_and_pipeline_failures() {
                 "template changes must trigger both push and pull-request "
                 "checks"
             );
+        }
+        if (std::string(filename) != "html.yml") {
             require_not_contains(
                 workflow->contents, "check sphinx",
                 "ordinary CI must not depend on later-stage presentation"
@@ -836,6 +838,93 @@ void test_cli_check_ci_fails_fast_on_repository_policy_drift() {
         "ecos check ci must fail on repository drift before "
         "probing tidy tooling"
     );
+}
+
+void test_cli_check_ci_keeps_optional_features_out_of_required_checks() {
+    temp_dir root;
+    const auto project = root.path() / "project";
+    write_sample_leak_check_project(project);
+    write_text(project / "docs/index.md", "# Authored documentation\n");
+    write_text(project / "docs/conf.py", "# Authored configuration\n");
+    require_true(
+        run_marx_cli(project, "sync --then format").exit_code == 0,
+        "required-check fixture must start with canonical tracked surfaces"
+    );
+    const std::vector<fs::path> preserved {
+        "manifest.json",
+        "docs/index.md",
+        "docs/conf.py",
+        ".ecosystem/sphinx/html/index.html",
+        ".ecosystem/doxygen/html/index.html",
+        ".ecosystem/reports/coverage.json",
+        ".ecosystem/reports/naming.json",
+        ".ecosystem/reports/style.json",
+        ".ecosystem/reports/benchmark/core/core/result.json"
+    };
+    std::vector<std::string> contents;
+    for (const auto& relative : preserved) {
+        if (!fs::exists(project / relative))
+            write_text(project / relative, "previous optional output\n");
+        contents.push_back(read_text(project / relative));
+    }
+    const auto bin = root.path() / "bin";
+    const auto invocations = root.path() / "optional-invocations";
+    for (const auto* name :
+         { "sphinx-build", "doxygen", "dot", "llvm-cov", "llvm-profdata",
+           "java", "javac", "gradle", "adb", "androiddeployqt", "makepkg",
+           "repo-add", "dpkg-deb", "gpg" })
+        write_executable_script(
+            bin / name,
+            "#!/bin/sh\n"
+            "printf '%s\\n' \"$0 $*\" >> \"$MANIFESTO_TEST_OPTIONAL_LOG\"\n"
+            "echo 'optional tool deliberately unavailable' >&2\n"
+            "exit 97\n"
+        );
+    scoped_env path("PATH", bin.string() + ":" + current_path_env());
+    scoped_env log("MANIFESTO_TEST_OPTIONAL_LOG", invocations.string());
+    auto result = run_engels_cli(project, "check ci");
+    require_true(
+        result.exit_code == 0,
+        "required native checks must pass without optional tools:\n"
+            + result.output
+    );
+    require_contains(
+        result.output, "ci checks passed", "required checks must finish"
+    );
+    require_true(
+        !fs::exists(invocations), "CI must not even probe unrelated tools"
+    );
+    require_true(
+        !fs::exists(ecosystem::local_build_dir(project, "coverage"))
+            && !fs::exists(ecosystem::local_build_dir(project, "leaks")),
+        "ordinary tests must not enable coverage or sanitizer profiles"
+    );
+    for (std::size_t i = 0; i < preserved.size(); ++i)
+        require_true(
+            read_text(project / preserved[i]) == contents[i],
+            "required checks must preserve authored docs and optional results"
+        );
+
+    result = run_engels_cli(project, "check sphinx");
+    require_true(
+        result.exit_code == 5,
+        "an explicitly requested dormant operation must propagate tool failure"
+    );
+    require_contains(
+        result.output, "sphinx failed", "explicit failure must name Sphinx"
+    );
+    require_contains(
+        result.output, "optional tool deliberately unavailable",
+        "explicit failure must retain the tool's explanation"
+    );
+    require_not_contains(
+        result.output, "sphinx generated", "failed output is not success"
+    );
+    for (std::size_t i = 0; i < preserved.size(); ++i)
+        require_true(
+            read_text(project / preserved[i]) == contents[i],
+            "failed dormant execution must preserve unrelated state"
+        );
 }
 
 } // namespace ecosystem_test_support

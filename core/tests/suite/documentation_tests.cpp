@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -661,6 +661,80 @@ void test_cli_check_sphinx_theme_flag_sets_theme_override() {
         "ecos check sphinx --theme must forward the theme override "
         "into the Sphinx environment"
     );
+}
+
+void test_cli_check_sphinx_rejects_output_aliases_before_writing() {
+    for (const auto* relative :
+         { ".ecosystem", ".ecosystem/sphinx", ".ecosystem/sphinx/conf.py",
+           ".ecosystem/sphinx/html", ".ecosystem/sphinx/html/nested/index.html",
+           ".ecosystem/sphinx/html/.doctrees" }) {
+        temp_dir root;
+        const auto project = root.path() / "project";
+        write_sample_sphinx_project(project);
+        const auto authored = read_text(project / "manifest.json");
+        const auto destination = project / "authored";
+        const auto alias = project / relative;
+        const bool file_alias
+            = alias.extension() == ".py" || alias.extension() == ".html";
+        const bool html_alias
+            = std::string(relative).starts_with(".ecosystem/sphinx/html");
+        if (html_alias)
+            write_text(
+                project / ".ecosystem/sphinx/conf.py", "# previous config\n"
+            );
+        write_text(destination / "keep.txt", "keep authored content\n");
+        fs::create_directories(alias.parent_path());
+        if (file_alias)
+            fs::create_symlink(destination / "keep.txt", alias);
+        else
+            fs::create_directory_symlink(destination, alias);
+        const auto bin = root.path() / "bin";
+        const auto invocation = root.path() / "sphinx-invoked";
+        write_executable_script(
+            bin / "sphinx-build",
+            "#!/bin/sh\n"
+            "if [ \"$1\" = --version ]; then echo 'sphinx-build 8.0'; exit 0; "
+            "fi\n"
+            "echo invoked > \"$MANIFESTO_TEST_SPHINX_INVOCATION\"\n"
+            "exit 0\n"
+        );
+        scoped_env path("PATH", bin.string() + ":" + current_path_env());
+        scoped_env log("MANIFESTO_TEST_SPHINX_INVOCATION", invocation.string());
+        const auto result = run_engels_cli(project, "check sphinx");
+        require_true(
+            result.exit_code == 5,
+            std::string("Sphinx must reject output alias ") + relative
+                + " before writing: " + result.output
+        );
+        require_contains(
+            result.output, relative, "output failure must identify its path"
+        );
+        require_true(
+            !fs::exists(invocation)
+                && read_text(destination / "keep.txt")
+                    == "keep authored content\n"
+                && read_text(project / "manifest.json") == authored
+                && read_text(project / "docs/index.md") == "# Docs Sample\n",
+            "rejected output aliases must preserve authored state and avoid "
+            "Sphinx"
+        );
+        require_true(
+            !fs::exists(destination / "conf.py"),
+            "preflight must not write through an ancestor alias"
+        );
+        if (html_alias)
+            require_true(
+                read_text(project / ".ecosystem/sphinx/conf.py")
+                    == "# previous config\n",
+                "output preflight must preserve the previous configuration"
+            );
+        else if (!file_alias || alias.filename() != "conf.py")
+            require_true(
+                !fs::exists(project / ".ecosystem/sphinx/conf.py"),
+                "all output paths must be checked before replacing "
+                "configuration"
+            );
+    }
 }
 
 } // namespace ecosystem_test_support

@@ -165,18 +165,8 @@ namespace command_support {
     }
 
     gradle_command resolve_gradle_command(const fs::path& project_root) {
-        const fs::path wrapper_path
-            = java_project_dir(project_root) / "gradlew";
-        if (path_is_executable(wrapper_path)) {
-            return gradle_command { true, wrapper_path.string() };
-        }
-
-        const tool_status gradle_tool = probe_tool("gradle");
-        if (gradle_tool.available) {
-            return gradle_command { true, gradle_tool.path };
-        }
-
-        return gradle_command {};
+        const auto path = find_gradle_command_path(project_root);
+        return { !path.empty(), path };
     }
 
     command_error build_artifacts(

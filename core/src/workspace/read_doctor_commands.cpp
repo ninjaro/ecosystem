@@ -22,8 +22,7 @@ command_error run_doctor(
         out << "profile: " << *profile << "\n";
     }
     if (requested_artifact.has_value()) {
-        out << "artifact: " << format_artifact_ref(*requested_artifact)
-            << "\n";
+        out << "artifact: " << format_artifact_ref(*requested_artifact) << "\n";
         if (!resolve_artifact(manifest_value, requested_artifact).has_value()) {
             print_error(
                 err, command_error::invalid_request, "artifact does not exist"
@@ -45,118 +44,155 @@ command_error run_doctor(
         }
     }
 
-    if (profile.has_value()) {
-        if (contains_string(known_build_profiles, *profile)) {
-            if (!supports_build_profile(manifest_value, *profile)) {
-                print_error(
-                    err, command_error::unsupported_by_manifest,
-                    "manifest does not support build profile " + *profile
-                );
-                err << "valid build profiles:";
-                for (const std::string& supported :
-                     supported_build_profiles(manifest_value)) {
-                    err << " " << supported;
-                }
-                err << "\n";
-                return command_error::unsupported_by_manifest;
-            }
-            const tool_status cmake_tool = probe_tool("cmake");
-            const tool_status clang_tool = probe_tool("clang++");
-            out << "cmake: " << (cmake_tool.available ? "ok" : "missing")
-                << "\n";
-            out << "clang++: " << (clang_tool.available ? "ok" : "missing")
-                << "\n";
-            if (!cmake_tool.available || !clang_tool.available) {
-                return command_error::missing_local_tooling;
-            }
-            if (*profile == "android") {
-                const auto environment = detect_android_environment();
-                out << "android environment:\n"
-                    << android_environment_report(environment).dump(2) << "\n";
-                if (!environment.errors.empty())
-                    return command_error::missing_local_tooling;
-            }
-        } else if (contains_string(known_check_profiles, *profile)) {
-            if (!supports_check_profile(manifest_value, *profile)) {
-                print_error(
-                    err, command_error::unsupported_by_manifest,
-                    "manifest does not support check profile " + *profile
-                );
-                err << "valid check profiles:";
-                for (const std::string& supported :
-                     supported_check_profiles(manifest_value)) {
-                    err << " " << supported;
-                }
-                err << "\n";
-                return command_error::unsupported_by_manifest;
-            }
-            if (*profile == "format" || *profile == "ci") {
-                const tool_status format_tool = probe_tool("clang-format");
-                out << "clang-format: "
-                    << (format_tool.available ? "ok" : "missing") << "\n";
-                if (!format_tool.available) {
-                    return command_error::missing_local_tooling;
-                }
-            }
-            if (*profile == "doxy") {
-                const tool_status doxygen_tool = probe_tool("doxygen");
-                out << "doxygen: "
-                    << (doxygen_tool.available ? "ok" : "missing") << "\n";
-                const tool_status dot_tool = probe_tool("dot", { "-V" });
-                out << "Graphviz dot: "
-                    << (dot_tool.available ? "ok" : "missing") << "\n";
-                if (!doxygen_tool.available || !dot_tool.available) {
-                    return command_error::missing_local_tooling;
-                }
-            }
-            if (*profile == "sphinx") {
-                if (!project_has_docs_surface(project_root)) {
-                    print_error(
-                        err, command_error::unsupported_by_manifest,
-                        "project does not define docs/index.md or "
-                        "docs/index.rst for sphinx"
-                    );
-                    return command_error::unsupported_by_manifest;
-                }
-                const tool_status sphinx_tool = probe_tool("sphinx-build");
-                out << "sphinx-build: "
-                    << (sphinx_tool.available ? "ok" : "missing") << "\n";
-                if (!sphinx_tool.available) {
-                    return command_error::missing_local_tooling;
-                }
-            }
-            if (*profile == "tests" || *profile == "coverage"
-                || *profile == "ci") {
-                const tool_status ctest_tool = probe_tool("ctest");
-                out << "ctest: "
-                    << (ctest_tool.available ? "ok" : "missing") << "\n";
-                if (!ctest_tool.available) {
-                    return command_error::missing_local_tooling;
-                }
-            }
-            if (*profile == "coverage") {
-                const tool_status cov_tool = probe_tool("llvm-cov");
-                const tool_status prof_tool = probe_tool("llvm-profdata");
-                out << "llvm-cov: "
-                    << (cov_tool.available ? "ok" : "missing") << "\n";
-                out << "llvm-profdata: "
-                    << (prof_tool.available ? "ok" : "missing") << "\n";
-                if (!cov_tool.available || !prof_tool.available) {
-                    return command_error::missing_local_tooling;
-                }
-            }
-        } else {
+    if (profile) {
+        const bool build_profile
+            = contains_string(known_build_profiles, *profile);
+        const bool check_profile
+            = contains_string(known_check_profiles, *profile);
+        if (!build_profile && !check_profile) {
             print_error(
                 err, command_error::invalid_request,
                 "unknown profile: " + *profile
             );
+            err << "valid profiles: "
+                << join_strings(supported_build_profiles(manifest_value), " ")
+                << " "
+                << join_strings(supported_check_profiles(manifest_value), " ")
+                << "\n";
             return command_error::invalid_request;
         }
+        if ((build_profile && !supports_build_profile(manifest_value, *profile))
+            || (check_profile
+                && !supports_check_profile(manifest_value, *profile))) {
+            print_error(
+                err, command_error::unsupported_by_manifest,
+                "manifest does not support "
+                    + std::string(build_profile ? "build" : "check")
+                    + " profile " + *profile
+            );
+            err << "valid " << (build_profile ? "build" : "check")
+                << " profiles: "
+                << join_strings(
+                       build_profile ? supported_build_profiles(manifest_value)
+                                     : supported_check_profiles(manifest_value),
+                       " "
+                   )
+                << "\n";
+            return command_error::unsupported_by_manifest;
+        }
+        if ((*profile == "java" || *profile == "sphinx")
+            && requested_artifact) {
+            print_error(
+                err, command_error::invalid_request,
+                *profile + " check does not support artifact filters"
+            );
+            return command_error::invalid_request;
+        }
+        if (*profile == "sphinx" && !project_has_docs_surface(project_root)) {
+            print_error(
+                err, command_error::unsupported_by_manifest,
+                "project does not define docs/index.md or docs/index.rst for "
+                "sphinx"
+            );
+            return command_error::unsupported_by_manifest;
+        }
+        if ((*profile == "java"
+             || (*profile == "ci" && !requested_artifact
+                 && project_supports_java_check(project_root, manifest_value)))
+            && (!has_java_gradle_surface(project_root)
+                || artifact_refs_for_kind(manifest_value, "shared_lib")
+                       .empty())) {
+            print_error(
+                err, command_error::unsupported_by_manifest,
+                "java checks require a java/ Gradle test surface and a shared "
+                "library artifact"
+            );
+            return command_error::unsupported_by_manifest;
+        }
+        if ((*profile == "tests" || *profile == "coverage"
+             || *profile == "leaks"
+             || (*profile == "ci" && has_tests_enabled(manifest_value)))
+            && collect_test_targets(manifest_value, requested_artifact)
+                   .empty()) {
+            print_error(
+                err, command_error::unsupported_by_manifest,
+                "no test targets resolve for the requested artifact"
+            );
+            return command_error::unsupported_by_manifest;
+        }
+    }
+
+    auto tools = toolchains_report(profile.value_or("debug"), project_root);
+    if (profile == "ci") {
+        if (!has_tests_enabled(manifest_value))
+            tools.erase("ctest");
+        if (!requested_artifact
+            && project_supports_java_check(project_root, manifest_value))
+            tools.update(toolchains_report("java", project_root));
+    }
+    bool missing_tools = false;
+    out << "local tools:\n";
+    for (const auto& [name, tool] : tools.items()) {
+        const bool available = tool.at("available").get<bool>();
+        const bool required = tool.at("required").get<bool>();
+        const bool probe_failed
+            = available && tool.at("version_exit_code") != 0;
+        out << "  " << tool.at("label").get<std::string>() << ": "
+            << (!available         ? "missing"
+                    : probe_failed ? "version probe failed"
+                                   : "ok")
+            << (required ? " [required]" : " [optional]") << "\n";
+        if (available) {
+            out << "    path: " << tool.at("path").get<std::string>() << "\n";
+            const auto version = tool.at("version").get<std::string>();
+            out << "    version: "
+                << (version.empty() ? "unavailable" : version)
+                << " (probe exit " << tool.at("version_exit_code") << ")\n";
+            if (probe_failed)
+                out << "    " << tool.at("version_error").get<std::string>()
+                    << "\n";
+        }
+        missing_tools
+            = missing_tools || (required && (!available || probe_failed));
+        if (name == "clang")
+            out << "    clang++ is the C-compiler fallback when clang is "
+                   "absent\n";
+    }
+    if (tools.empty())
+        out << "  no external tools required by this profile\n";
+    if (profile == "leaks")
+        out << "leak environment: working ASan/UBSan/LSan runtimes and "
+               "untraced execution required; "
+               "availability is not a sanitizer runtime test\n";
+    if (profile == "sphinx")
+        out << "documentation environment: sphinx_rtd_theme and, for Markdown, "
+               "myst_parser "
+               "must be importable by sphinx-build\n";
+    if (profile == "java")
+        out << "Java environment: JDK/JNI development files and the selected "
+               "Gradle runtime required\n";
+    if (profile == "android") {
+        const auto environment = detect_android_environment();
+        out << "android environment:\n"
+            << android_environment_report(environment).dump(2) << "\n";
+        missing_tools = missing_tools || !environment.errors.empty();
+    }
+    if (missing_tools) {
+        emit_declared_dependencies(
+            out, manifest_value, requested_artifact, profile
+        );
+        print_error(
+            err, command_error::missing_local_tooling,
+            "required local tooling or environment is unavailable; see the "
+            "missing entries above"
+        );
+        return command_error::missing_local_tooling;
     }
 
     const dependency_summary dependencies
         = summarize_dependencies(manifest_value, requested_artifact);
-    command_error status = missing_files.empty() && tracked_surface_issues.empty()
+    command_error status
+        = missing_files.empty() && tracked_surface_issues.empty()
         ? command_error::ok
         : command_error::invalid_request;
     build_cache_status cache_status = inspect_build_cache(
@@ -167,7 +203,7 @@ command_error run_doctor(
         }
     );
     bool configured_package_state_refreshed = false;
-    if (status == command_error::ok) {
+    if (status == command_error::ok && tools.contains("cmake")) {
         const doctor_cache_refresh_result refresh_result = refresh_doctor_cache(
             project_root, manifest_value, dependencies, requested_artifact,
             profile
@@ -195,11 +231,13 @@ command_error run_doctor(
         out << " " << supported;
     }
     out << "\n";
-    emit_declared_dependencies(out, manifest_value, requested_artifact, profile);
+    emit_declared_dependencies(
+        out, manifest_value, requested_artifact, profile
+    );
     if (missing_files.empty() && tracked_surface_issues.empty()) {
         emit_configured_package_state(
-            out, project_root, manifest_value, requested_artifact,
-            cache_status, configured_package_state_refreshed
+            out, project_root, manifest_value, requested_artifact, cache_status,
+            configured_package_state_refreshed
         );
     }
 
@@ -211,7 +249,8 @@ command_error run_workspace_doctor(
     const std::optional<std::string>& profile, const workspace_scope& scope,
     std::ostream& out, std::ostream& err
 ) {
-    const command_error validity = validate_workspace_scope(workspace, scope, err);
+    const command_error validity
+        = validate_workspace_scope(workspace, scope, err);
     if (validity != command_error::ok) {
         return validity;
     }
@@ -320,7 +359,7 @@ command_error parse_workspace_doctor_request(
     return parse_workspace_scope(workspace, scope_args, true, scope, err);
 }
 
-}  // namespace ecosystem::command_support
+} // namespace ecosystem::command_support
 
 namespace ecosystem {
 
@@ -355,4 +394,4 @@ command_error parse_workspace_doctor_request(
     );
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

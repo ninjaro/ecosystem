@@ -24,6 +24,46 @@ namespace fs = std::filesystem;
 namespace ecosystem {
 namespace tooling_support {
 
+    struct tool_requirement {
+        std::string name;
+        std::string label;
+        string_list profiles;
+        string_list version_args { "--version" };
+        bool required = true;
+    };
+
+    const std::vector<tool_requirement>& tool_requirements() {
+        static const string_list desktop_profiles {
+            "debug", "release", "kde",  "tests", "coverage",
+            "leaks", "tidy",    "java", "ci",
+        };
+        // Doctor and the machine-readable inventory select from this same
+        // table.
+        static const std::vector<tool_requirement> requirements {
+            { "cmake",
+              "cmake",
+              { "debug", "release", "kde", "android", "tests", "coverage",
+                "leaks", "tidy", "java", "ci" } },
+            { "clang++",
+              "clang++",
+              { "debug", "release", "kde", "tests", "coverage", "leaks", "tidy",
+                "naming", "style", "java", "ci" } },
+            { "clang", "clang", desktop_profiles, { "--version" }, false },
+            { "ctest", "ctest", { "tests", "coverage", "leaks", "ci" } },
+            { "clang-format", "clang-format", { "format", "ci" } },
+            { "clang-tidy", "clang-tidy", { "tidy", "ci" } },
+            { "doxygen", "doxygen", { "doxy" } },
+            { "dot", "Graphviz dot", { "doxy" }, { "-V" } },
+            { "sphinx-build", "sphinx-build", { "sphinx" } },
+            { "llvm-cov", "llvm-cov", { "coverage" } },
+            { "llvm-profdata", "llvm-profdata", { "coverage" } },
+            { "java", "java", { "java" }, { "-version" } },
+            { "javac", "javac", { "java" }, { "-version" } },
+            { "gradle", "gradle (or java/gradlew)", { "java" } },
+        };
+        return requirements;
+    }
+
     std::string trim_copy(const std::string& value) {
         const std::size_t first = value.find_first_not_of(" \t\r\n");
         if (first == std::string::npos) {
@@ -34,8 +74,9 @@ namespace tooling_support {
     }
 
     std::string first_line(const std::string& value) {
-        const std::size_t separator = value.find('\n');
-        return trim_copy(value.substr(0U, separator));
+        const auto trimmed = trim_copy(value);
+        const std::size_t separator = trimmed.find('\n');
+        return trim_copy(trimmed.substr(0U, separator));
     }
 
     std::string shell_quote(const std::string& value) {
@@ -174,6 +215,47 @@ namespace tooling_support {
         }
 
         return false;
+    }
+
+    void validate_sphinx_outputs(const fs::path& root) {
+        const auto inspect = [&](const fs::path& path) {
+            std::error_code error;
+            const auto status = fs::symlink_status(path, error);
+            if (error && error != std::errc::no_such_file_or_directory)
+                throw template_render_error(
+                    path.string() + ": " + error.message()
+                );
+            if (fs::is_symlink(status))
+                throw template_render_error(
+                    "Sphinx service output must not use a symlink: "
+                    + path.lexically_relative(root).generic_string()
+                );
+            if (fs::exists(status) && !fs::is_directory(status)
+                && !fs::is_regular_file(status))
+                throw template_render_error(
+                    "invalid Sphinx output path type: "
+                    + path.lexically_relative(root).generic_string()
+                );
+            return status;
+        };
+        const auto directory = local_sphinx_dir(root);
+        for (const auto& path : { local_state_dir(root), directory,
+                                  directory / "conf.py", directory / "html" }) {
+            const auto status = inspect(path);
+            if (fs::exists(status)
+                && (path == directory / "conf.py" ? !fs::is_regular_file(status)
+                                                  : !fs::is_directory(status)))
+                throw template_render_error(
+                    "invalid Sphinx output path type: "
+                    + path.lexically_relative(root).generic_string()
+                );
+        }
+        // Sphinx writes nested pages and cached doctrees as well as conf.py.
+        // Reject aliases before any generated configuration is replaced.
+        if (fs::is_directory(directory))
+            for (const auto& entry :
+                 fs::recursive_directory_iterator(directory))
+                inspect(entry.path());
     }
 
     std::string default_home_path(const fs::path& relative) {
@@ -555,8 +637,14 @@ bool command_exists(const std::string& name) {
 }
 
 std::string find_command_path(const std::string& name) {
+    const auto executable_file = [](const fs::path& path) {
+        std::error_code error;
+        return fs::is_regular_file(path, error) && !error
+            && ::access(path.c_str(), X_OK) == 0;
+    };
     if (name.find('/') != std::string::npos) {
-        return ::access(name.c_str(), X_OK) == 0 ? name : std::string();
+        return executable_file(name) ? fs::absolute(name).string()
+                                     : std::string();
     }
 
     const char* path_env = std::getenv("PATH");
@@ -568,8 +656,8 @@ std::string find_command_path(const std::string& name) {
     std::string directory;
     while (std::getline(stream, directory, ':')) {
         const fs::path candidate = fs::path(directory) / name;
-        if (::access(candidate.c_str(), X_OK) == 0) {
-            return candidate.string();
+        if (executable_file(candidate)) {
+            return fs::absolute(candidate).string();
         }
     }
     return {};
@@ -928,10 +1016,45 @@ tool_status probe_tool(
         return status;
     }
 
+    auto selected_args = version_args;
+    if (selected_args.empty()) {
+        selected_args = { "--version" };
+        for (const auto& requirement : tool_requirements())
+            if (requirement.name == name)
+                selected_args = requirement.version_args;
+    }
     std::vector<std::string> args { status.path };
-    args.insert(args.end(), version_args.begin(), version_args.end());
-    status.version = first_line(capture_command(args));
+    args.insert(args.end(), selected_args.begin(), selected_args.end());
+    const auto result = capture_command_result(args);
+    status.version_exit_code = result.exit_code;
+    if (result.exit_code == 0) {
+        status.version = first_line(result.output);
+        const auto filename = fs::path(status.path).filename();
+        std::istringstream lines(result.output);
+        std::string line;
+        while (std::getline(lines, line)) {
+            line = trim_copy(line);
+            if (line.find("version ") != std::string::npos
+                || ((filename == "gradle" || filename == "gradlew")
+                    && line.starts_with("Gradle "))) {
+                status.version = line;
+                break;
+            }
+        }
+    } else {
+        status.version_error = trim_copy(result.output);
+    }
     return status;
+}
+
+std::string find_gradle_command_path(const fs::path& project_root) {
+    if (!project_root.empty()) {
+        const auto wrapper
+            = find_command_path((project_root / "java/gradlew").string());
+        if (!wrapper.empty())
+            return wrapper;
+    }
+    return find_command_path("gradle");
 }
 
 android_environment detect_android_environment() {
@@ -1231,6 +1354,13 @@ bool write_local_sphinx_conf(
     const fs::path& project_root, const std::string& project_name,
     std::string* error_message
 ) {
+    try {
+        validate_sphinx_outputs(project_root);
+    } catch (const std::exception& error) {
+        if (error_message)
+            *error_message = error.what();
+        return false;
+    }
     const fs::path docs_dir = project_root / "docs";
     const bool has_markdown_docs
         = directory_tree_has_extension(docs_dir, ".md");
@@ -1255,20 +1385,34 @@ bool write_local_sphinx_conf(
     );
 }
 
-json toolchains_report() {
-    const std::vector<std::string> tools {
-        "cmake",   "ctest",        "clang++",  "clang-format",
-        "doxygen", "sphinx-build", "llvm-cov", "llvm-profdata",
-    };
-
+json toolchains_report(
+    const std::optional<std::string>& profile, const fs::path& project_root
+) {
     json report = json::object();
-    for (const std::string& tool : tools) {
-        const tool_status status = probe_tool(tool);
-        report[tool] = json::object(
+    for (const auto& requirement : tool_requirements()) {
+        if (profile
+            && std::find(
+                   requirement.profiles.begin(), requirement.profiles.end(),
+                   *profile
+               ) == requirement.profiles.end())
+            continue;
+        std::string command = requirement.name;
+        if (command == "gradle" && !project_root.empty()) {
+            const auto selected = find_gradle_command_path(project_root);
+            if (!selected.empty())
+                command = selected;
+        }
+        const auto status = probe_tool(command, requirement.version_args);
+        report[requirement.name] = json::object(
             {
+                { "label", requirement.label },
+                { "profiles", requirement.profiles },
+                { "required", requirement.required },
                 { "available", status.available },
                 { "path", status.path },
                 { "version", status.version },
+                { "version_exit_code", status.version_exit_code },
+                { "version_error", status.version_error },
             }
         );
     }

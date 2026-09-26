@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -23,6 +24,8 @@ struct tool_status {
     bool available = false;
     std::string path;
     std::string version;
+    int version_exit_code = -1;
+    std::string version_error;
 };
 
 struct captured_command {
@@ -181,8 +184,9 @@ command_error ensure_local_developer_surface(
 );
 tool_status probe_tool(
     const std::string& name,
-    const std::vector<std::string>& version_args = { "--version" }
+    const std::vector<std::string>& version_args = {}
 );
+std::string find_gradle_command_path(const std::filesystem::path& project_root);
 android_environment detect_android_environment();
 json android_environment_report(const android_environment& environment);
 
@@ -200,6 +204,9 @@ bool write_local_sphinx_conf(
     const std::filesystem::path& project_root, const std::string& project_name,
     std::string* error_message
 );
-json toolchains_report();
+json toolchains_report(
+    const std::optional<std::string>& profile = std::nullopt,
+    const std::filesystem::path& project_root = {}
+);
 
 } // namespace ecosystem
