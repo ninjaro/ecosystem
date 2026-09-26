@@ -56,8 +56,8 @@ command_error run_check_personal(
 
 command_error run_check_leaks(
     const fs::path& project_root, const manifest& manifest_value,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 ) {
     if (process_is_traced()) {
         print_error(
@@ -87,6 +87,15 @@ command_error run_check_leaks(
         return command_error::unsupported_by_manifest;
     }
 
+    const tool_status ctest_tool = probe_tool("ctest");
+    if (!ctest_tool.available) {
+        print_error(
+            err, command_error::missing_local_tooling,
+            "ctest is required for sanitizer-backed leak checks"
+        );
+        return command_error::missing_local_tooling;
+    }
+
     ensure_local_artifacts(project_root, false, false);
     std::string error_message;
     const command_error surface_status = ensure_local_developer_surface(
@@ -98,7 +107,7 @@ command_error run_check_leaks(
     }
 
     const std::string sanitizer_flags
-        = "-fsanitize=address,undefined -fno-omit-frame-pointer "
+        = "-fsanitize=address,undefined,leak -fno-omit-frame-pointer "
           "-fno-sanitize-recover=all";
     const command_error configure_status = configure_cmake_source_tree(
         local_developer_source_dir(project_root),
@@ -117,45 +126,51 @@ command_error run_check_leaks(
         "Debug", &error_message
     );
     if (configure_status != command_error::ok) {
-        print_error(err, configure_status, error_message);
+        print_error(
+            err, configure_status,
+            "cannot configure the leak-check build; this requires Clang and working "
+            "AddressSanitizer, UndefinedBehaviorSanitizer and LeakSanitizer "
+            "runtimes\n"
+                + error_message
+        );
         return configure_status;
     }
 
-    command_error status = build_facade_entry_artifact(
-        project_root, manifest_value, "leaks", err
+    const command_error status
+        = build_test_targets(project_root, "leaks", test_targets, err);
+    if (status != command_error::ok) {
+        return status;
+    }
+    const auto result = capture_command_result(
+        {
+            ctest_tool.path,
+            "--output-on-failure",
+            "--no-tests=error",
+            "-R",
+            ctest_regex_for(test_targets),
+        },
+        local_build_dir(project_root, "leaks"),
+        {
+            { "ASAN_OPTIONS", "detect_leaks=1:halt_on_error=1" },
+            { "UBSAN_OPTIONS", "halt_on_error=1:print_stacktrace=1" },
+            { "LSAN_OPTIONS",
+              "detect_leaks=1:leak_check_at_exit=1:exitcode=1" },
+        }
     );
-    if (status != command_error::ok) {
-        return status;
-    }
-    status = build_test_targets(project_root, "leaks", test_targets, err);
-    if (status != command_error::ok) {
-        return status;
-    }
-
-    const tool_status ctest_tool = probe_tool("ctest");
-    if (!ctest_tool.available) {
-        print_error(
-            err, command_error::missing_local_tooling, "ctest is not available"
-        );
-        return command_error::missing_local_tooling;
-    }
-
-    if (run_command(
-            {
-                ctest_tool.path,
-                "--output-on-failure",
-                "--no-tests=error",
-                "-R",
-                ctest_regex_for(test_targets),
-            },
-            local_build_dir(project_root, "leaks"),
-            {
-                { "ASAN_OPTIONS", "detect_leaks=1:halt_on_error=1" },
-                { "UBSAN_OPTIONS", "halt_on_error=1:print_stacktrace=1" },
-                { "LSAN_OPTIONS", "exitcode=1" },
-            }
-        )
-        != 0) {
+    out << result.output;
+    if (result.exit_code != 0) {
+        if (result.output.find("LeakSanitizer has encountered a fatal error")
+                != std::string::npos
+            || result.output.find("LeakSanitizer does not work under ptrace")
+                != std::string::npos) {
+            print_error(
+                err, command_error::missing_local_tooling,
+                "LeakSanitizer could not inspect this execution environment; "
+                "rerun outside debugger, ptrace or tracing test wrappers. "
+                "No leak-check result is available"
+            );
+            return command_error::missing_local_tooling;
+        }
         print_error(
             err, command_error::task_failed,
             "sanitizer-backed leak checks failed"
@@ -163,7 +178,9 @@ command_error run_check_leaks(
         return command_error::task_failed;
     }
 
-    out << "leak check passed\n";
+    out << "selected sanitizer-backed test run reported no detected leaks\n"
+        << "Only executed paths are checked; uninstrumented code and "
+           "unrun tests are not covered\n";
     return command_error::ok;
 }
 

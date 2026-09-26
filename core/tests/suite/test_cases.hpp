@@ -41,6 +41,9 @@ void test_build_tree_layout_nests_project_and_probe_profiles();
 
 // Checks.
 void test_cli_check_leaks_runs_sanitized_tests();
+void test_cli_check_leaks_fails_on_native_sanitizer_findings();
+void test_cli_check_leaks_preserves_artifact_selection();
+void test_cli_check_leaks_reports_tool_and_environment_failures();
 void test_cli_check_tidy_uses_clang_tidy_when_available();
 void test_cli_check_tidy_fails_when_clang_tidy_reports_diagnostics();
 void test_tidy_requires_tool_and_complete_compilation_database();

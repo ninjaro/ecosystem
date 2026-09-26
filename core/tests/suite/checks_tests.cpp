@@ -29,11 +29,22 @@ void test_cli_check_leaks_runs_sanitized_tests() {
         = run_cli_with_binary(copied_engels, root.path(), "check leaks");
     if (result.exit_code == 0) {
         require_contains(
-            result.output, "leak check passed",
-            "ecos check leaks must report success after the sanitized test run"
+            result.output,
+            "selected sanitizer-backed test run reported no detected leaks",
+            "leak-check success must describe only the selected run"
+        );
+        require_contains(
+            result.output,
+            "uninstrumented code and unrun tests are not covered",
+            "leak-check success must state its coverage limit"
         );
         return;
     }
+    require_true(
+        result.exit_code == 4,
+        "an unavailable sanitizer environment must fail explicitly:\n"
+            + result.output
+    );
     if (result.output.find(
             "sanitizer-backed leak checks are unavailable while "
             "the process is being traced"
@@ -42,9 +53,191 @@ void test_cli_check_leaks_runs_sanitized_tests() {
         return;
     }
     require_contains(
-        result.output, "LeakSanitizer does not work under ptrace",
-        "ecos check leaks must either preflight traced environments "
-        "or surface the underlying LSAN ptrace limitation"
+        result.output,
+        "LeakSanitizer could not inspect this execution environment",
+        "a nested sanitizer runtime limitation must give an actionable error"
+    );
+}
+
+void test_cli_check_leaks_fails_on_native_sanitizer_findings() {
+    temp_dir root;
+    write_sample_leak_check_project(root.path());
+    // The command's required settings must override inherited disabling
+    // options.
+    scoped_env asan("ASAN_OPTIONS", "detect_leaks=0:halt_on_error=0");
+    scoped_env lsan("LSAN_OPTIONS", "detect_leaks=0:exitcode=0");
+    scoped_env ubsan("UBSAN_OPTIONS", "halt_on_error=0");
+    const std::vector<std::pair<std::string, std::string>> cases {
+        { "#include <cstdlib>\nvoid* allocation = nullptr;\n"
+          "int main() { allocation = std::malloc(73); "
+          "if (!allocation) return 2; allocation = nullptr; return 0; }\n",
+          "LeakSanitizer: detected memory leaks" },
+        { "int main() { auto* values = new int[1]; volatile int index = 1; "
+          "values[index] = 42; delete[] values; return 0; }\n",
+          "AddressSanitizer: heap-buffer-overflow" },
+        { "#include <limits>\nint main() { volatile int value = "
+          "std::numeric_limits<int>::max(); return value + 1; }\n",
+          "runtime error: signed integer overflow" },
+    };
+    for (const auto& [source, diagnostic] : cases) {
+        write_text(root.path() / "tests/main_tests.cpp", source);
+        const auto result = run_engels_cli(root.path(), "check leaks");
+        require_true(
+            result.exit_code == 5,
+            "native sanitizer findings must fail the operation:\n"
+                + result.output
+        );
+        require_contains(
+            result.output, diagnostic, "retain the native finding"
+        );
+        require_not_contains(
+            result.output, "reported no detected leaks",
+            "a failed sanitizer run must never print success"
+        );
+    }
+}
+
+void test_cli_check_leaks_preserves_artifact_selection() {
+    temp_dir root;
+    write_text(root.path() / "manifest.json", R"({
+        "id":"leak_selection", "description":"Scoped leak checks",
+        "facade":"core:unrelated",
+        "artifacts":[
+            {"id":"core:selected","kind":"static_lib","owns":["selected"],"tests":{"selftest":true}},
+            {"id":"core:unrelated","kind":"static_lib","owns":["unrelated"],"tests":{"selftest":true}}
+        ]
+    })");
+    write_text(
+        root.path() / "src/selected.cpp", "int answer() { return 42; }\n"
+    );
+    write_text(
+        root.path() / "tests/selected_tests.cpp",
+        "int answer(); int main() { return answer() == 42 ? 0 : 1; }\n"
+    );
+    write_text(root.path() / "src/unrelated.cpp", "#error unrelated facade\n");
+    write_text(
+        root.path() / "tests/unrelated_tests.cpp", "#error unselected tests\n"
+    );
+    auto result
+        = run_engels_cli(root.path(), "check leaks core:selected");
+    require_true(
+        result.exit_code == 0,
+        "selected leak checks must not build an unrelated facade or tests:\n"
+            + result.output
+    );
+    require_contains(
+        result.output, "core__selected__tests", "run the selected tests"
+    );
+    require_not_contains(
+        result.output, "core__unrelated", "keep unrelated targets out"
+    );
+    const auto build_dir = ecosystem::local_build_dir(root.path(), "leaks");
+    require_true(
+        fs::exists(build_dir / "core__selected__tests")
+            && !fs::exists(ecosystem::local_build_dir(root.path(), "debug")),
+        "sanitizer checks must use their own build tree"
+    );
+
+    const auto bin = root.path() / "bin";
+    fs::create_directory(bin);
+    scoped_env real_ctest(
+        "MANIFESTO_TEST_REAL_CTEST", ecosystem::find_command_path("ctest")
+    );
+    write_executable_script(
+        bin / "ctest",
+        "#!/bin/sh\nif [ \"$1\" != '--version' ]; then\n"
+        "  printf '# no selected tests\\n' > CTestTestfile.cmake\nfi\n"
+        "exec \"$MANIFESTO_TEST_REAL_CTEST\" \"$@\"\n"
+    );
+    scoped_env path("PATH", bin.string() + ":" + current_path_env());
+    result
+        = run_engels_cli(root.path(), "check leaks core:selected");
+    require_true(
+        result.exit_code == 5, "empty selected test execution must fail"
+    );
+    require_contains(
+        result.output, "No tests were found", "retain CTest's failure"
+    );
+    require_not_contains(
+        result.output, "reported no detected leaks", "empty tests cannot pass"
+    );
+}
+
+void test_cli_check_leaks_reports_tool_and_environment_failures() {
+    temp_dir root;
+    write_sample_leak_check_project(root.path());
+    const auto bin = root.path() / "bin";
+    fs::create_directory(bin);
+    scoped_env path("PATH", bin.string());
+    auto result = run_engels_cli(root.path(), "check leaks");
+    require_true(
+        result.exit_code == 4, "missing CTest must report missing tooling"
+    );
+    require_contains(
+        result.output, "ctest is required", "name the missing tool"
+    );
+    require_true(
+        !fs::exists(ecosystem::local_developer_source_dir(root.path())),
+        "missing CTest must fail before generation/build"
+    );
+    const auto stub = "#!/bin/sh\nprintf 'fixture tool version\\n'\nexit 0\n";
+    write_executable_script(bin / "ctest", stub);
+    result = run_engels_cli(root.path(), "check leaks");
+    require_true(
+        result.exit_code == 4, "missing CMake must report missing tooling"
+    );
+    require_contains(
+        result.output, "cmake is not available", "name missing CMake"
+    );
+    write_executable_script(bin / "cmake", stub);
+    result = run_engels_cli(root.path(), "check leaks");
+    require_true(
+        result.exit_code == 4, "missing Clang must report missing tooling"
+    );
+    require_contains(
+        result.output, "clang++ is not available", "name missing Clang"
+    );
+    write_executable_script(bin / "clang++", stub);
+    write_executable_script(
+        bin / "cmake",
+        "#!/bin/sh\nif [ \"$1\" = '--version' ]; then exit 0; fi\n"
+        "printf 'fixture: sanitizer runtime is unavailable\\n'\nexit 1\n"
+    );
+    result = run_engels_cli(root.path(), "check leaks");
+    require_true(
+        result.exit_code == 5, "unsupported sanitizer configure must fail"
+    );
+    require_contains(
+        result.output, "requires Clang and working",
+        "explain the runtime prerequisite"
+    );
+    require_contains(
+        result.output, "sanitizer runtime is unavailable",
+        "preserve compiler evidence"
+    );
+
+    write_executable_script(bin / "cmake", stub);
+    write_executable_script(
+        bin / "ctest",
+        "#!/bin/sh\nif [ \"$1\" = '--version' ]; then exit 0; fi\n"
+        "printf 'LeakSanitizer has encountered a fatal error.\\n"
+        "LeakSanitizer does not work under ptrace.\\n'\nexit 8\n"
+    );
+    result = run_engels_cli(root.path(), "check leaks");
+    require_true(
+        result.exit_code == 4, "nested runtime limitations must be explicit"
+    );
+    require_contains(
+        result.output, "outside debugger, ptrace or tracing test wrappers",
+        "give a recovery step"
+    );
+    require_contains(
+        result.output, "No leak-check result is available",
+        "do not claim leak coverage"
+    );
+    require_not_contains(
+        result.output, "reported no detected leaks",
+        "runtime failures cannot pass"
     );
 }
 
