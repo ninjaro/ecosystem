@@ -3,6 +3,267 @@
 
 namespace ecosystem_test_support {
 
+void test_ci_event_selection_and_full_verification() {
+    temp_dir root;
+    const auto files = ecosystem::generate_tracked_surface_files(
+        sample_manifest(), root.path()
+    );
+    const auto* action = find_tracked_surface_file(
+        files, ".github/actions/select-manifesto-ci/action.yml"
+    );
+    const auto* checks
+        = find_tracked_surface_file(files, ".github/workflows/tests.yml");
+    const auto* codeql
+        = find_tracked_surface_file(files, ".github/workflows/codeql.yml");
+    require_true(
+        action && checks && codeql, "all CI selection consumers exist"
+    );
+    const auto selection = root.path() / "select.sh";
+    const auto outputs = root.path() / "outputs";
+    write_text(
+        selection,
+        github_shell_program(action->contents, "Select verification scope", 6)
+    );
+    for (const auto& [event, ref, branch, base, expected] :
+         std::vector<std::tuple<
+             std::string, std::string, std::string, std::string, std::string>> {
+             { "push", "refs/heads/main", "main", "", "full" },
+             { "push", "refs/heads/trunk", "trunk", "", "full" },
+             { "push", "refs/heads/feature", "main", "", "cheap" },
+             { "push", "refs/tags/main", "main", "", "skip" },
+             { "pull_request", "refs/pull/42/merge", "main", "main", "full" },
+             { "pull_request", "refs/pull/42/merge", "main", "release",
+               "cheap" },
+             { "workflow_dispatch", "refs/heads/feature", "main", "", "full" },
+             { "schedule", "refs/heads/main", "main", "", "security" },
+             { "release", "refs/tags/v1", "main", "", "skip" },
+             { "push", "refs/heads/main", "", "", "error" },
+             { "pull_request", "refs/pull/42/merge", "main", "", "error" } }) {
+        write_text(outputs, "");
+        const auto result = ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail", selection.string() }, root.path(),
+            { { "EVENT_NAME", event },
+              { "CURRENT_REF", ref },
+              { "DEFAULT_BRANCH", branch },
+              { "PR_BASE_REF", base },
+              { "GITHUB_OUTPUT", outputs.string() },
+              { "GITHUB_STEP_SUMMARY", (root.path() / "summary").string() } }
+        );
+        require_true(
+            (result.exit_code == 0) == (expected != "error"),
+            "event selection must fail when required context is missing"
+        );
+        require_true(
+            read_text(outputs)
+                == (expected == "error" ? "" : "scope=" + expected + "\n"),
+            "event selection mismatch: " + event + " " + ref
+        );
+    }
+    require_contains(
+        codeql->contents, "  schedule:\n    - cron:",
+        "CodeQL must maintain an independent scheduled default-branch baseline"
+    );
+    require_contains(
+        codeql->contents,
+        "group: codeql-${{ github.workflow }}-${{ github.event_name }}-",
+        "scheduled CodeQL must not cancel or be cancelled by push verification"
+    );
+    require_contains(
+        codeql->contents,
+        "if: ${{ needs.select.outputs.scope == 'full' || "
+        "needs.select.outputs.scope == 'security' }}",
+        "cheap branches and tags must not run CodeQL setup or analysis"
+    );
+    require_contains(
+        checks->contents,
+        "if: ${{ needs.select.outputs.scope == 'cheap' || "
+        "needs.select.outputs.scope == 'full' }}",
+        "required checks must skip package/release events"
+    );
+    require_contains(
+        checks->contents,
+        "if: ${{ needs.select.outputs.scope == 'full' && "
+        "steps.required.outputs.status == 'passed' }}",
+        "coverage must require a successful full verification stage"
+    );
+    require_contains(
+        checks->contents, "permissions:\n  contents: read\n\n",
+        "project checks must have read-only repository credentials"
+    );
+
+    require_contains(
+        checks->contents,
+        "install-project-deps: ${{ needs.select.outputs.scope == 'full' }}",
+        "cheap verification must not install project build/test dependencies"
+    );
+    const auto* setup = find_tracked_surface_file(
+        files, ".github/actions/setup-manifesto/action.yml"
+    );
+    require_true(setup != nullptr, "local dependency setup must exist");
+    require_contains(
+        setup->contents,
+        "- name: Install Qt 6\n      if: ${{ inputs.install-project-deps == "
+        "'true' }}",
+        "cheap verification must skip Qt installation"
+    );
+    const auto native_setup = github_shell_program(
+        setup->contents, "Install shared native dependencies", 6
+    );
+    const auto bin = root.path() / "bin";
+    write_executable_script(bin / "sudo", "#!/bin/sh\nprintf '%s\\n' \"$*\"\n");
+    const auto dependencies = root.path() / "dependencies.sh";
+    for (const auto& [project_deps, docs] :
+         std::vector<std::pair<std::string, std::string>> {
+             { "false", "false" }, { "true", "false" }, { "false", "true" } }) {
+        auto script = github_substitute(
+            native_setup, "inputs.install-project-deps", project_deps
+        );
+        script = github_substitute(script, "inputs.install-docs", docs);
+        write_text(dependencies, script);
+        const auto result = ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail", dependencies.string() },
+            root.path(), { { "PATH", bin.string() + ":" + current_path_env() } }
+        );
+        require_true(
+            result.exit_code == 0, "dependency selection must execute"
+        );
+        for (const auto* package :
+             { "clang-format", "libclang-dev", "llvm-dev", "libcxxopts-dev" })
+            require_contains(
+                result.output, package,
+                "tool bootstrap prerequisites remain required"
+            );
+        for (const auto* package :
+             { "clang-tidy", "default-jdk", "libopencv-dev", "libgtest-dev",
+               "libbenchmark-dev" })
+            require_true(
+                (result.output.find(package) != std::string::npos)
+                    == (project_deps == "true"),
+                "project dependencies must follow the selected scope"
+            );
+        require_true(
+            (result.output.find("doxygen graphviz") != std::string::npos)
+                == (project_deps == "true" || docs == "true"),
+            "native docs dependencies support full tests or explicit "
+            "documentation"
+        );
+        require_true(
+            (result.output.find("python3-venv") != std::string::npos)
+                == (docs == "true"),
+            "Sphinx dependencies remain explicit"
+        );
+    }
+
+    // Execute the exact generated local-operation selection with recording
+    // actors.
+    for (const auto* actor : { "engels", "marx" })
+        write_executable_script(
+            root.path() / actor,
+            "#!/bin/sh\nprintf '" + std::string(actor)
+                + " %s\\n' \"$*\" >> \"$CI_CALLS\"\n"
+                  "if [ \"$CI_FAIL_COMMAND\" = \""
+                + actor + " $*\" ]; then exit 5; fi\n"
+        );
+    auto content = checks->contents;
+    const auto command_key = content.find("shell-command: |");
+    require_true(command_key != std::string::npos, "required operation exists");
+    content.replace(command_key, std::string("shell-command").size(), "run");
+    auto program
+        = github_shell_program(content, "Run required local checks", 10);
+    for (const auto* actor : { "engels", "marx" })
+        program = github_substitute(
+            program,
+            "steps.manifesto.outputs." + std::string(actor) + "-binary",
+            (root.path() / actor).string()
+        );
+    const auto command = root.path() / "checks.sh";
+    const auto calls = root.path() / "calls";
+    write_text(command, program);
+    for (const auto& [scope, failure, expected] :
+         std::vector<std::tuple<std::string, std::string, std::string>> {
+             { "cheap", "", "engels check repo\nengels check format\n" },
+             { "full", "", "marx build debug\nengels check ci\n" },
+             { "cheap", "engels check repo", "engels check repo\n" },
+             { "cheap", "engels check format",
+               "engels check repo\nengels check format\n" },
+             { "full", "marx build debug", "marx build debug\n" },
+             { "full", "engels check ci",
+               "marx build debug\nengels check ci\n" },
+             { "missing", "invalid scope", "" } }) {
+        write_text(calls, "");
+        const auto result = ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail", command.string() }, root.path(),
+            { { "CHECK_SCOPE", scope },
+              { "CI_FAIL_COMMAND", failure },
+              { "CI_CALLS", calls.string() } }
+        );
+        require_true(
+            (result.exit_code == 0) == failure.empty()
+                && read_text(calls) == expected,
+            "selected operations must preserve order and failure propagation:\n"
+                + result.output
+        );
+    }
+
+    const auto gate = root.path() / "gate.sh";
+    write_text(
+        gate,
+        github_shell_program(checks->contents, "Enforce required result", 8)
+    );
+    const auto reports = root.path() / ".ecosystem/github/reports";
+    for (const auto* stage : { "01-required-checks", "02-coverage-check" }) {
+        write_text(reports / stage / "summary.md", "current result");
+        write_text(reports / stage / "output.log", "");
+    }
+    const auto report = root.path() / ".ecosystem/reports/coverage.json";
+    write_text(report, "current coverage");
+    const auto run_gate = [&](const std::string& outcome,
+                              const std::string& status,
+                              const std::string& code) {
+        return ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail", gate.string() }, root.path(),
+            { { "CHECK_SCOPE", "full" },
+              { "CHECK_OUTCOME", "success" },
+              { "CHECK_STATUS", "passed" },
+              { "CHECK_EXIT_CODE", "0" },
+              { "COVERAGE_OUTCOME", outcome },
+              { "COVERAGE_STATUS", status },
+              { "COVERAGE_EXIT_CODE", code } }
+        );
+    };
+    require_true(
+        run_gate("success", "passed", "0").exit_code == 0,
+        "full coverage may pass"
+    );
+    for (const auto& [outcome, status, code] :
+         std::vector<std::tuple<std::string, std::string, std::string>> {
+             { "", "", "" },
+             { "failure", "passed", "0" },
+             { "skipped", "skipped", "3" },
+             { "success", "failed", "5" },
+             { "success", "skipped", "4" },
+             { "success", "passed", "3" },
+             { "success", "failed", "0" } })
+        require_true(
+            run_gate(outcome, status, code).exit_code != 0,
+            "full verification cannot hide coverage failure"
+        );
+    fs::remove(report);
+    require_true(
+        run_gate("success", "passed", "0").exit_code != 0,
+        "successful coverage must have its report"
+    );
+    require_true(
+        run_gate("success", "skipped", "3").exit_code == 0,
+        "unsupported coverage must be explicit"
+    );
+    fs::remove(reports / "02-coverage-check/output.log");
+    require_true(
+        run_gate("success", "skipped", "3").exit_code != 0,
+        "even unsupported coverage needs a completed stage record"
+    );
+}
+
 void test_ci_stage_reports_intermediate_and_pipeline_failures() {
     const std::string action = ecosystem::render_required_text_template(
         "tracked/.github/actions/run-manifesto-stage/action.yml.tpl", {}
@@ -51,15 +312,13 @@ void test_ci_stage_reports_intermediate_and_pipeline_failures() {
                 "coverage uploads must not depend on a nonexistent output"
             );
         } else if (std::string(filename) == "codeql.yml") {
-            const auto trigger
-                = workflow->contents.find("      - 'templates/**'");
-            require_true(
-                trigger != std::string::npos
-                    && workflow->contents.find(
-                           "      - 'templates/**'", trigger + 1
-                       ) != std::string::npos,
-                "template changes must trigger both push and pull-request "
-                "checks"
+            require_not_contains(
+                workflow->contents, "paths:",
+                "CodeQL must cover arbitrary manifest-owned source directories"
+            );
+            require_contains(
+                workflow->contents, "uses: ./.github/actions/select-manifesto-ci",
+                "CodeQL must share event selection with required checks"
             );
         }
         if (std::string(filename) != "html.yml") {
@@ -173,7 +432,8 @@ void test_ci_required_result_enforces_failures_and_missing_evidence() {
                               const std::string& code) {
         return ecosystem::capture_command_result(
             { "bash", "-e", "-o", "pipefail", gate.string() }, root.path(),
-            { { "CHECK_OUTCOME", outcome },
+            { { "CHECK_SCOPE", "cheap" },
+              { "CHECK_OUTCOME", outcome },
               { "CHECK_STATUS", status },
               { "CHECK_EXIT_CODE", code } }
         );
@@ -281,6 +541,163 @@ void test_ci_required_result_enforces_failures_and_missing_evidence() {
                 "every incomplete CodeQL operation must fail its workflow"
             );
         }
+    }
+}
+
+void test_ci_pages_requires_complete_current_results() {
+    temp_dir root;
+    const auto files = ecosystem::generate_tracked_surface_files(
+        sample_manifest(), root.path()
+    );
+    const auto* workflow
+        = find_tracked_surface_file(files, ".github/workflows/html.yml");
+    require_true(workflow != nullptr, "Pages workflow must be generated");
+    const auto& content = workflow->contents;
+    require_contains(
+        content, "permissions:\n  contents: read\n\n",
+        "Pages build and report jobs must have read-only credentials"
+    );
+    require_contains(
+        content,
+        "  deploy:\n    permissions:\n      pages: write\n      id-token: "
+        "write\n",
+        "only deployment may request publishing credentials"
+    );
+    require_contains(
+        content,
+        "  build:\n    if: ${{ github.ref == format('refs/heads/{0}', "
+        "github.event.repository.default_branch) }}",
+        "manual branch or tag runs cannot build a publishable artifact"
+    );
+    require_contains(
+        content,
+        "if: ${{ needs.build.result == 'success' && github.ref == "
+        "format('refs/heads/{0}', github.event.repository.default_branch) }}",
+        "deployment must require a successful default-branch build"
+    );
+    require_contains(
+        content,
+        "- name: Upload Pages artifact\n        if: ${{ success() && "
+        "steps.publication.outcome == 'success' }}",
+        "Pages upload must require the current enforcement step"
+    );
+    require_contains(
+        content,
+        "- name: Enforce Pages prerequisites\n        if: ${{ always() }}",
+        "setup failures and partial stage results must reach enforcement"
+    );
+    require_contains(
+        content,
+        "- name: Upload Pages reports\n        if: ${{ always() }}\n        "
+        "continue-on-error: true",
+        "failed publication must retain diagnostics without masking its result"
+    );
+    require_contains(
+        content,
+        "include-hidden-files: true\n          if-no-files-found: error",
+        "a successful coverage artifact cannot silently omit its hidden source"
+    );
+    require_true(
+        content.find("- name: Enforce Pages prerequisites")
+            < content.find("- name: Upload coverage artifact"),
+        "publication artifacts must follow enforcement"
+    );
+    for (const auto* forbidden :
+         { " sync\n", "git diff", "mkdir -p .ecosystem/sphinx/html",
+           "issues: write", "pull-requests: write" })
+        require_not_contains(
+            content, forbidden,
+            "manual Pages must verify authored surfaces without repair or "
+            "placeholders"
+        );
+
+    const auto gate = root.path() / "gate.sh";
+    write_text(
+        gate, github_shell_program(content, "Enforce Pages prerequisites", 8)
+    );
+    const std::vector<std::pair<std::string, std::string>> clean {
+        { "REPOSITORY_OUTCOME", "success" },
+        { "REPOSITORY_STATUS", "passed" },
+        { "REPOSITORY_EXIT_CODE", "0" },
+        { "COVERAGE_OUTCOME", "success" },
+        { "COVERAGE_STATUS", "passed" },
+        { "COVERAGE_EXIT_CODE", "0" },
+        { "DOCS_OUTCOME", "success" },
+        { "DOCS_STATUS", "passed" },
+        { "DOCS_EXIT_CODE", "0" }
+    };
+    const auto run_gate = [&](const auto& environment) {
+        return ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail", gate.string() }, root.path(),
+            environment
+        );
+    };
+    const auto reports = root.path() / ".ecosystem/github/reports";
+    std::vector<fs::path> required;
+    for (const auto* stage :
+         { "01-tracked-surface", "02-coverage-check", "03-docs-build" }) {
+        required.push_back(reports / stage / "summary.md");
+        required.push_back(reports / stage / "output.log");
+    }
+    const auto coverage = root.path() / ".ecosystem/reports/coverage.json";
+    const auto site = root.path() / ".ecosystem/sphinx/html/index.html";
+    required.push_back(coverage);
+    required.push_back(site);
+    for (const auto& file : required)
+        write_text(file, "current evidence");
+    require_true(run_gate(clean).exit_code == 0, "complete Pages inputs pass");
+    for (std::size_t i = 0; i < clean.size(); ++i) {
+        const auto values = i % 3 == 0
+            ? std::vector<std::string> { "", "failure", "skipped", "cancelled" }
+            : i % 3 == 1
+            ? std::vector<std::string> { "", "failed", "skipped" }
+            : std::vector<std::string> { "", "1", "3", "5", "127" };
+        for (const auto& value : values) {
+            auto environment = clean;
+            environment[i].second = value;
+            require_true(
+                run_gate(environment).exit_code != 0,
+                "old HTML cannot bypass incomplete results: " + clean[i].first
+                    + "=" + value
+            );
+        }
+    }
+    for (const auto& file : required) {
+        fs::remove(file);
+        require_true(
+            run_gate(clean).exit_code != 0,
+            "missing evidence must fail: " + file.string()
+        );
+        write_text(file, "");
+        require_true(
+            (run_gate(clean).exit_code == 0)
+                == (file.filename() == "output.log"),
+            "only a tool's diagnostic log may be empty"
+        );
+        write_text(file, "current evidence");
+    }
+    auto unsupported = clean;
+    unsupported[4].second = "skipped";
+    unsupported[5].second = "3";
+    fs::remove(coverage);
+    require_true(
+        run_gate(unsupported).exit_code == 0,
+        "unsupported coverage may skip with a complete report and exit 3"
+    );
+    unsupported[5].second = "4";
+    require_true(
+        run_gate(unsupported).exit_code != 0,
+        "missing coverage tools cannot masquerade as unsupported coverage"
+    );
+    write_text(coverage, "current evidence");
+    for (const auto* name : { "html.pending", "html.previous" }) {
+        const auto recovery = root.path() / ".ecosystem/sphinx" / name;
+        fs::create_directory(recovery);
+        require_true(
+            run_gate(clean).exit_code != 0,
+            "publication recovery state must not be uploaded"
+        );
+        fs::remove(recovery);
     }
 }
 
@@ -907,11 +1324,11 @@ void test_cli_check_ci_keeps_optional_features_out_of_required_checks() {
 
     result = run_engels_cli(project, "check sphinx");
     require_true(
-        result.exit_code == 5,
+        result.exit_code == 4,
         "an explicitly requested dormant operation must propagate tool failure"
     );
     require_contains(
-        result.output, "sphinx failed", "explicit failure must name Sphinx"
+        result.output, "sphinx-build is unavailable", "explicit failure must name Sphinx"
     );
     require_contains(
         result.output, "optional tool deliberately unavailable",

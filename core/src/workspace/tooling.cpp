@@ -52,8 +52,8 @@ namespace tooling_support {
             { "ctest", "ctest", { "tests", "coverage", "leaks", "ci" } },
             { "clang-format", "clang-format", { "format", "ci" } },
             { "clang-tidy", "clang-tidy", { "tidy", "ci" } },
-            { "doxygen", "doxygen", { "doxy" } },
-            { "dot", "Graphviz dot", { "doxy" }, { "-V" } },
+            { "doxygen", "doxygen", { "doxy", "sphinx" } },
+            { "dot", "Graphviz dot", { "doxy", "sphinx" }, { "-V" } },
             { "sphinx-build", "sphinx-build", { "sphinx" } },
             { "llvm-cov", "llvm-cov", { "coverage" } },
             { "llvm-profdata", "llvm-profdata", { "coverage" } },
@@ -239,12 +239,16 @@ namespace tooling_support {
             return status;
         };
         const auto directory = local_sphinx_dir(root);
-        for (const auto& path : { local_state_dir(root), directory,
-                                  directory / "conf.py", directory / "html" }) {
+        for (const auto& path :
+             { local_state_dir(root), directory, directory / "conf.py",
+               directory / "sphinx.log", directory / "html",
+               directory / "html.pending", directory / "html.previous" }) {
             const auto status = inspect(path);
+            const bool file = path.filename() == "conf.py"
+                || path.filename() == "sphinx.log";
             if (fs::exists(status)
-                && (path == directory / "conf.py" ? !fs::is_regular_file(status)
-                                                  : !fs::is_directory(status)))
+                && (file ? !fs::is_regular_file(status)
+                         : !fs::is_directory(status)))
                 throw template_render_error(
                     "invalid Sphinx output path type: "
                     + path.lexically_relative(root).generic_string()
@@ -1354,6 +1358,7 @@ bool write_local_sphinx_conf(
     const fs::path& project_root, const std::string& project_name,
     std::string* error_message
 ) {
+    error_message->clear();
     try {
         validate_sphinx_outputs(project_root);
     } catch (const std::exception& error) {
@@ -1362,13 +1367,47 @@ bool write_local_sphinx_conf(
         return false;
     }
     const fs::path docs_dir = project_root / "docs";
+    json excluded = json::array({ "_build" });
+    const auto selection = docs_dir / "sphinx.json";
+    try {
+        if (fs::exists(fs::symlink_status(selection))) {
+            const auto errors
+                = validate_project_paths(project_root, { "docs/sphinx.json" });
+            if (!errors.empty())
+                throw template_render_error(errors.front());
+            const auto contents = read_text_file(selection, error_message);
+            if (!error_message->empty())
+                return false;
+            const auto options = json::parse(contents);
+            if (!options.is_object())
+                throw template_render_error("expected an object");
+            for (const auto& [key, value] : options.items()) {
+                if (key != "exclude_patterns" || !value.is_array())
+                    throw template_render_error(
+                        "only an exclude_patterns array is supported"
+                    );
+                for (const auto& pattern : value) {
+                    if (!pattern.is_string()
+                        || pattern.get<std::string>().empty())
+                        throw template_render_error(
+                            "exclude_patterns must contain nonempty strings"
+                        );
+                    excluded.push_back(pattern);
+                }
+            }
+        }
+    } catch (const std::exception& error) {
+        *error_message = "docs/sphinx.json: " + std::string(error.what());
+        return false;
+    }
     const bool has_markdown_docs
         = directory_tree_has_extension(docs_dir, ".md");
     std::string contents;
     if (!render_tooling_template(
             "tooling/sphinx_conf.py.tpl",
             {
-                { "project_name", project_name },
+                { "project_name", json(project_name).dump() },
+                { "exclude_patterns", excluded.dump() },
                 { "extensions",
                   has_markdown_docs ? "    'myst_parser',\n" : std::string() },
                 { "source_suffix_markdown",
@@ -1383,6 +1422,74 @@ bool write_local_sphinx_conf(
     return write_text_file(
         local_sphinx_dir(project_root) / "conf.py", contents, error_message
     );
+}
+
+bool prepare_local_sphinx_output(
+    const fs::path& root, std::string* error_message
+) {
+    const auto directory = local_sphinx_dir(root);
+    try {
+        validate_sphinx_outputs(root);
+        // A failed publication rollback is recovery state, never disposable
+        // cache.
+        if (fs::exists(directory / "html.previous"))
+            throw template_render_error(
+                "Sphinx recovery output exists at "
+                ".ecosystem/sphinx/html.previous; "
+                "restore or move it before rebuilding"
+            );
+        fs::remove_all(directory / "html.pending");
+        fs::create_directories(directory / "html.pending");
+        return write_text_file(directory / "sphinx.log", "", error_message);
+    } catch (const std::exception& error) {
+        *error_message = error.what();
+        return false;
+    }
+}
+
+bool publish_local_sphinx_output(
+    const fs::path& root, std::string* error_message
+) {
+    const auto directory = local_sphinx_dir(root);
+    const auto pending = directory / "html.pending";
+    const auto published = directory / "html";
+    const auto previous = directory / "html.previous";
+    try {
+        validate_sphinx_outputs(root);
+        if (!fs::is_regular_file(pending / "index.html")
+            || fs::file_size(pending / "index.html") == 0)
+            throw template_render_error(
+                "sphinx produced no fresh HTML index; expected "
+                ".ecosystem/sphinx/html.pending/index.html"
+            );
+        if (fs::exists(previous))
+            throw template_render_error(
+                "Sphinx recovery output exists at "
+                ".ecosystem/sphinx/html.previous"
+            );
+        const bool had_output = fs::exists(published);
+        if (had_output)
+            fs::rename(published, previous);
+        std::error_code publish_error;
+        fs::rename(pending, published, publish_error);
+        if (publish_error) {
+            std::error_code rollback_error;
+            if (had_output)
+                fs::rename(previous, published, rollback_error);
+            throw template_render_error(
+                "unable to publish Sphinx HTML: " + publish_error.message()
+                + (rollback_error
+                       ? "; restore .ecosystem/sphinx/html.previous: "
+                           + rollback_error.message()
+                       : "")
+            );
+        }
+        fs::remove_all(previous);
+        return true;
+    } catch (const std::exception& error) {
+        *error_message = error.what();
+        return false;
+    }
 }
 
 json toolchains_report(

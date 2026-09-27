@@ -1,10 +1,16 @@
 import os
 
-project = "{{project_name}}"
+project = {{project_name}}
 extensions = [
+    'breathe',
 {{extensions}}]
+breathe_projects = {
+    project: os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'doxygen', 'xml')),
+}
+breathe_default_project = project
 templates_path = []
-exclude_patterns = ['_build']
+exclude_patterns = {{exclude_patterns}}
+myst_heading_anchors = 6
 source_suffix = {
     '.rst': 'restructuredtext',
 {{source_suffix_markdown}}}

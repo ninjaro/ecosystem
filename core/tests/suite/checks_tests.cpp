@@ -3,6 +3,142 @@
 
 namespace ecosystem_test_support {
 
+void test_cli_check_coverage_requires_fresh_valid_evidence() {
+    temp_dir root;
+    const auto project = root.path() / "project";
+    write_sample_leak_check_project(project);
+    const auto bin = root.path() / "bin";
+    const std::string probe
+        = "#!/bin/sh\nif [ \"$1\" = '--version' ]; then exit 0; fi\n";
+    write_executable_script(bin / "cmake", "#!/bin/sh\nexit 0\n");
+    write_executable_script(bin / "clang++", "#!/bin/sh\nexit 0\n");
+    write_executable_script(
+        bin / "ctest",
+        probe
+            + "if [ \"${COVERAGE_TEST_PROFILES:-yes}\" = yes ]; then\n"
+              "  printf 'fresh profile' > \"$LLVM_PROFILE_FILE\"\nfi\n"
+              "exit \"${COVERAGE_TEST_CTEST_EXIT:-0}\"\n"
+    );
+    write_executable_script(
+        bin / "llvm-profdata",
+        probe
+            + "if [ \"${COVERAGE_TEST_MERGE_OUTPUT:-yes}\" = yes ]; then\n"
+              "  for argument do destination=\"$argument\"; done\n"
+              "  printf 'merged profile' > \"$destination\"\nfi\n"
+              "exit \"${COVERAGE_TEST_MERGE_EXIT:-0}\"\n"
+    );
+    write_executable_script(
+        bin / "llvm-cov",
+        probe
+            + "printf '%s' \"$COVERAGE_TEST_EXPORT\"\n"
+              "exit \"${COVERAGE_TEST_EXPORT_EXIT:-0}\"\n"
+    );
+    scoped_env path("PATH", bin.string() + ":" + current_path_env());
+    const std::string valid = R"({"type":"llvm.coverage.json.export",
+        "version":"2.0.1","data":[{"files":[{"filename":"tests/main_tests.cpp"}],
+        "totals":{"lines":{"count":1,"covered":1,"percent":100}}}]})";
+    scoped_env export_output("COVERAGE_TEST_EXPORT", valid);
+    const auto profiles
+        = ecosystem::local_build_dir(project, "coverage") / "profiles";
+    const auto report = project / ".ecosystem/reports/coverage.json";
+    const auto log = project / ".ecosystem/reports/coverage.log";
+    const auto prepare = [&]() {
+        write_text(report, "stale report");
+        write_text(profiles / "old.profraw", "stale profile");
+        write_text(profiles / "coverage.profdata", "stale merge");
+    };
+    for (
+        const auto& [name, value, diagnostic] :
+        std::vector<std::tuple<std::string, std::string, std::string>> {
+            { "COVERAGE_TEST_CTEST_EXIT", "8", "coverage test run failed" },
+            { "COVERAGE_TEST_PROFILES", "no", "no coverage profiles" },
+            { "COVERAGE_TEST_MERGE_EXIT", "1", "llvm-profdata merge failed" },
+            { "COVERAGE_TEST_MERGE_OUTPUT", "no",
+              "no usable coverage profile" },
+            { "COVERAGE_TEST_EXPORT_EXIT", "9",
+              "llvm-cov export failed (exit 9)" },
+            { "COVERAGE_TEST_EXPORT", "error: export failed",
+              "no valid coverage export" },
+            { "COVERAGE_TEST_EXPORT", "", "no valid coverage export" },
+            { "COVERAGE_TEST_EXPORT", "[]", "no valid coverage export" },
+            { "COVERAGE_TEST_EXPORT", "{}", "no valid coverage export" },
+            { "COVERAGE_TEST_EXPORT",
+              R"({"type":"llvm.coverage.json.export","version":"2","data":[]})",
+              "no valid coverage export" },
+            { "COVERAGE_TEST_EXPORT",
+              R"({"type":"llvm.coverage.json.export","version":"2","data":[{}]})",
+              "no valid coverage export" },
+            { "COVERAGE_TEST_EXPORT",
+              R"({"type":"llvm.coverage.json.export","version":"2","data":[{"files":[],"totals":{}}]})",
+              "no valid coverage export" } }) {
+        prepare();
+        scoped_env failure(name, value);
+        const auto result = run_engels_cli(project, "check coverage");
+        require_true(
+            result.exit_code == 5,
+            "invalid coverage evidence must fail: " + name + "\n"
+                + result.output
+        );
+        require_contains(result.output, diagnostic, "retain the failing stage");
+        require_true(
+            !fs::exists(report) && !fs::exists(profiles / "old.profraw"),
+            "failed coverage cannot reuse an old report or old profiles"
+        );
+        require_not_contains(
+            result.output, "coverage report:", "no false success"
+        );
+        if (name == "COVERAGE_TEST_EXPORT"
+            || name == "COVERAGE_TEST_EXPORT_EXIT")
+            require_true(
+                read_text(log)
+                    == (name == "COVERAGE_TEST_EXPORT" ? value : valid),
+                "retain rejected export output for diagnosis"
+            );
+    }
+    prepare();
+    const auto result = run_engels_cli(project, "check coverage");
+    require_true(
+        result.exit_code == 0,
+        "fresh valid coverage must pass:\n" + result.output
+    );
+    require_true(
+        read_text(report) == valid, "publish only the validated export"
+    );
+    require_true(
+        !fs::exists(profiles / "old.profraw"),
+        "success must also discard stale profiles"
+    );
+}
+
+void test_cli_check_coverage_rejects_aliased_service_outputs() {
+    for (const auto* relative :
+         { ".ecosystem", ".ecosystem/build", ".ecosystem/build/project",
+           ".ecosystem/build/project/desktop/debug/coverage",
+           ".ecosystem/build/project/desktop/debug/coverage/profiles",
+           ".ecosystem/reports", ".ecosystem/reports/coverage.json",
+           ".ecosystem/reports/coverage.log" }) {
+        temp_dir root;
+        const auto project = root.path() / "project";
+        write_sample_leak_check_project(project);
+        const auto retained = project / "retained";
+        const auto target = project / relative;
+        fs::create_directories(target.parent_path());
+        fs::create_directory(retained);
+        write_text(retained / "keep", "untouched");
+        fs::create_symlink(retained, target);
+        const auto result = run_engels_cli(project, "check coverage");
+        require_true(
+            result.exit_code != 0, "aliased coverage output must fail"
+        );
+        require_contains(result.output, "symlink", "explain the alias failure");
+        require_true(
+            fs::is_symlink(target)
+                && read_text(retained / "keep") == "untouched",
+            "reject aliases before cleanup or native execution"
+        );
+    }
+}
+
 void test_cli_check_leaks_runs_sanitized_tests() {
     temp_dir root;
     write_sample_leak_check_project(root.path());

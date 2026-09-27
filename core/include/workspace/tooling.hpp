@@ -204,6 +204,12 @@ bool write_local_sphinx_conf(
     const std::filesystem::path& project_root, const std::string& project_name,
     std::string* error_message
 );
+bool prepare_local_sphinx_output(
+    const std::filesystem::path& project_root, std::string* error_message
+);
+bool publish_local_sphinx_output(
+    const std::filesystem::path& project_root, std::string* error_message
+);
 json toolchains_report(
     const std::optional<std::string>& profile = std::nullopt,
     const std::filesystem::path& project_root = {}

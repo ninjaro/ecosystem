@@ -9,6 +9,9 @@ MARKDOWN_SUPPORT       = YES
 
 GENERATE_HTML          = YES
 HTML_OUTPUT            = html
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
 GENERATE_LATEX         = NO
 OUTPUT_DIRECTORY       = {{output_dir}}
 CREATE_SUBDIRS         = YES

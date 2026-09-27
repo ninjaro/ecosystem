@@ -1,59 +1,40 @@
 name: CodeQL
 
+# Share event selection with Checks; no path filter because manifests can own
+# C++ sources under arbitrary directories. Default pushes verify freshly until
+# immutable PR evidence reuse is available.
 on:
   pull_request:
-    paths:
-      - 'manifest.json'
-      - 'templates/**'
-      - 'src/**'
-      - 'include/**'
-      - 'tests/**'
-      - 'benchmarks/**'
-      - 'core/**'
-      - 'marx/**'
-      - 'engels/**'
-      - 'manifesto/**'
-      - 'CMakeLists.txt'
-      - '.gitignore'
-      - '.clang-format'
-      - '.clang-tidy'
-      - '.github/actions/**'
-      - '.github/workflows/codeql.yml'
-      - 'manifesto.github.vars.json'
   push:
-    paths:
-      - 'manifest.json'
-      - 'templates/**'
-      - 'src/**'
-      - 'include/**'
-      - 'tests/**'
-      - 'benchmarks/**'
-      - 'core/**'
-      - 'marx/**'
-      - 'engels/**'
-      - 'manifesto/**'
-      - 'CMakeLists.txt'
-      - '.gitignore'
-      - '.clang-format'
-      - '.clang-tidy'
-      - '.github/actions/**'
-      - '.github/workflows/codeql.yml'
-      - 'manifesto.github.vars.json'
+  schedule:
+    - cron: '23 4 * * 1'
   workflow_dispatch:
 
 permissions:
   actions: read
   contents: read
-  issues: write
-  pull-requests: write
-  security-events: write
 
 concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: codeql-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  select:
+    runs-on: ubuntu-24.04
+    outputs:
+      scope: ${{ steps.selection.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: selection
+        uses: ./.github/actions/select-manifesto-ci
+
   analyze:
+    needs: select
+    if: ${{ needs.select.outputs.scope == 'full' || needs.select.outputs.scope == 'security' }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
@@ -86,6 +67,7 @@ jobs:
 
       - uses: github/codeql-action/init@v3
         id: codeql_init
+        if: ${{ steps.repository.outputs.status == 'passed' }}
         continue-on-error: true
         with:
           languages: ${{ matrix.language }}
@@ -139,6 +121,7 @@ jobs:
         with:
           name: ci-reports-manifesto-codeql
           path: .ecosystem/github/reports
+          include-hidden-files: true
           if-no-files-found: warn
 
       - name: Enforce CodeQL result
@@ -158,11 +141,16 @@ jobs:
   report:
     runs-on: ubuntu-24.04
     needs: analyze
-    if: ${{ always() }}
+    if: ${{ always() && needs.analyze.result != 'skipped' }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Download CodeQL report artifacts
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: ci-reports-manifesto-codeql
@@ -170,6 +158,8 @@ jobs:
           merge-multiple: true
 
       - name: Publish CodeQL report
+        if: ${{ always() }}
+        continue-on-error: true
         uses: ./.github/actions/publish-manifesto-report
         with:
           project-id: manifesto

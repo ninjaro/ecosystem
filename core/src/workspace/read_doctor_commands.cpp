@@ -165,7 +165,8 @@ command_error run_doctor(
                "untraced execution required; "
                "availability is not a sanitizer runtime test\n";
     if (profile == "sphinx")
-        out << "documentation environment: sphinx_rtd_theme and, for Markdown, "
+        out << "documentation environment: breathe, sphinx_rtd_theme (or the "
+               "selected theme) and, for Markdown, "
                "myst_parser "
                "must be importable by sphinx-build\n";
     if (profile == "java")

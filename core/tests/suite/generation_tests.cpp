@@ -393,10 +393,10 @@ void test_tracked_surface_generation_uses_github_vars_file() {
     );
     require_contains(
         setup_action->contents,
-        "python3 -m pip install --user sphinx myst-parser "
+        "\"$docs_env/bin/python\" -m pip install sphinx breathe myst-parser "
         "\"${{ inputs.sphinx-theme-package }}\"",
-        "generated setup action must install the workflow-selected "
-        "Sphinx theme package"
+        "generated setup action must install Breathe and the workflow-selected "
+        "Sphinx theme in its private environment"
     );
     require_contains(
         setup_action->contents, "--parallel \"$BUILD_PARALLELISM\"",
@@ -783,7 +783,8 @@ void test_template_loader_renders_repo_owned_templates() {
     const std::string sphinx_contents = ecosystem::render_text_template(
         "tooling/sphinx_conf.py.tpl",
         {
-            { "project_name", "sample" },
+            { "project_name", "\"sample\"" },
+            { "exclude_patterns", "['_build']" },
             { "extensions", "    'myst_parser',\n" },
             { "source_suffix_markdown", "    '.md': 'markdown',\n" },
         },
@@ -950,6 +951,7 @@ void test_template_loader_renders_repo_owned_templates() {
             { "installed_size_kib", "42" },
             { "packager", "ecosystem prerelease <noreply@local>" },
             { "description", "Sample package" },
+            { "dependencies", "" },
         },
         &error_message
     );

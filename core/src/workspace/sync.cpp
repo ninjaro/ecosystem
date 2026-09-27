@@ -316,6 +316,7 @@ namespace sync_support {
             ".github/SECURITY.md",
             ".github/renovate.json",
             ".github/actions/run-manifesto-stage/action.yml",
+            ".github/actions/select-manifesto-ci/action.yml",
             ".github/actions/publish-manifesto-report/action.yml",
             ".github/actions/setup-manifesto/action.yml",
             ".github/actions/setup-ecosystem/action.yml",
@@ -2152,6 +2153,12 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
 
     const template_bindings workflow_bindings
         = github_actions_bindings(value, *vars);
+    append_tracked_template_file(
+        &files, ".github/actions/select-manifesto-ci/action.yml",
+        { ".github/actions/select-manifesto-ci/action.yml",
+          "tracked/.github/actions/select-manifesto-ci/action.yml.tpl" },
+        workflow_bindings, error_sink
+    );
     append_tracked_template_file(
         &files, ".github/actions/run-manifesto-stage/action.yml",
         { ".github/actions/run-manifesto-stage/action.yml",

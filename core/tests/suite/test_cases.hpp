@@ -40,6 +40,8 @@ void test_installed_actors_use_their_template_bundle();
 void test_build_tree_layout_nests_project_and_probe_profiles();
 
 // Checks.
+void test_cli_check_coverage_requires_fresh_valid_evidence();
+void test_cli_check_coverage_rejects_aliased_service_outputs();
 void test_cli_check_leaks_runs_sanitized_tests();
 void test_cli_check_leaks_fails_on_native_sanitizer_findings();
 void test_cli_check_leaks_preserves_artifact_selection();
@@ -55,6 +57,8 @@ void test_cli_check_java_builds_shared_libraries_and_runs_gradle_tests();
 // Ci.
 void test_ci_stage_reports_intermediate_and_pipeline_failures();
 void test_ci_required_result_enforces_failures_and_missing_evidence();
+void test_ci_pages_requires_complete_current_results();
+void test_ci_event_selection_and_full_verification();
 void test_github_bootstrap_vars_validate_explicit_selection();
 void test_ci_bootstrap_builds_reviewed_checkout_and_repository_layouts();
 void test_ci_bootstrap_rejects_missing_inputs_and_escaping_layouts();
@@ -104,6 +108,8 @@ void test_cli_check_doxy_rejects_failed_configuration();
 void test_cli_check_sphinx_generates_local_conf_with_rtd_theme();
 void test_cli_check_sphinx_theme_flag_sets_theme_override();
 void test_cli_check_sphinx_rejects_output_aliases_before_writing();
+void test_cli_check_sphinx_preserves_published_output_on_failures();
+void test_cli_sphinx_native_xml_breathe_pipeline();
 
 // Generation.
 void test_sync_matches_tracked_surfaces();

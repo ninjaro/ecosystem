@@ -44,12 +44,13 @@ namespace doxygen_support {
 
     void validate_outputs(const fs::path& root, const fs::path& directory) {
         for (const std::string name :
-             { "Doxyfile", "html", "warnings.log", "doxygen.log" }) {
+             { "Doxyfile", "html", "xml", "warnings.log", "doxygen.log" }) {
             reject_output_symlinks(root, directory / name);
             const auto status = fs::status(directory / name);
             if (fs::exists(status)
-                && (name == "html" ? !fs::is_directory(status)
-                                   : !fs::is_regular_file(status)))
+                && (name == "html" || name == "xml"
+                        ? !fs::is_directory(status)
+                        : !fs::is_regular_file(status)))
                 throw template_render_error(
                     "invalid Doxygen output path type: "
                     + (directory / name)
@@ -182,10 +183,11 @@ bool prepare_local_doxygen_output(
         for (const auto& name : { "doxygen.log", "warnings.log" })
             if (!write_text_file(directory / name, "", error_message))
                 return false;
-        // Recreate only this scope's generated HTML; stale pages must not
+        // Recreate only this scope's generated HTML/XML; stale pages must not
         // survive ownership changes or stand in for output from an unexecuted
         // tool.
         std::filesystem::remove_all(directory / "html");
+        std::filesystem::remove_all(directory / "xml");
         return true;
     } catch (const std::exception& error) {
         *error_message = directory.lexically_relative(root).generic_string()

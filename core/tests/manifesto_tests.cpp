@@ -4,6 +4,17 @@
 using namespace ecosystem_test_support;
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--sphinx-integration") {
+        try {
+            test_cli_sphinx_native_xml_breathe_pipeline();
+            std::cout << "[ok] native Doxygen/Breathe/Sphinx pipeline\n";
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[failed] native documentation: " << error.what()
+                      << "\n";
+            return 1;
+        }
+    }
     if (argc > 1 && std::string(argv[1]) == "--prerelease-install") {
         if (argc > 3) {
             std::cerr << "usage: " << argv[0]
@@ -186,6 +197,10 @@ int main(int argc, char** argv) {
           test_ci_stage_reports_intermediate_and_pipeline_failures },
         { "ci_required_result_enforces_failures_and_missing_evidence",
           test_ci_required_result_enforces_failures_and_missing_evidence },
+        { "ci_pages_requires_complete_current_results",
+          test_ci_pages_requires_complete_current_results },
+        { "ci_event_selection_and_full_verification",
+          test_ci_event_selection_and_full_verification },
         { "github_bootstrap_vars_validate_explicit_selection",
           test_github_bootstrap_vars_validate_explicit_selection },
         { "ci_bootstrap_builds_reviewed_checkout_and_repository_layouts",
@@ -294,6 +309,10 @@ int main(int argc, char** argv) {
           test_personal_style_indexes_referents_and_measures_volume_without_size_gates },
         { "cli_personal_style_preserves_workspace_scope_and_failure_status",
           test_cli_personal_style_preserves_workspace_scope_and_failure_status },
+        { "cli_check_coverage_requires_fresh_valid_evidence",
+          test_cli_check_coverage_requires_fresh_valid_evidence },
+        { "cli_check_coverage_rejects_aliased_service_outputs",
+          test_cli_check_coverage_rejects_aliased_service_outputs },
         { "cli_check_leaks_runs_sanitized_tests",
           test_cli_check_leaks_runs_sanitized_tests },
         { "cli_check_leaks_fails_on_native_sanitizer_findings",
@@ -367,6 +386,8 @@ int main(int argc, char** argv) {
           test_cli_check_sphinx_theme_flag_sets_theme_override },
         { "cli_check_sphinx_rejects_output_aliases_before_writing",
           test_cli_check_sphinx_rejects_output_aliases_before_writing },
+        { "cli_check_sphinx_preserves_published_output_on_failures",
+          test_cli_check_sphinx_preserves_published_output_on_failures },
         { "cli_check_repo_rejects_legacy_repository_entries",
           test_cli_check_repo_rejects_legacy_repository_entries },
         { "cli_check_repo_rejects_tracked_surface_drift",

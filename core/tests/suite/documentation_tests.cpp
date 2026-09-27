@@ -3,6 +3,37 @@
 
 namespace ecosystem_test_support {
 
+namespace documentation_test_support {
+
+    void write_sphinx_tool(const fs::path& path) {
+        write_executable_script(path, R"sh(#!/bin/sh
+set -eu
+if [ "$1" = --version ]; then echo 'sphinx-build 9.0'; exit 0; fi
+printf 'theme=%s\n' "${MANIFESTO_SPHINX_THEME:-${ECOSYSTEM_SPHINX_THEME:-}}" >> "$FAKE_SPHINX_LOG"
+printf '%s\n' "$*" >> "$FAKE_SPHINX_LOG"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -b) shift 2;;
+    -c) conf_dir="$2"; shift 2;;
+    -E|-a|-W|--keep-going) shift;;
+    *) source_dir="$1"; build_dir="$2"; break;;
+  esac
+done
+test -f "$conf_dir/conf.py"
+test -f "$conf_dir/../doxygen/xml/index.xml"
+case "${SPHINX_TEST_MODE:-}" in
+  fail) echo 'fixture missing Breathe dependency' >&2; exit 9;;
+  empty) exit 0;;
+  empty-index) : > "$build_dir/index.html"; exit 0;;
+esac
+mkdir -p "$build_dir"
+printf '<html>fresh Sphinx documentation</html>\n' > "$build_dir/index.html"
+echo 'fixture Sphinx finished'
+)sh");
+    }
+
+} // namespace documentation_test_support
+
 void test_doxygen_configuration_uses_exact_ownership_and_service_state() {
     temp_dir root;
     const auto project = root.path() / "project with # spaces";
@@ -53,6 +84,10 @@ void test_doxygen_configuration_uses_exact_ownership_and_service_state() {
     require_contains(
         contents, "RECURSIVE              = NO",
         "Doxygen must not broaden explicit ownership by walking directories"
+    );
+    require_contains(
+        contents, "GENERATE_XML           = YES",
+        "the same owned inputs must supply Breathe's XML representation"
     );
     require_contains(
         contents, "CLANG_DATABASE_PATH    = \"\"",
@@ -122,6 +157,16 @@ void test_cli_doxygen_generates_native_scoped_documentation() {
     require_true(
         fs::is_regular_file(directory / "html/index.html"),
         "native Doxygen must produce its advertised HTML entry"
+    );
+    const auto xml = read_text(directory / "xml/index.xml");
+    require_contains(
+        xml, "selected_public_type", "owned types must reach native XML"
+    );
+    require_not_contains(
+        xml, "unselected_public_type", "XML must preserve artifact scope"
+    );
+    require_not_contains(
+        xml, "stray_public_type", "XML must exclude unowned declarations"
     );
     std::string html;
     for (const auto& entry :
@@ -287,6 +332,20 @@ void test_cli_doxy_retains_tool_failures_and_requires_fresh_output() {
             && !fs::exists(directory / "html/removed_owner.html"),
         "successful generation must replace stale output within this scope"
     );
+    write_text(directory / "xml/removed_owner.xml", "stale owner\n");
+    {
+        scoped_env mode("DOXYGEN_TEST_MODE", "html-only");
+        const auto incomplete = run_engels_cli(project, "check doxy");
+        require_true(
+            incomplete.exit_code == 5
+                && !fs::exists(directory / "xml/index.xml")
+                && !fs::exists(directory / "xml/removed_owner.xml"),
+            "a successful HTML-only run must not reuse stale XML"
+        );
+        require_contains(
+            incomplete.output, "no XML index", "missing XML must fail clearly"
+        );
+    }
     require_contains(
         result.output,
         "doxygen warnings:", "successful runs must locate retained warnings"
@@ -320,7 +379,7 @@ void test_cli_doxy_rejects_service_output_aliases_before_writing() {
     write_text(authored, "authored content\n");
     write_text(outside, "outside content\n");
     for (const auto& name :
-         { "doxygen.log", "warnings.log", "html/alias.html" }) {
+         { "doxygen.log", "warnings.log", "html/alias.html", "xml" }) {
         fs::create_symlink(
             name == std::string("warnings.log") ? outside : authored,
             directory / name
@@ -532,41 +591,7 @@ void test_cli_check_sphinx_generates_local_conf_with_rtd_theme() {
     const fs::path sphinx_log = fake_root / "sphinx.log";
     fs::create_directories(fake_bin);
 
-    write_executable_script(
-        fake_bin / "sphinx-build",
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        "printf 'theme=%s\\n' "
-        "\"${MANIFESTO_SPHINX_THEME:-${ECOSYSTEM_SPHINX_THEME:-}}\" >> "
-        "\"$FAKE_SPHINX_LOG\"\n"
-        "printf '%s\\n' \"$*\" >> \"$FAKE_SPHINX_LOG\"\n"
-        "build_dir=\"\"\n"
-        "conf_dir=\"\"\n"
-        "source_dir=\"\"\n"
-        "while [ $# -gt 0 ]; do\n"
-        "  case \"$1\" in\n"
-        "    -b)\n"
-        "      shift 2\n"
-        "      ;;\n"
-        "    -c)\n"
-        "      conf_dir=\"$2\"\n"
-        "      shift 2\n"
-        "      ;;\n"
-        "    *)\n"
-        "      if [ -z \"$source_dir\" ]; then\n"
-        "        source_dir=\"$1\"\n"
-        "      elif [ -z \"$build_dir\" ]; then\n"
-        "        build_dir=\"$1\"\n"
-        "      fi\n"
-        "      shift\n"
-        "      ;;\n"
-        "  esac\n"
-        "done\n"
-        "test -f \"$conf_dir/conf.py\"\n"
-        "test -f \"$source_dir/index.md\"\n"
-        "mkdir -p \"$build_dir\"\n"
-        "exit 0\n"
-    );
+    documentation_test_support::write_sphinx_tool(fake_bin / "sphinx-build");
 
     const std::string original_path = []() {
         const char* value = std::getenv("PATH");
@@ -608,41 +633,7 @@ void test_cli_check_sphinx_theme_flag_sets_theme_override() {
     const fs::path sphinx_log = fake_root / "sphinx.log";
     fs::create_directories(fake_bin);
 
-    write_executable_script(
-        fake_bin / "sphinx-build",
-        "#!/usr/bin/env bash\n"
-        "set -euo pipefail\n"
-        "printf 'theme=%s\\n' "
-        "\"${MANIFESTO_SPHINX_THEME:-${ECOSYSTEM_SPHINX_THEME:-}}\" >> "
-        "\"$FAKE_SPHINX_LOG\"\n"
-        "printf '%s\\n' \"$*\" >> \"$FAKE_SPHINX_LOG\"\n"
-        "build_dir=\"\"\n"
-        "conf_dir=\"\"\n"
-        "source_dir=\"\"\n"
-        "while [ $# -gt 0 ]; do\n"
-        "  case \"$1\" in\n"
-        "    -b)\n"
-        "      shift 2\n"
-        "      ;;\n"
-        "    -c)\n"
-        "      conf_dir=\"$2\"\n"
-        "      shift 2\n"
-        "      ;;\n"
-        "    *)\n"
-        "      if [ -z \"$source_dir\" ]; then\n"
-        "        source_dir=\"$1\"\n"
-        "      elif [ -z \"$build_dir\" ]; then\n"
-        "        build_dir=\"$1\"\n"
-        "      fi\n"
-        "      shift\n"
-        "      ;;\n"
-        "  esac\n"
-        "done\n"
-        "test -f \"$conf_dir/conf.py\"\n"
-        "test -f \"$source_dir/index.md\"\n"
-        "mkdir -p \"$build_dir\"\n"
-        "exit 0\n"
-    );
+    documentation_test_support::write_sphinx_tool(fake_bin / "sphinx-build");
 
     const std::string original_path = []() {
         const char* value = std::getenv("PATH");
@@ -667,7 +658,9 @@ void test_cli_check_sphinx_rejects_output_aliases_before_writing() {
     for (const auto* relative :
          { ".ecosystem", ".ecosystem/sphinx", ".ecosystem/sphinx/conf.py",
            ".ecosystem/sphinx/html", ".ecosystem/sphinx/html/nested/index.html",
-           ".ecosystem/sphinx/html/.doctrees" }) {
+           ".ecosystem/sphinx/html/.doctrees", ".ecosystem/sphinx/html.pending",
+           ".ecosystem/sphinx/html.previous",
+           ".ecosystem/sphinx/sphinx.log" }) {
         temp_dir root;
         const auto project = root.path() / "project";
         write_sample_sphinx_project(project);
@@ -735,6 +728,245 @@ void test_cli_check_sphinx_rejects_output_aliases_before_writing() {
                 "configuration"
             );
     }
+}
+
+void test_cli_check_sphinx_preserves_published_output_on_failures() {
+    temp_dir root;
+    const auto project = root.path() / "project";
+    write_sample_sphinx_project(project);
+    const auto bin = root.path() / "bin";
+    const auto calls = root.path() / "calls";
+    const auto directory = ecosystem::local_sphinx_dir(project);
+    write_text(directory / "html/index.html", "previous site\n");
+    write_text(project / "docs/conf.py", "# authored, not generated\n");
+    documentation_test_support::write_sphinx_tool(bin / "sphinx-build");
+    write_fake_doxygen_tool(bin / "doxygen");
+    write_executable_script(
+        bin / "dot", "#!/bin/sh\necho 'dot version fixture'\n"
+    );
+    scoped_env path("PATH", bin.string() + ":" + current_path_env());
+    scoped_env log("FAKE_SPHINX_LOG", calls.string());
+    scoped_env doxy_log(
+        "DOXYGEN_TEST_LOG", (root.path() / "doxy-calls").string()
+    );
+    for (const auto* invalid : { "{", "[]", "{\"theme\":\"unknown\"}",
+                                 "{\"exclude_patterns\":[false]}" }) {
+        write_text(project / "docs/sphinx.json", invalid);
+        const auto result = run_engels_cli(project, "check sphinx");
+        require_true(
+            result.exit_code == 5 && !fs::exists(calls),
+            "invalid authored selection must fail before the builder"
+        );
+        require_contains(
+            result.output, "docs/sphinx.json",
+            "invalid selection must name its source"
+        );
+        require_true(
+            read_text(directory / "html/index.html") == "previous site\n",
+            "invalid config must preserve published output"
+        );
+    }
+    fs::remove(project / "docs/sphinx.json");
+    for (const auto* mode : { "fail", "empty", "empty-index" }) {
+        write_text(directory / "html.pending/index.html", "stale candidate\n");
+        scoped_env behavior("SPHINX_TEST_MODE", mode);
+        const auto result = run_engels_cli(project, "check sphinx");
+        require_true(
+            result.exit_code == 5,
+            "incomplete Sphinx builds must fail: " + result.output
+        );
+        require_true(
+            read_text(directory / "html/index.html") == "previous site\n"
+                && read_text(project / "docs/conf.py")
+                    == "# authored, not generated\n",
+            "failed builds must preserve published and authored state"
+        );
+        require_not_contains(
+            result.output, "sphinx generated",
+            "failed candidates are not published"
+        );
+        require_contains(
+            result.output,
+            mode == std::string("fail") ? "exit 9" : "no fresh HTML index",
+            "failure must explain why output was rejected"
+        );
+        if (mode == std::string("fail"))
+            require_contains(
+                read_text(directory / "sphinx.log"),
+                "missing Breathe dependency", "retain the native failure log"
+            );
+    }
+    fs::remove(calls);
+    {
+        scoped_env behavior("DOXYGEN_TEST_MODE", "html-only");
+        const auto result = run_engels_cli(project, "check sphinx");
+        require_true(
+            result.exit_code == 5 && !fs::exists(calls),
+            "Sphinx must not consume absent or stale XML"
+        );
+        require_contains(
+            result.output, "no XML index",
+            "upstream failures must retain attribution"
+        );
+    }
+    write_text(directory / "html/retired.html", "old page\n");
+    const auto result
+        = run_engels_cli(project, "check sphinx --theme alabaster");
+    require_true(
+        result.exit_code == 0, "fresh candidate must publish: " + result.output
+    );
+    require_contains(
+        read_text(directory / "html/index.html"), "fresh Sphinx",
+        "publish the candidate"
+    );
+    require_true(
+        !fs::exists(directory / "html/retired.html")
+            && !fs::exists(directory / "html.previous"),
+        "successful publication must retire old pages"
+    );
+    require_contains(
+        read_text(calls), "-E -a -W --keep-going",
+        "rebuild fresh and reject documentation warnings"
+    );
+
+    fs::rename(bin / "doxygen", bin / "doxygen.saved");
+    {
+        scoped_env isolated("PATH", bin.string());
+        const auto missing = run_engels_cli(project, "check sphinx");
+        require_true(
+            missing.exit_code == 4, "missing Doxygen must fail Sphinx preflight"
+        );
+        require_contains(
+            missing.output, "doxygen is unavailable", "name the prerequisite"
+        );
+    }
+    fs::rename(bin / "doxygen.saved", bin / "doxygen");
+    write_text(directory / "html.previous/keep.html", "recovery state\n");
+    const auto recovery = run_engels_cli(project, "check sphinx");
+    require_true(
+        recovery.exit_code == 5, "recovery state must not be overwritten"
+    );
+    require_contains(
+        recovery.output, "restore or move", "explain how to recover"
+    );
+    require_true(
+        read_text(directory / "html.previous/keep.html") == "recovery state\n",
+        "retain interrupted publication recovery"
+    );
+}
+
+void test_cli_sphinx_native_xml_breathe_pipeline() {
+    temp_dir root;
+    const auto project = root.path() / "native docs with # spaces";
+    write_doxygen_project(project, "native_docs");
+    write_text(project / "docs/index.rst", R"rst(Public API
+==========
+
+.. toctree::
+
+   guide
+   api
+)rst");
+    write_text(
+        project / "docs/guide.md", "# User guide\n\nNative Markdown page.\n"
+    );
+    write_text(project / "docs/archive/broken.rst", ".. absent-directive::\n");
+    write_text(
+        project / "docs/sphinx.json",
+        "{\"exclude_patterns\":[\"archive/**\"]}\n"
+    );
+    write_text(project / "docs/api.rst", R"rst(C++ reference
+=============
+
+.. doxygenstruct:: selected_public_type
+   :members:
+)rst");
+    auto result = run_engels_cli(project, "check sphinx");
+    require_true(
+        result.exit_code == 0,
+        "native Doxygen/Breathe/Sphinx must build: " + result.output
+    );
+    const auto directory = ecosystem::local_sphinx_dir(project);
+    const auto api = read_text(directory / "html/api.html");
+    require_contains(
+        api, "selected_public_type", "Breathe must render the C++ symbol"
+    );
+    require_contains(
+        api, "Selected public type", "Doxygen comments must reach Sphinx HTML"
+    );
+    require_not_contains(
+        api, "unselected_public_type",
+        "curated API must not publish unrelated internals"
+    );
+    require_contains(
+        read_text(directory / "html/guide.html"), "Native Markdown page",
+        "MyST pages must render"
+    );
+    require_contains(
+        read_text(directory / "conf.py"), "'breathe'",
+        "generated config must select Breathe"
+    );
+    const auto missing_extension = root.path() / "missing-extension";
+    write_text(
+        missing_extension / "breathe/__init__.py",
+        "raise ImportError('fixture Breathe unavailable')\n"
+    );
+    {
+        scoped_env pythonpath("PYTHONPATH", missing_extension.string());
+        result = run_engels_cli(project, "check sphinx");
+        require_true(
+            result.exit_code == 5
+                && read_text(directory / "html/api.html") == api,
+            "missing Breathe must preserve the published site"
+        );
+        require_contains(
+            result.output, "fixture Breathe unavailable",
+            "native import diagnostics must survive"
+        );
+    }
+
+    write_text(
+        project / "docs/api.rst",
+        "C++ API\n=======\n\n.. doxygenstruct:: absent_public_type\n"
+    );
+    result = run_engels_cli(project, "check sphinx");
+    require_true(
+        result.exit_code == 5 && read_text(directory / "html/api.html") == api,
+        "missing Breathe references must fail and preserve the site"
+    );
+    require_contains(
+        result.output, "absent_public_type",
+        "retain the native Breathe diagnostic"
+    );
+    write_text(
+        project / "docs/api.rst",
+        "C++ API\n=======\n\n.. doxygenstruct:: selected_public_type\n"
+    );
+    result = run_engels_cli(
+        project, "check sphinx --theme manifesto_missing_theme"
+    );
+    require_true(
+        result.exit_code == 5 && read_text(directory / "html/api.html") == api,
+        "missing theme must fail without replacing the site"
+    );
+    require_contains(
+        result.output, "manifesto_missing_theme",
+        "missing module errors must be actionable"
+    );
+    fs::remove(project / "docs/guide.md");
+    write_text(
+        project / "docs/index.rst",
+        "Public API\n==========\n\n.. toctree::\n\n   api\n"
+    );
+    result = run_engels_cli(project, "check sphinx --theme alabaster");
+    require_true(
+        result.exit_code == 0 && !fs::exists(directory / "html/guide.html"),
+        "RST-only rebuild must remove retired pages: " + result.output
+    );
+    require_not_contains(
+        read_text(directory / "conf.py"), "'myst_parser'",
+        "RST-only projects need no Markdown parser"
+    );
 }
 
 } // namespace ecosystem_test_support

@@ -12,8 +12,11 @@ namespace ecosystem {
 using json = nlohmann::ordered_json;
 using string_list = std::vector<std::string>;
 
+/// Artifact identity shared by authored manifests and local command selectors.
 struct artifact_ref {
+    /// Namespace before the colon in a namespace:artifact selector.
     std::string component_id;
+    /// Artifact identifier after the colon.
     std::string artifact_id;
 };
 
@@ -73,13 +76,21 @@ struct manifest {
     json relations = json::array();
 };
 
+/// Result of loading a manifest, including diagnostics when loading fails.
 struct manifest_report {
+    /// Manifest path supplied to the loader.
     std::filesystem::path path;
+    /// Parsed model when available; errors may still report invalid state.
     std::optional<manifest> value;
+    /// Parse, validation and owned-file discovery diagnostics.
     string_list errors;
+    /// Whether a manifest file was present at the supplied path.
     bool has_manifest = false;
 };
 
+/// Load authored JSON, validate its model, and discover its owned source files.
+/// @param manifest_path Path to the project's manifest.json.
+/// @return The loaded model or diagnostics; inspect errors before using value.
 manifest_report load_manifest(const std::filesystem::path& manifest_path);
 bool save_manifest(
     const std::filesystem::path& manifest_path, const manifest& value,
@@ -101,7 +112,13 @@ string_list discover_owned_files(
 );
 json to_json(const manifest& value);
 
+/// Split a namespace:artifact selector; return no value for invalid syntax.
+/// @param value Selector containing exactly one colon and two nonempty parts.
+/// @return Parsed identity, or std::nullopt when the separator shape is invalid.
 std::optional<artifact_ref> parse_artifact_ref(const std::string& value);
+/// Join an artifact identity as namespace:artifact without resolving its owner.
+/// @param value Identity to format.
+/// @return The colon-separated selector.
 std::string format_artifact_ref(const artifact_ref& value);
 
 } // namespace ecosystem

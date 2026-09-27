@@ -6,10 +6,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
-  pages: write
-  pull-requests: write
-  id-token: write
 
 concurrency:
   group: pages-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -17,13 +13,12 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-24.04
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: {{manifesto_build_parallelism}}
     steps:
       - uses: {{checkout_action}}
-
-      - uses: {{configure_pages_action}}
 
       - name: Setup manifesto tool
         id: manifesto
@@ -38,15 +33,17 @@ jobs:
           sphinx-theme-package: {{sphinx_theme_package}}
 
       - name: Verify generated tracked surfaces
+        id: repository
         uses: ./.github/actions/run-manifesto-stage
         with:
           stage-id: 01-tracked-surface
           stage-label: Tracked surface verification
           shell-command: |
-            "${{ steps.manifesto.outputs.marx-binary }}" sync
-            git diff --exit-code -- CMakeLists.txt .gitignore .clang-format .clang-tidy .github
+            "${{ steps.manifesto.outputs.engels-binary }}" check repo
+          skipped-exit-codes: ''
 
       - name: Run coverage when supported
+        if: ${{ steps.repository.outputs.status == 'passed' }}
         id: coverage
         uses: ./.github/actions/run-manifesto-stage
         with:
@@ -56,57 +53,104 @@ jobs:
             "${{ steps.manifesto.outputs.engels-binary }}" check coverage
           skipped-exit-codes: 3
 
-      - name: Upload coverage artifact
-        if: {{github_coverage_enabled}}
-        uses: {{upload_artifact_action}}
-        with:
-          name: coverage-{{project_id}}
-          path: .ecosystem/reports/coverage.json
-          if-no-files-found: warn
-
-      - name: Generate docs site when supported
+      - name: Generate docs site
+        if: ${{ steps.repository.outputs.status == 'passed' && (steps.coverage.outputs.status == 'passed' || steps.coverage.outputs.status == 'skipped') }}
+        id: docs
         uses: ./.github/actions/run-manifesto-stage
         with:
           stage-id: 03-docs-build
           stage-label: Documentation build
           shell-command: |
-            if [ -f docs/index.md ] || [ -f docs/index.rst ]; then
-              "${{ steps.manifesto.outputs.engels-binary }}" check sphinx --theme {{sphinx_theme}}
-              exit $?
+            "${{ steps.manifesto.outputs.engels-binary }}" check sphinx --theme {{sphinx_theme}}
+          skipped-exit-codes: ''
+
+      - name: Enforce Pages prerequisites
+        if: ${{ always() }}
+        id: publication
+        env:
+          REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
+          REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
+          REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
+          COVERAGE_OUTCOME: ${{ steps.coverage.outcome }}
+          COVERAGE_STATUS: ${{ steps.coverage.outputs.status }}
+          COVERAGE_EXIT_CODE: ${{ steps.coverage.outputs.exit-code }}
+          DOCS_OUTCOME: ${{ steps.docs.outcome }}
+          DOCS_STATUS: ${{ steps.docs.outputs.status }}
+          DOCS_EXIT_CODE: ${{ steps.docs.outputs.exit-code }}
+        shell: bash
+        run: |
+          require_result() {
+            local stage="$1" outcome="$2" status="$3" code="$4" optional="${5:-false}"
+            if [ "$outcome" != success ] || [ ! -s ".ecosystem/github/reports/$stage/summary.md" ] || [ ! -f ".ecosystem/github/reports/$stage/output.log" ]; then
+              echo "::error::Incomplete Pages prerequisite: $stage. See the stage report and setup logs."
+              return 1
             fi
-            mkdir -p .ecosystem/sphinx/html
-            printf '%s\n' \
-              '<!DOCTYPE html>' \
-              '<html lang="en">' \
-              '<head><meta charset="utf-8"><title>{{project_id}}</title></head>' \
-              '<body><h1>{{project_id}}</h1><p>No docs/index.md or docs/index.rst surface is declared for this project yet.</p></body>' \
-              '</html>' \
-              > .ecosystem/sphinx/html/index.html
-            exit 3
-          skipped-exit-codes: 3
+            if [ "$status" = passed ] && [ "$code" = 0 ]; then
+              return 0
+            fi
+            if [ "$optional" = true ] && [ "$status" = skipped ] && [ "$code" = 3 ]; then
+              return 0
+            fi
+            echo "::error::Failed Pages prerequisite: $stage ($status, exit $code)."
+            return 1
+          }
+          require_result 01-tracked-surface "$REPOSITORY_OUTCOME" "$REPOSITORY_STATUS" "$REPOSITORY_EXIT_CODE"
+          require_result 02-coverage-check "$COVERAGE_OUTCOME" "$COVERAGE_STATUS" "$COVERAGE_EXIT_CODE" true
+          require_result 03-docs-build "$DOCS_OUTCOME" "$DOCS_STATUS" "$DOCS_EXIT_CODE"
+          if [ "$COVERAGE_STATUS" = passed ] && [ ! -s .ecosystem/reports/coverage.json ]; then
+            echo '::error::Successful coverage has no report.'
+            exit 1
+          fi
+          if [ ! -s .ecosystem/sphinx/html/index.html ] || [ -e .ecosystem/sphinx/html.pending ] || [ -e .ecosystem/sphinx/html.previous ]; then
+            echo '::error::Documentation publication is incomplete; refusing to upload stale or recovery output.'
+            exit 1
+          fi
+
+      - name: Upload coverage artifact
+        if: ${{ success() && steps.publication.outcome == 'success' && steps.coverage.outputs.status == 'passed' }}
+        uses: {{upload_artifact_action}}
+        with:
+          name: coverage-{{project_id}}
+          path: .ecosystem/reports/coverage.json
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Upload Pages artifact
+        if: ${{ success() && steps.publication.outcome == 'success' }}
         uses: {{upload_pages_artifact_action}}
         with:
           path: .ecosystem/sphinx/html
 
       - name: Upload Pages reports
+        if: ${{ always() }}
+        continue-on-error: true
         uses: {{upload_artifact_action}}
         with:
           name: ci-reports-{{project_id}}-pages
-          path: .ecosystem/github/reports
+          path: |
+            .ecosystem/github/reports
+            .ecosystem/reports/coverage.log
+            .ecosystem/sphinx/sphinx.log
+            .ecosystem/doxygen/doxygen.log
+            .ecosystem/doxygen/warnings.log
+          include-hidden-files: true
           if-no-files-found: warn
 
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: {{github_page_url}}
     runs-on: ubuntu-latest
     needs: build
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch) }}
+    if: ${{ needs.build.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     outputs:
       page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: {{configure_pages_action}}
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: {{deploy_pages_action}}
@@ -116,15 +160,16 @@ jobs:
     needs:
       - build
       - deploy
-    if: ${{ always() }}
+    if: ${{ always() && needs.build.result != 'skipped' }}
     steps:
       - uses: {{checkout_action}}
 
       - name: Download Pages report artifacts
+        continue-on-error: true
         uses: {{download_artifact_action}}
         with:
           pattern: ci-reports-{{project_id}}-pages
-          path: .ecosystem/github/reports
+          path: .ecosystem
           merge-multiple: true
 
       - name: Summarize Pages deployment
@@ -149,6 +194,7 @@ jobs:
           cat "$report_root/summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish Pages report
+        continue-on-error: true
         uses: ./.github/actions/publish-manifesto-report
         with:
           project-id: {{project_id}}

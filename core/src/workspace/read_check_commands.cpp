@@ -10,10 +10,79 @@
 #include <optional>
 #include <regex>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace ecosystem::command_support {
+
+namespace {
+
+    // Coverage evidence belongs to one invocation. Validate the service paths
+    // before deleting old profiles or touching an existing report.
+    bool prepare_coverage_outputs(
+        const fs::path& root, const fs::path& profiles, const fs::path& report,
+        const fs::path& log, std::string* error
+    ) {
+        try {
+            for (const auto& target : { profiles, report, log }) {
+                auto path = root;
+                for (const auto& part : target.lexically_relative(root)) {
+                    path /= part;
+                    const auto status = fs::symlink_status(path);
+                    if (fs::is_symlink(status))
+                        throw std::runtime_error(
+                            "coverage output must not use a symlink: "
+                            + path.string()
+                        );
+                    if (fs::exists(status)
+                        && ((path != target || target == profiles)
+                                ? !fs::is_directory(status)
+                                : !fs::is_regular_file(status)))
+                        throw std::runtime_error(
+                            "invalid coverage output path type: "
+                            + path.string()
+                        );
+                    if (fs::is_regular_file(status)
+                        && fs::hard_link_count(path) > 1)
+                        throw std::runtime_error(
+                            "coverage output must not use a hard link: "
+                            + path.string()
+                        );
+                }
+            }
+            fs::remove(report);
+            fs::remove(log);
+            fs::remove_all(profiles);
+            fs::create_directories(profiles);
+            return true;
+        } catch (const std::exception& exception) {
+            *error = exception.what();
+            return false;
+        }
+    }
+
+    bool valid_coverage_export(const std::string& output) {
+        const auto report = json::parse(output, nullptr, false);
+        if (!report.is_object() || !report.contains("type")
+            || report.at("type") != "llvm.coverage.json.export"
+            || !report.contains("version") || !report.at("version").is_string()
+            || report.at("version").get<std::string>().empty()
+            || !report.contains("data") || !report.at("data").is_array()
+            || report.at("data").empty())
+            return false;
+        return std::all_of(
+            report.at("data").begin(), report.at("data").end(),
+            [](const json& entry) {
+                return entry.is_object() && entry.contains("files")
+                    && entry.at("files").is_array()
+                    && !entry.at("files").empty() && entry.contains("totals")
+                    && entry.at("totals").is_object();
+            }
+        );
+    }
+
+} // namespace
 
 command_error run_check_personal(
     const fs::path& project_root, const manifest& manifest_value,
@@ -251,8 +320,8 @@ command_error run_check_tests(
 
 command_error run_check_coverage(
     const fs::path& project_root, const manifest& manifest_value,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 ) {
     if (!has_tests_enabled(manifest_value)) {
         print_error(
@@ -270,6 +339,19 @@ command_error run_check_coverage(
             "no test targets resolve for the requested artifact"
         );
         return command_error::unsupported_by_manifest;
+    }
+
+    const fs::path build_dir = local_build_dir(project_root, "coverage");
+    const fs::path profile_dir = build_dir / "profiles";
+    const fs::path report_path
+        = local_report_dir(project_root) / "coverage.json";
+    const fs::path log_path = local_report_dir(project_root) / "coverage.log";
+    std::string error_message;
+    if (!prepare_coverage_outputs(
+            project_root, profile_dir, report_path, log_path, &error_message
+        )) {
+        print_error(err, command_error::task_failed, error_message);
+        return command_error::task_failed;
     }
 
     const tool_status ctest_tool = probe_tool("ctest");
@@ -301,11 +383,6 @@ command_error run_check_coverage(
         return status;
     }
 
-    const fs::path build_dir = local_build_dir(project_root, "coverage");
-    const fs::path profile_dir = build_dir / "profiles";
-    std::error_code fs_error;
-    fs::create_directories(profile_dir, fs_error);
-
     const int test_status = run_command(
         {
             ctest_tool.path,
@@ -328,8 +405,17 @@ command_error run_check_coverage(
 
     std::vector<std::string> merge_args { profdata_tool.path, "merge",
                                           "-sparse" };
-    for (const fs::directory_entry& entry : fs::directory_iterator(profile_dir)) {
+    for (const fs::directory_entry& entry :
+         fs::directory_iterator(profile_dir)) {
         if (entry.path().extension() == ".profraw") {
+            if (!fs::is_regular_file(entry.symlink_status())
+                || entry.file_size() == 0) {
+                print_error(
+                    err, command_error::task_failed,
+                    "invalid coverage profile: " + entry.path().string()
+                );
+                return command_error::task_failed;
+            }
             merge_args.push_back(entry.path().string());
         }
     }
@@ -350,9 +436,16 @@ command_error run_check_coverage(
         );
         return command_error::task_failed;
     }
+    if (!fs::is_regular_file(fs::symlink_status(profile_data))
+        || fs::file_size(profile_data) == 0) {
+        print_error(
+            err, command_error::task_failed,
+            "llvm-profdata produced no usable coverage profile"
+        );
+        return command_error::task_failed;
+    }
 
     ensure_local_artifacts(project_root, false, false);
-    const fs::path report_path = local_report_dir(project_root) / "coverage.json";
     std::vector<std::string> export_args {
         cov_tool.path,
         "export",
@@ -367,9 +460,23 @@ command_error run_check_coverage(
             (build_dir / test_targets[index].binary_name).string()
         );
     }
-    const std::string export_json = capture_command(export_args, build_dir);
-    std::string error_message;
-    if (!write_text_file(report_path, export_json, &error_message)) {
+    const auto exported = capture_command_result(export_args, build_dir);
+    if (!write_text_file(log_path, exported.output, &error_message)) {
+        print_error(err, command_error::task_failed, error_message);
+        return command_error::task_failed;
+    }
+    if (exported.exit_code != 0 || !valid_coverage_export(exported.output)) {
+        err << exported.output;
+        print_error(
+            err, command_error::task_failed,
+            exported.exit_code != 0
+                ? "llvm-cov export failed (exit "
+                    + std::to_string(exported.exit_code) + ")"
+                : "llvm-cov produced no valid coverage export"
+        );
+        return command_error::task_failed;
+    }
+    if (!write_text_file(report_path, exported.output, &error_message)) {
         print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
@@ -629,21 +736,29 @@ command_error run_check_doxy(
         );
         return command_error::task_failed;
     }
-    std::error_code output_error;
-    const auto index = directory / "html/index.html";
-    if (!fs::is_regular_file(index, output_error) || output_error
-        || fs::file_size(index, output_error) == 0 || output_error) {
-        err << result.output << warnings;
-        print_error(
-            err, command_error::task_failed,
-            "doxygen produced no HTML index using " + config + "; expected "
-                + index.lexically_relative(project_root).generic_string()
-        );
-        return command_error::task_failed;
+    for (const auto& [format, relative] :
+         std::vector<std::pair<std::string, fs::path>> {
+             { "HTML", "html/index.html" }, { "XML", "xml/index.xml" } }) {
+        std::error_code output_error;
+        const auto index = directory / relative;
+        if (!fs::is_regular_file(index, output_error) || output_error
+            || fs::file_size(index, output_error) == 0 || output_error) {
+            err << result.output << warnings;
+            print_error(
+                err, command_error::task_failed,
+                "doxygen produced no " + format + " index using " + config
+                    + "; expected "
+                    + index.lexically_relative(project_root).generic_string()
+            );
+            return command_error::task_failed;
+        }
     }
     out << "doxygen generated in "
         << directory.lexically_relative(project_root).generic_string()
-        << "/html\n";
+        << "/html\n"
+        << "doxygen XML: "
+        << (directory / "xml").lexically_relative(project_root).generic_string()
+        << "\n";
     return command_error::ok;
 }
 
@@ -669,43 +784,66 @@ command_error run_check_sphinx(
         return command_error::unsupported_by_manifest;
     }
 
-    const tool_status sphinx_tool = probe_tool("sphinx-build");
-    if (!sphinx_tool.available) {
-        print_error(
-            err, command_error::missing_local_tooling,
-            "sphinx-build is not available"
-        );
-        return command_error::missing_local_tooling;
+    const auto tools = toolchains_report("sphinx", project_root);
+    bool missing_tools = false;
+    for (const auto& [name, tool] : tools.items()) {
+        if (!tool.at("available").get<bool>()
+            || tool.at("version_exit_code") != 0) {
+            print_error(
+                err, command_error::missing_local_tooling,
+                name + " is unavailable or its version probe failed: "
+                    + tool.at("version_error").get<std::string>()
+            );
+            missing_tools = true;
+        }
     }
+    if (missing_tools)
+        return command_error::missing_local_tooling;
 
     std::string error_message;
     if (!write_local_sphinx_conf(project_root, manifest_value.id, &error_message)) {
         print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
-
-    const fs::path output_dir = local_sphinx_dir(project_root) / "html";
-    std::error_code fs_error;
-    fs::create_directories(output_dir, fs_error);
-    if (fs_error) {
-        print_error(err, command_error::task_failed, fs_error.message());
+    const auto doxy_status
+        = run_check_doxy(project_root, manifest_value, std::nullopt, out, err);
+    if (doxy_status != command_error::ok)
+        return doxy_status;
+    if (!prepare_local_sphinx_output(project_root, &error_message)) {
+        print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
 
-    if (run_command(
-            {
-                sphinx_tool.path,
-                "-b",
-                "html",
-                "-c",
-                local_sphinx_dir(project_root).string(),
-                (project_root / "docs").string(),
-                output_dir.string(),
-            },
-            project_root, sphinx_environment(sphinx_theme)
-        )
-        != 0) {
-        print_error(err, command_error::task_failed, "sphinx failed");
+    const auto directory = local_sphinx_dir(project_root);
+    const auto log = directory / "sphinx.log";
+    const auto result = capture_command_result(
+        { tools.at("sphinx-build").at("path").get<std::string>(), "-b", "html",
+          "-E", "-a", "-W", "--keep-going", "-c", directory.string(),
+          (project_root / "docs").string(),
+          (directory / "html.pending").string() },
+        project_root, sphinx_environment(sphinx_theme)
+    );
+    if (!write_text_file(log, result.output, &error_message)) {
+        print_error(err, command_error::task_failed, error_message);
+        return command_error::task_failed;
+    }
+    out << "sphinx log: "
+        << log.lexically_relative(project_root).generic_string() << "\n";
+    if (result.exit_code != 0) {
+        err << result.output;
+        print_error(
+            err, command_error::task_failed,
+            "sphinx failed (exit " + std::to_string(result.exit_code)
+                + "); install breathe, the selected theme and myst-parser for "
+                  "Markdown "
+                  "in the sphinx-build environment; see "
+                  ".ecosystem/sphinx/sphinx.log"
+        );
+        return command_error::task_failed;
+    }
+    if (!publish_local_sphinx_output(project_root, &error_message)) {
+        err << result.output;
+        print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
 
@@ -934,7 +1072,7 @@ command_error run_workspace_check(
     return status;
 }
 
-}  // namespace ecosystem::command_support
+} // namespace ecosystem::command_support
 
 namespace ecosystem {
 
