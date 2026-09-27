@@ -230,6 +230,11 @@ namespace tooling_support {
                     "Sphinx service output must not use a symlink: "
                     + path.lexically_relative(root).generic_string()
                 );
+            if (fs::is_regular_file(status) && fs::hard_link_count(path) > 1)
+                throw template_render_error(
+                    "Sphinx service output must not use a hard link: "
+                    + path.lexically_relative(root).generic_string()
+                );
             if (fs::exists(status) && !fs::is_directory(status)
                 && !fs::is_regular_file(status))
                 throw template_render_error(
@@ -241,10 +246,12 @@ namespace tooling_support {
         const auto directory = local_sphinx_dir(root);
         for (const auto& path :
              { local_state_dir(root), directory, directory / "conf.py",
+               directory / "manifesto_presentation.py",
                directory / "sphinx.log", directory / "html",
                directory / "html.pending", directory / "html.previous" }) {
             const auto status = inspect(path);
             const bool file = path.filename() == "conf.py"
+                || path.filename() == "manifesto_presentation.py"
                 || path.filename() == "sphinx.log";
             if (fs::exists(status)
                 && (file ? !fs::is_regular_file(status)
@@ -1419,9 +1426,19 @@ bool write_local_sphinx_conf(
         return false;
     }
 
+    std::string presentation;
+    if (!render_tooling_template(
+            "tooling/sphinx_presentation.py.tpl", {}, &presentation,
+            error_message
+        ))
+        return false;
     return write_text_file(
-        local_sphinx_dir(project_root) / "conf.py", contents, error_message
-    );
+               local_sphinx_dir(project_root) / "manifesto_presentation.py",
+               presentation, error_message
+           )
+        && write_text_file(
+            local_sphinx_dir(project_root) / "conf.py", contents, error_message
+        );
 }
 
 bool prepare_local_sphinx_output(

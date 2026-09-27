@@ -1,26 +1,52 @@
 name: Deploy
 
-# Sphinx/Pages remains opt-in until the presentation stage is accepted.
+# Either verification workflow can finish last. Validate both before building.
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: [Checks, CodeQL]
+    types: [completed]
 
 permissions:
   contents: read
 
-concurrency:
-  group: pages-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
-    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    if: >-
+      ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+          (github.event_name == 'workflow_dispatch' ||
+           (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' &&
+            github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+            github.event.workflow_run.repository.id == github.event.repository.id &&
+            github.event.workflow_run.head_repository.id == github.event.repository.id &&
+            github.event.workflow_run.head_sha == github.sha)) }}
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     runs-on: ubuntu-24.04
+    outputs:
+      publishable: ${{ steps.current.outcome == 'success' }}
+      commit: ${{ github.sha }}
+      source: ${{ steps.automatic.outputs.source }}
     env:
       CMAKE_BUILD_PARALLEL_LEVEL: {{manifesto_build_parallelism}}
     steps:
       - uses: {{checkout_action}}
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Select automatic publication evidence
+        if: ${{ github.event_name == 'workflow_run' }}
+        id: automatic
+        uses: {{github_script_action}}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').publication({github, context, core});
 
       - name: Setup manifesto tool
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.automatic.outputs.ready == 'true' }}
         id: manifesto
         uses: {{manifesto_setup_action}}
         with:
@@ -33,6 +59,7 @@ jobs:
           sphinx-theme-package: {{sphinx_theme_package}}
 
       - name: Verify generated tracked surfaces
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.automatic.outputs.ready == 'true' }}
         id: repository
         uses: ./.github/actions/run-manifesto-stage
         with:
@@ -43,7 +70,7 @@ jobs:
           skipped-exit-codes: ''
 
       - name: Run coverage when supported
-        if: ${{ steps.repository.outputs.status == 'passed' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.repository.outputs.status == 'passed' }}
         id: coverage
         uses: ./.github/actions/run-manifesto-stage
         with:
@@ -53,9 +80,26 @@ jobs:
             "${{ steps.manifesto.outputs.engels-binary }}" check coverage
           skipped-exit-codes: 3
 
+      - name: Select current presentation reports
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.repository.outputs.status == 'passed' && (steps.coverage.outputs.status == 'passed' || steps.coverage.outputs.status == 'skipped') }}
+        id: presentation
+        uses: {{github_script_action}}
+        env:
+          REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
+          REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
+          REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
+          COVERAGE_OUTCOME: ${{ steps.coverage.outcome }}
+          COVERAGE_STATUS: ${{ steps.coverage.outputs.status }}
+          COVERAGE_EXIT_CODE: ${{ steps.coverage.outputs.exit-code }}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').presentation({context, core});
+
       - name: Generate docs site
-        if: ${{ steps.repository.outputs.status == 'passed' && (steps.coverage.outputs.status == 'passed' || steps.coverage.outputs.status == 'skipped') }}
+        if: ${{ steps.repository.outputs.status == 'passed' && ((steps.presentation.outcome == 'success' && steps.presentation.outputs.directory != '') || steps.automatic.outputs.ready == 'true') }}
         id: docs
+        env:
+          MANIFESTO_SPHINX_EVIDENCE: ${{ steps.automatic.outputs.directory || steps.presentation.outputs.directory }}
         uses: ./.github/actions/run-manifesto-stage
         with:
           stage-id: 03-docs-build
@@ -64,19 +108,33 @@ jobs:
             "${{ steps.manifesto.outputs.engels-binary }}" check sphinx --theme {{sphinx_theme}}
           skipped-exit-codes: ''
 
+      - name: Revalidate automatic publication evidence
+        if: ${{ github.event_name == 'workflow_run' && steps.docs.outputs.status == 'passed' }}
+        id: revalidation
+        uses: {{github_script_action}}
+        env:
+          PUBLICATION_SOURCE: ${{ steps.automatic.outputs.source }}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').revalidatePublication({github, context});
+
       - name: Enforce Pages prerequisites
-        if: ${{ always() }}
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.automatic.outputs.ready == 'true') }}
         id: publication
         env:
+          EVENT_NAME: ${{ github.event_name }}
+          AUTOMATIC_READY: ${{ steps.automatic.outputs.ready }}
+          REVALIDATION_OUTCOME: ${{ steps.revalidation.outcome }}
           REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
           REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
           REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
           COVERAGE_OUTCOME: ${{ steps.coverage.outcome }}
-          COVERAGE_STATUS: ${{ steps.coverage.outputs.status }}
+          COVERAGE_STATUS: ${{ steps.automatic.outputs.coverage || steps.coverage.outputs.status }}
           COVERAGE_EXIT_CODE: ${{ steps.coverage.outputs.exit-code }}
           DOCS_OUTCOME: ${{ steps.docs.outcome }}
           DOCS_STATUS: ${{ steps.docs.outputs.status }}
           DOCS_EXIT_CODE: ${{ steps.docs.outputs.exit-code }}
+          PRESENTATION_OUTCOME: ${{ steps.presentation.outcome }}
         shell: bash
         run: |
           require_result() {
@@ -95,9 +153,31 @@ jobs:
             return 1
           }
           require_result 01-tracked-surface "$REPOSITORY_OUTCOME" "$REPOSITORY_STATUS" "$REPOSITORY_EXIT_CODE"
-          require_result 02-coverage-check "$COVERAGE_OUTCOME" "$COVERAGE_STATUS" "$COVERAGE_EXIT_CODE" true
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            require_result 02-coverage-check "$COVERAGE_OUTCOME" "$COVERAGE_STATUS" "$COVERAGE_EXIT_CODE" true
+            if [ "$PRESENTATION_OUTCOME" != success ]; then
+              echo '::error::Manual presentation evidence was not selected.'
+              exit 1
+            fi
+          elif [ "$EVENT_NAME" = workflow_run ]; then
+            if [ "$AUTOMATIC_READY" != true ] || [ "$REVALIDATION_OUTCOME" != success ]; then
+              echo '::error::Automatic verification evidence is missing or changed.'
+              exit 1
+            fi
+          else
+            echo '::error::Unsupported publication event.'
+            exit 1
+          fi
           require_result 03-docs-build "$DOCS_OUTCOME" "$DOCS_STATUS" "$DOCS_EXIT_CODE"
-          if [ "$COVERAGE_STATUS" = passed ] && [ ! -s .ecosystem/reports/coverage.json ]; then
+          if [ ! -s .ecosystem/github/presentation/receipt.json ] || [ ! -s .ecosystem/sphinx/html/_manifesto/index.html ]; then
+            echo '::error::Current presentation evidence or composed results page is missing.'
+            exit 1
+          fi
+          if [ "$COVERAGE_STATUS" != passed ] && [ "$COVERAGE_STATUS" != skipped ]; then
+            echo '::error::Coverage result is incomplete.'
+            exit 1
+          fi
+          if [ "$COVERAGE_STATUS" = passed ] && [ ! -s .ecosystem/github/presentation/reports/coverage.json ]; then
             echo '::error::Successful coverage has no report.'
             exit 1
           fi
@@ -107,11 +187,11 @@ jobs:
           fi
 
       - name: Upload coverage artifact
-        if: ${{ success() && steps.publication.outcome == 'success' && steps.coverage.outputs.status == 'passed' }}
+        if: ${{ success() && steps.publication.outcome == 'success' && (steps.automatic.outputs.coverage == 'passed' || steps.coverage.outputs.status == 'passed') }}
         uses: {{upload_artifact_action}}
         with:
           name: coverage-{{project_id}}
-          path: .ecosystem/reports/coverage.json
+          path: .ecosystem/github/presentation/reports/coverage.json
           include-hidden-files: true
           if-no-files-found: error
 
@@ -121,6 +201,14 @@ jobs:
         with:
           path: .ecosystem/sphinx/html
 
+      - name: Confirm current publication revision
+        if: ${{ success() && steps.publication.outcome == 'success' }}
+        id: current
+        uses: {{github_script_action}}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').checkPublicationTip({github, context});
+
       - name: Upload Pages reports
         if: ${{ always() }}
         continue-on-error: true
@@ -129,6 +217,7 @@ jobs:
           name: ci-reports-{{project_id}}-pages
           path: |
             .ecosystem/github/reports
+            .ecosystem/github/presentation
             .ecosystem/reports/coverage.log
             .ecosystem/sphinx/sphinx.log
             .ecosystem/doxygen/doxygen.log
@@ -140,15 +229,34 @@ jobs:
     permissions:
       pages: write
       id-token: write
+      contents: read
+      actions: read
+      pull-requests: read
+    concurrency:
+      group: pages-deploy-${{ github.workflow }}
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: {{github_page_url}}
     runs-on: ubuntu-latest
     needs: build
-    if: ${{ needs.build.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    if: ${{ needs.build.result == 'success' && needs.build.outputs.publishable == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     outputs:
       page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: {{checkout_action}}
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+
+      - name: Revalidate deployment source
+        uses: {{github_script_action}}
+        env:
+          PUBLICATION_SOURCE: ${{ needs.build.outputs.source }}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').revalidatePublication({github, context});
+
       - uses: {{configure_pages_action}}
 
       - name: Deploy to GitHub Pages

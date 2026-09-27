@@ -1,10 +1,24 @@
 name: Select Manifesto CI
-description: Select local verification scope from the GitHub event without running project tools.
+description: Select local checks and verify immutable PR evidence before post-merge reuse.
+
+inputs:
+  kind:
+    description: Workflow consuming the verified reports (checks or codeql).
+    default: checks
 
 outputs:
   scope:
-    description: cheap, full, security, or skip.
-    value: ${{ steps.select.outputs.scope }}
+    description: cheap, full, security, reuse, or skip.
+    value: ${{ steps.evidence.outputs.scope }}
+  verified:
+    description: True only after both Checks and CodeQL evidence pass validation.
+    value: ${{ steps.evidence.outputs.verified }}
+  source:
+    description: JSON recording the verified source runs and immutable artifact IDs/digests.
+    value: ${{ steps.evidence.outputs.source }}
+  reports:
+    description: Directory containing validated report data for this workflow.
+    value: ${{ steps.evidence.outputs.reports }}
 
 runs:
   using: composite
@@ -50,3 +64,14 @@ runs:
         esac
         echo "scope=$scope" >> "$GITHUB_OUTPUT"
         printf 'Verification scope: %s\n' "$scope" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Verify reusable PR evidence
+      id: evidence
+      uses: {{github_script_action}}
+      env:
+        BASE_SCOPE: ${{ steps.select.outputs.scope }}
+        EVIDENCE_KIND: ${{ inputs.kind }}
+        EVIDENCE_MODULE: ${{ github.action_path }}/evidence.cjs
+      with:
+        script: |
+          await require(process.env.EVIDENCE_MODULE).select({github, context, core});

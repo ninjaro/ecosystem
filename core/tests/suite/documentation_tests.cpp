@@ -582,6 +582,34 @@ void test_cli_check_doxy_rejects_failed_configuration() {
     );
 }
 
+void test_sphinx_presentation_contract() {
+    temp_dir root;
+    write_sample_sphinx_project(root.path());
+    std::string error;
+    require_true(
+        ecosystem::write_local_sphinx_conf(root.path(), "sample", &error), error
+    );
+    const auto result = ecosystem::capture_command_result(
+        { "python3",
+          (fs::path(ECOS_TEST_SOURCE_DIR)
+           / "core/tests/suite/presentation_cases.py").string(),
+          (ecosystem::local_sphinx_dir(root.path())
+           / "manifesto_presentation.py").string() },
+        root.path()
+    );
+    require_true(result.exit_code == 0, result.output);
+    const auto module = ecosystem::local_sphinx_dir(root.path())
+        / "manifesto_presentation.py";
+    const auto retained = root.path() / "retained.py";
+    fs::create_hard_link(module, retained);
+    const auto original = read_text(retained);
+    require_true(
+        !ecosystem::write_local_sphinx_conf(root.path(), "changed", &error)
+            && read_text(retained) == original,
+        "generated Python aliases must fail before overwriting another file"
+    );
+}
+
 void test_cli_check_sphinx_generates_local_conf_with_rtd_theme() {
     temp_dir root;
     write_sample_sphinx_project(root.path());
@@ -657,6 +685,7 @@ void test_cli_check_sphinx_theme_flag_sets_theme_override() {
 void test_cli_check_sphinx_rejects_output_aliases_before_writing() {
     for (const auto* relative :
          { ".ecosystem", ".ecosystem/sphinx", ".ecosystem/sphinx/conf.py",
+           ".ecosystem/sphinx/manifesto_presentation.py",
            ".ecosystem/sphinx/html", ".ecosystem/sphinx/html/nested/index.html",
            ".ecosystem/sphinx/html/.doctrees", ".ecosystem/sphinx/html.pending",
            ".ecosystem/sphinx/html.previous",
@@ -889,6 +918,18 @@ void test_cli_sphinx_native_xml_breathe_pipeline() {
     const auto directory = ecosystem::local_sphinx_dir(project);
     const auto api = read_text(directory / "html/api.html");
     require_contains(
+        api, "_manifesto/index.html", "public pages must link project results"
+    );
+    require_true(
+        fs::is_regular_file(directory / "html/_manifesto/doxygen/index.html"),
+        "standalone Doxygen HTML must be available from the same site"
+    );
+    require_contains(
+        read_text(directory / "html/_manifesto/index.html"),
+        "No verification evidence was selected",
+        "local docs must not claim unselected verification"
+    );
+    require_contains(
         api, "selected_public_type", "Breathe must render the C++ symbol"
     );
     require_contains(
@@ -966,6 +1007,35 @@ void test_cli_sphinx_native_xml_breathe_pipeline() {
     require_not_contains(
         read_text(directory / "conf.py"), "'myst_parser'",
         "RST-only projects need no Markdown parser"
+    );
+    const auto published = read_text(directory / "html/index.html");
+    write_text(
+        project / "assets/showcase/index.tsv",
+        "id\tpath\ttype\tdescription\tdatetime\n"
+        "missing\tmissing.png\timage\tAbsent image\t2026-09-27\n"
+    );
+    result = run_engels_cli(project, "check sphinx --theme alabaster");
+    require_true(
+        result.exit_code == 5
+            && read_text(directory / "html/index.html") == published,
+        "failed presentation must preserve the whole previous site"
+    );
+    require_contains(
+        result.output, "missing.png", "presentation errors must name the input"
+    );
+    write_text(project / "assets/showcase/missing.png", "fixture image");
+    result = run_engels_cli(project, "check sphinx --theme alabaster");
+    require_true(result.exit_code == 0, result.output);
+    require_contains(
+        read_text(directory / "html/_manifesto/index.html"), "Absent image",
+        "indexed showcase must render using the selected Sphinx theme"
+    );
+    fs::remove_all(project / "assets/showcase");
+    result = run_engels_cli(project, "check sphinx --theme alabaster");
+    require_true(
+        result.exit_code == 0
+            && !fs::exists(directory / "html/_manifesto/showcase/missing.png"),
+        "rebuilding must retire removed showcase output"
     );
 }
 
