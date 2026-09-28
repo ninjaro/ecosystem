@@ -14,13 +14,15 @@ A project must have both structure and meaning. `manifest.json` defines its form
 
 The `core/` and `app/` blocks contain the project’s source code. The presence of at least one of them is required. Both blocks use the same internal structure: `include/`, `src/`, `tests/`, and, where appropriate, `benchmarks/`. These directories describe related views of the same source topology rather than four trees that must contain the same number of files. `include/` is the reference layer; the other layers mirror its paths and naming where the relationship is real and useful to a human reader. One declared responsibility may therefore have one implementation file or a whole bunch of them without becoming several responsibilities by bureaucratic magic.
 
-* `include/` defines the reference layer of this structure and contains declarations and interface material. Implementations do not belong here merely because C++ occasionally makes that inconvenient. Conventional include-side template implementations may be tolerated where the inclusion model is deliberately preferred, but they are not the preferred shape.
+* `include/` defines the reference layer of this structure and contains declarations and interface material. Implementation belongs under `src/`, including template implementation. When consumer compilation requires template definitions to remain available, generated build and installation surfaces are responsible for exposing the required implementation companions; the preferred authored location remains on the implementation side.
 
 * `src/` contains the block’s working implementation files, including template implementations and `entry-point` sources.
 
 * `tests/` contains test files. Independently observable behaviour declared in `include/` belongs under test. A test is named and placed for the interface or behaviour it intends to validate, not for every dependency that happens to execute underneath it.
 
 * `benchmarks/` is an optional directory for benchmark files and is introduced only where performance measurements are actually justified.
+
+Project-owned C and C++ files use the conventional extension families `.h`, `.hh`, `.hpp`, `.hxx` for headers and `.c`, `.cc`, `.cpp`, `.cxx` for compiled sources. Template implementation files prefer `.tpp` and belong under `src/` in the authored tree. Uppercase source extensions such as `.C` or `.CPP`, and punctuation-heavy forms such as `.c++` or `.h++`, are not used.
 
 For files in `tests/` and `benchmarks/`, the same general principle is used: the referent name remains recognizable, while the layer type is expressed by the `_tests` or `_benchmarks` suffix. Several files belonging to the same referent prefer meaningful `snake_case` qualifiers such as `foo_errors_tests.cpp` or `foo_recovery_tests.cpp`; numbered batches remain acceptable where the parts are deliberately homogeneous and a semantic name would only pretend to know more than it does.
 
@@ -32,7 +34,7 @@ The tree does not require block-local operational README files. Runnable surface
 
 ### Asset Topology
 
-The `assets/` directory has been designed to serve as the project’s artifact layer. It is not intended for arbitrary files and must not be used as some rubbish dump: the contents of `assets/` are grouped by purpose through a fixed first-level directory layout.
+The `assets/` directory has been designed to serve as the project’s asset layer. It is not intended for arbitrary files and must not be used as some rubbish dump: the contents of `assets/` are grouped by purpose through a fixed first-level directory layout.
 
 Within the project’s working environment, this directory is also treated as a source for copying or linking into `build/`, `.ecosystem/`, and other service environments; `assets/showcase/` is excluded from this rule, as it is oriented primarily toward documentation and project presentation.
 
@@ -74,9 +76,9 @@ A project may contain up to three `.gitignore` files. The root `.gitignore` is c
 
 Even then, it is used exclusively for filtering subsets of `assets/dumps/`, so that the repository keeps the right balance: first and foremost, the project is a source-code repository, not a storage site for automatically generated dumps, however useful those dumps may sometimes be as examples or reference artifacts. This exception does not make `assets/` a rubbish dump.
 
-The files `.clang-tidy` and `.clang-format` form a related pair of auto-generated root-level templates. Like the root `.gitignore`, they belong to the shared project layout rather than to the project-specific layer derived from `manifest.json`, so their contents remain the same across repositories. Together they define the common linting and formatting baseline used by the CI workflows described in `.github/`.
+The files `.clang-tidy` and `.clang-format` form a related pair of generated root-level templates. They are materialized from the common MANIFESTO baseline, with only explicitly declared project exceptions allowed to alter that realization. Together they define the formatting and linting surface used locally and by the CI workflows described in `.github/`.
 
-Both files are covered by `.gitignore` and are not committed, while remaining part of the generated project layout.
+Both files belong in the generated root `.gitignore` and are not committed. They remain reproducible parts of the local project layout rather than handwritten repository policy.
 
 When present, the `build/` and `.ecosystem/` directories form a related pair of local service workspaces at the project root and remain covered by `.gitignore`. Unlike blocks generated directly from fixed templates, these directories are shaped primarily by the actual execution of build and control flows.
 
@@ -120,13 +122,13 @@ cmake --build build
 
 The `mvp` is the visitor-facing runnable artifact. It guarantees a meaningful run while hiding the project’s internal artifact kinds and canonical artifact names from the visitor contract.
 
-A visitor following this path does not deal with `.clang-tidy`, `.clang-format`, `Doxyfile`, private toolchain decisions, CI scaffolding, extended profiles, or other service noise.
+A visitor following this path does not deal with `.clang-tidy`, `.clang-format`, `Doxyfile`, private toolchain decisions, CI scaffolding, developer-only profiles, or other service noise.
 
 Facade minimality is measured by visitor burden rather than by the smallest possible number of compiled targets. Its generated `CMakeLists.txt` remains short and readable, and the facade never justifies making natural dependencies optional or introducing extra abstraction solely to exclude them.
 
-The facade is generated project state and is regenerated rather than authored. If an unsupported environment requires a small local adaptation, a visitor may patch the generated facade locally; environment-specific preferences do not become committed project policy, while defects in the generated facade belong in MANIFESTO itself.
+The facade is generated project state and is regenerated rather than authored. If an unsupported environment requires a small local adaptation, a visitor may patch the generated facade locally; environment-specific preferences do not become committed project policy. The facade contract belongs to MANIFESTO; defects in its generated realization belong to the tooling that materializes it.
 
-Development mode continues from the same project at greater depth. It materializes tests, benchmarks, extended configurations, diagnostics, reports, documentation tooling, additional checks, and other service surfaces as required. The development surface is tooling-owned, exists locally or temporarily in CI, and remains environment-bound rather than authoritative as editable project state.
+Development mode continues from the same project at greater depth. It materializes tests, benchmarks, additional configurations, diagnostics, reports, documentation tooling, additional checks, and other service surfaces as required. The development surface is tooling-owned, exists locally or temporarily in CI, and remains environment-bound rather than authoritative as editable project state.
 
 Once materialized, it remains inspectable and usable through ordinary terminal, IDE, and build tools; it does not require project-specific handwritten wrappers or a second handwritten CMake truth.
 
@@ -153,11 +155,23 @@ The meaningful source tree is treated as a `referent-tree`: its terminal nodes a
 Directories express semantic grouping rather than file-count management. A flat heap of similarly named or prefixed files is undesirable for the same reason as an artificial chain of one-child directories: both increase navigation cost without clarifying responsibility.
 
 
-### 2.2 Structural Shape
+### 2.2 Project View
+
+The `referent-tree` is the semantic backbone of the source topology, but the whole project is viewed as one overlaid `merged project tree` rather than four unrelated directory trees. `include/`, `src/`, `tests/`, and `benchmarks/` are projected onto the same referents so that missing layers, uneven bunches, and cross-layer asymmetries remain visible together.
+
+Structural association follows developer intent expressed through path and name. A companion keeps the complete referent stem as a `snake_case` token prefix: `parser.hpp` may naturally correspond to `parser.cpp`, `parser_lexer.cpp`, or `parser_state.cpp`; an arbitrary character prefix is not enough. Relative path remains part of the evidence.
+
+That evidence is useful, not infallible. A file with no plausible structural referent remains unattached. Several plausible referents remain ambiguous. Semantic evidence from declarations, calls, types, ownership, or other code relations may confirm a structural association, challenge it, or reveal a stronger candidate, but disagreement is reported rather than erased by pretending one signal was always the truth.
+
+Tests are associated with what they intend to validate, not with every dependency that executes beneath them. A test may therefore have one focal referent, while an integration or round-trip test may legitimately have several. Incidental and transitive dependencies do not become focal merely because they appear in the call graph.
+
+Non-reference layers may contain useful internal grouping inside a bunch. Such physical branches help describe implementation topology, but they do not become `referent`s or `module`s merely by existing. The `merged project tree` may show these internal nodes; the referent metrics defined below continue to operate on the semantic referent tree unless a separate metric explicitly says otherwise.
+
+### 2.3 Structural Shape
 
 Let `T` denote the reduced `referent-tree`, obtained by excluding every subtree that contains no `referent`, and let `M(T)` denote the set of all `module`s in `T`.
 
-For a node `v` in `T`, let `R(v)` denote the number of descendant `referent` nodes in the subtree rooted at `v`, let `B(v)` denote the number of direct children of `v` in `T`, and let `H(v)` denote the maximum depth from `v` to a descendant `referent`, measured in edges.
+For a node `v` in `T`, let `R(v)` denote the number of `referent`s in the subtree rooted at `v`, counting `v` itself when `v` is a `referent`; let `B(v)` denote the number of direct children of `v` in `T`; and let `H(v)` denote the maximum depth from `v` to a `referent` in its subtree, measured in edges.
 
 For a `module` `v` with direct children $c_1, \ldots, c_{B(v)}$, define
 
@@ -221,7 +235,7 @@ L(v)=\frac{1}{2}I_R(v)+\frac{1}{3}D(v)+\frac{1}{6}W(v).
 
 The `3:2:1` weighting gives referent imbalance precedence over depth and width while keeping all three structural effects visible. `L(v)` is a structural model, not a normalized quality score and not a specification of one scanner algorithm. Implementations preserve the meaning and direction of the model; harmless rounding or extraction differences do not become philosophical crises over two lines or one file.
 
-### 2.3 Volume and Navigation
+### 2.4 Volume and Navigation
 
 Tree shape cannot reveal an oversized terminal `referent`, so textual volume is measured independently from topology.
 
@@ -314,7 +328,7 @@ Generated and service material is excluded from these source-structure measureme
 
 TODO: file-volume bounds — calibrate useful role-specific ranges and corpus construction for files and bunches without promoting one current threshold or severity scheme into permanent MANIFESTO law.
 
-### 2.4 Functions and Complexity
+### 2.5 Functions and Complexity
 
 Function span, control-flow complexity, and nesting describe different reading costs and remain independently visible.
 
@@ -338,7 +352,7 @@ Useful ranges for $P(g)$, $\mu(g)$, and $N(g)$ are calibration questions rather 
 
 TODO: function nesting — validate whether $N(g)$ adds useful signal beyond cyclomatic complexity rather than merely duplicating it, and calibrate its useful ranges together with the other function measurements.
 
-### 2.5 Naming
+### 2.6 Naming
 
 Project-owned file and directory names remain `snake_case`. Ordinary project-owned C++ identifiers use `snake_case`; leading or trailing underscores and scope prefixes such as `m_` remain undesirable rather than defining a second naming system. External declarations owned by dependencies are outside this policy.
 
@@ -350,7 +364,7 @@ Concrete verbosity ranges are calibration rather than vocabulary and need not be
 
 TODO: naming exceptions — decide the sparse exception model for code symbols such as macros and generated include guards; keep file and directory naming independent of those code-level exceptions.
 
-### 2.6 Locality and Namespaces
+### 2.7 Locality and Namespaces
 
 Ordinary project logic has explicit ownership in the `referent` structure and does not accumulate as hidden translation-unit-local mass. A useful helper may belong to an existing referent and does not require its own file or abstraction, but substantial named behaviour has an explicit declaration and a deliberate place in the source tree.
 
@@ -358,7 +372,7 @@ Anonymous namespaces work against that preference by hiding ownership inside a t
 
 A diagnostically clean project stage contains no anonymous namespaces. An anonymous namespace is diagnostic debt rather than a second accepted storage model for project logic.
 
-### 2.7 Control Flow and Lambdas
+### 2.8 Control Flow and Lambdas
 
 All control-flow bodies use braces, including single-statement bodies. The goal is stable syntactic shape under later edits rather than compactness for its own sake [ref-cert-braces].
 
@@ -366,7 +380,7 @@ Lambdas are held to tighter expectations than ordinary named functions because t
 
 These measurements remain separate. An unnamed block that is long, branch-heavy, or deeply nested is expensive for different reasons, and useful ranges for lambdas should remain tighter than for ordinary named functions without pretending that one permanent set of integer cutoffs fits every codebase [ref-cpp-guidelines].
 
-### 2.8 Conditional Compilation
+### 2.9 Conditional Compilation
 
 Platform, backend, provider, and environment differences are expressed structurally rather than scattered through shared source files as deep conditional-compilation trees. Compact local conditional branches remain acceptable where introducing a separate abstraction would reduce locality and clarity.
 
@@ -374,7 +388,7 @@ For a source file `f`, let $`N_{\mathrm{pp}}(f)`$ denote the maximum nesting dep
 
 Concrete range boundaries belong to calibration rather than to the definition of $N_{\mathrm{pp}}(f)$.
 
-### 2.9 Documentation
+### 2.10 Documentation
 
 Documentation belongs to a mature interface and follows interface stability. Before the interface stabilizes, requirements, architecture, naming, and tests take precedence over prematurely polished API prose.
 
@@ -386,9 +400,9 @@ TODO: documentation maturity — define when missing Doxygen coverage begins to 
 
 TODO: text hygiene — reconsider the older ASCII-only source/Markdown and English-only comment conventions before promoting either into current policy.
 
-### 2.10 Diagnostic Cleanliness
+### 2.11 Diagnostic Cleanliness
 
-Let $`\mathcal{W}(P)`$ denote the active set of style and structural deviations reported for a project snapshot $P$, and let
+Let $`\mathcal{W}(P)`$ denote the set of active style and structural deviations from MANIFESTO in a project snapshot $P$, and let
 
 ```math
 N(P)=|\mathcal{W}(P)|.
@@ -396,13 +410,15 @@ N(P)=|\mathcal{W}(P)|.
 
 A project stage with $N(P)=0$ is `diagnostically clean`. Every active deviation is diagnostic debt. Diagnostic cleanliness is orthogonal to compilability: a project may produce a perfectly real artifact while still carrying structural debt.
 
+Tooling observes some detectable part of this state. Failure to report a deviation does not make the deviation disappear, and a checker that cannot yet observe every rule cannot by itself prove the stronger mathematical statement $N(P)=0$.
+
 A useful report preserves independent causes and the raw measurements behind them instead of collapsing everything into one mystical quality number. The exact vocabulary of severities, calibrated ranges, exit statuses, and CI gates belongs to the concrete tooling policy rather than to this mathematical and structural model.
 
 Policy precedes tooling. Incomplete automatic detection does not weaken a rule, and the existence of a checker does not define the rule.
 
 ## 3. `manifest.json`
 
-`manifest.json` is the compact authored description of project intent. It names the project, the real artifacts it is meant to produce, the source each artifact owns, the dependencies between those artifacts, and the artifact selected for the facade.
+`manifest.json` is the compact authored description of project intent. It names the project, the real artifacts it is meant to produce, the source scopes each artifact owns, the dependencies between those artifacts, and the artifact selected for the facade.
 
 It does not keep a second inventory of information that can be derived safely from the source tree, and it does not record machine-local or generated state. JSON is a particularly miserable place to rewrite a repository by hand.
 
@@ -416,103 +432,41 @@ The minimal project form is:
 {
   "id": "project_name",
   "description": "A short description of the project",
-  "facade": "core:lib",
+  "facade": "core:demo",
   "artifacts": [
     {
-      "id": "core:lib",
-      "kind": "static_lib",
+      "id": "core:demo",
+      "kind": "exe",
       "root": "core",
-      "owns": ["math"]
+      "owns": [],
+      "entry": "src/main.cpp"
     }
   ]
 }
 ```
 
-The project fields are:
+Project `id` matches `[a-z][a-z0-9_]*`. The project-level fields are:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | Required stable project identifier in `snake_case`. |
+| `id` | Required project identity. |
 | `description` | Required short description of what the project is for. |
-| `facade` | Required identity of one real artifact that fulfils the visitor-facing facade contract. |
+| `facade` | Required identity of one real runnable artifact that fulfils the visitor-facing facade contract. |
 | `artifacts` | Required non-empty array of artifact definitions. |
 | `version` | Optional project/package version. |
-| `cpp_standard` | Optional C++ standard when the shared default is not sufficient. |
+| `cpp_standard` | Optional C++ standard; the shared default is `20`. |
 | `install_artifacts` | Optional additional artifact identities distributed alongside the facade. |
 | `install_assets` | Optional declaration that the project’s runtime asset tree is installed. |
 | `android_application_id` | Optional stable Android application identity. |
 | `android_package_source_dir` | Optional project-relative Android package/resource directory. |
 
-The `facade` does not create another canonical artifact called `mvp`; it selects an existing artifact to fulfil the facade described in Section 1.
+The `facade` selects an existing runnable artifact; it does not create another canonical artifact called `mvp`. The selected artifact supplies the universal three-command visitor path from Section 1. Likewise, `install_artifacts` expresses distribution intent, not dependency. Two executables do not become linked merely because they are shipped together.
 
-Additional distribution does not imply dependency. For example:
+### 3.2 Artifacts, Ownership, and Discovery
 
-```json
-{
-  "id": "toolset",
-  "description": "Two complementary project tools",
-  "facade": "viewer:viewer",
-  "install_artifacts": ["worker:worker"],
-  "artifacts": [
-    {
-      "id": "viewer:viewer",
-      "kind": "exe",
-      "root": "core",
-      "owns": [],
-      "entry": "src/viewer_main.cpp"
-    },
-    {
-      "id": "worker:worker",
-      "kind": "exe",
-      "root": "core",
-      "owns": [],
-      "entry": "src/worker_main.cpp"
-    }
-  ]
-}
-```
+Artifact identity has the form `namespace:artifact`; both parts match `[a-z][a-z0-9_]*`. The namespace groups related artifacts but does not make them depend on one another.
 
-Two executables do not become linked merely because they are shipped together.
-
-### 3.2 Artifact Form
-
-An artifact has a stable identity of the form `namespace:artifact`, for example `core:lib`, `app:app`, or `tools:converter`. The namespace groups related artifacts; it does not create a dependency between them.
-
-The ordinary artifact form is:
-
-```json
-{
-  "id": "core:lib",
-  "kind": "static_lib",
-  "root": "core",
-  "owns": ["parser"]
-}
-```
-
-Artifact fields are:
-
-| Field | Meaning |
-| --- | --- |
-| `id` | Required globally unique `namespace:artifact` identity. |
-| `kind` | Required artifact kind: `static_lib`, `shared_lib`, `interface_lib`, `exe`, or `qt_app`. |
-| `owns` | Required array of logical source scopes; it may be empty where the artifact owns only an entry point or represents an imported library. |
-| `root` | Project-relative source root in which ownership is interpreted; ordinary project artifacts normally use `core` or `app`. |
-| `entry` | Explicit entry-point source for `exe` and `qt_app`. |
-| `dependencies` | Artifact identities linked by this artifact. |
-| `packages` | Artifact-local external package and integration requirements. |
-| `tests` | Artifact-level test support. |
-| `benchmarks` | Artifact-level benchmark support. |
-| `name` | Optional output filename stem when it should differ from the artifact identity. |
-| `description` | Optional artifact-specific description. |
-| `qml` | Optional QML module description for a `qt_app`. |
-
-Artifact identities, generated build identities, and output names must remain unambiguous.
-
-### 3.3 Ownership and Discovery
-
-`owns` describes logical scopes, not a handwritten file list.
-
-With
+An ordinary artifact looks like:
 
 ```json
 {
@@ -523,15 +477,26 @@ With
 }
 ```
 
-the artifact owns those responsibilities beneath `core/` and their conventional companions under `include/`, `src/`, `tests/`, and `benchmarks/`. Discovery follows the referent and bunch structure defined in Section 2; missing companion forms are not invented or required.
+The artifact fields are:
 
-A scope may identify one referent, a subtree, or, when deliberately broad, one of the conventional source layers. Broad scopes are used only when broad ownership is actually intended.
+| Field | Meaning |
+| --- | --- |
+| `id` | Required globally unique `namespace:artifact` identity. |
+| `kind` | Required `static_lib`, `shared_lib`, `interface_lib`, `exe`, or `qt_app`. |
+| `owns` | Required array of logical source scopes; it may be empty for an entry-only executable or imported library. |
+| `root` | Project-relative source root; it defaults to `.`. Ordinary authored C++ artifacts normally point into `core` or `app`. |
+| `entry` | Explicit entry-point source for `exe` and `qt_app`. |
+| `dependencies` | Artifact identities linked by this artifact. |
+| `packages` | Artifact-local external package and integration requirements. |
+| `tests` | Artifact-level test support. |
+| `benchmarks` | Artifact-level benchmark support. |
+| `name` | Optional output filename stem. |
+| `description` | Optional artifact-specific description. |
+| `qml` | Optional QML module description for a `qt_app`. |
 
-Ownership does not overlap. Two artifacts do not quietly claim the same code and wait for the linker to negotiate custody.
+`owns` describes logical scopes, not a handwritten file list. A scope owns the corresponding referents and their conventional companions under `include/`, `src/`, `tests/`, and `benchmarks/`. Missing companions are not invented or required, and adding another ordinary implementation, test, or benchmark file does not require another JSON entry.
 
-Shared implementation belongs to a shared artifact and enters consumers through an explicit dependency. Physical proximity is not dependency.
-
-Adding another ordinary implementation, test, or benchmark companion should therefore not require appending another filename to `manifest.json`. The manifest retains ownership intent; the project supplies the file inventory.
+Ownership does not overlap. Two artifacts do not quietly claim the same code and wait for the linker to negotiate custody. Shared implementation belongs to a shared artifact and enters consumers through an explicit dependency. Physical proximity is not dependency.
 
 An `entry` is explicitly owned even when `owns` is empty:
 
@@ -547,58 +512,38 @@ An `entry` is explicitly owned even when `owns` is empty:
 
 The entry file need not be called `main.cpp`.
 
-### 3.4 Libraries
+### 3.3 Canonical Artifact Patterns
 
-A reusable library is expressed directly:
-
-```json
-{
-  "id": "core:lib",
-  "kind": "static_lib",
-  "root": "core",
-  "owns": ["math", "parser"]
-}
-```
-
-A shared library changes its kind:
+A reusable library uses `static_lib` or `shared_lib` according to its linkage model; a deliberately header-only library uses `interface_lib`. A project whose principal product is a library still provides a small runnable demonstration artifact for the facade so that the three-command visitor path remains universal:
 
 ```json
 {
-  "id": "core:lib",
-  "kind": "shared_lib",
-  "root": "core",
-  "owns": ["math", "parser"]
+  "id": "numbers",
+  "description": "Reusable numeric library",
+  "facade": "core:demo",
+  "install_artifacts": ["core:lib"],
+  "artifacts": [
+    {
+      "id": "core:lib",
+      "kind": "static_lib",
+      "root": "core",
+      "owns": ["math", "parser"]
+    },
+    {
+      "id": "core:demo",
+      "kind": "exe",
+      "root": "core",
+      "owns": [],
+      "entry": "src/main.cpp",
+      "dependencies": ["core:lib"]
+    }
+  ]
 }
 ```
 
-A library whose implementation is intentionally header-only uses `interface_lib`:
+The demonstration exists to show the library in use, not to redefine the library as an application. The library itself has no executable `entry`; it remains a real library artifact and may be distributed through `install_artifacts`.
 
-```json
-{
-  "id": "core:api",
-  "kind": "interface_lib",
-  "root": "core",
-  "owns": ["api"]
-}
-```
-
-A library artifact has no executable `entry`.
-
-### 3.5 Executables and Applications
-
-A runnable artifact has an explicit `entry`:
-
-```json
-{
-  "id": "app:app",
-  "kind": "exe",
-  "root": "app",
-  "owns": ["ui"],
-  "entry": "src/main.cpp"
-}
-```
-
-A project with a reusable core and an application declares the relationship rather than relying on directory proximity:
+A project with a reusable core and an application declares the relationship explicitly:
 
 ```json
 {
@@ -624,13 +569,28 @@ A project with a reusable core and an application declares the relationship rath
 }
 ```
 
-The dependency points to a real library artifact. Sharing a source root or namespace is not enough.
+Tests and benchmarks describe support at the artifact level while their files remain discoverable through ownership:
 
-### 3.6 Packages
+```json
+{
+  "id": "core:lib",
+  "kind": "static_lib",
+  "root": "core",
+  "owns": ["parser"],
+  "tests": {
+    "gtest": true
+  },
+  "benchmarks": {
+    "google_benchmark": true
+  }
+}
+```
 
-Package requirements belong to the smallest artifact that needs them.
+A separately runnable test or benchmark may be its own artifact when it is genuinely independent rather than an ordinary companion of a referent.
 
-A Qt Widgets application may declare:
+### 3.4 Packages, Qt, and QML
+
+Package requirements belong to the smallest artifact that needs them. A Qt Widgets application therefore writes its own requirement directly:
 
 ```json
 {
@@ -645,15 +605,9 @@ A Qt Widgets application may declare:
 }
 ```
 
-A package used only by `app:desktop` remains a requirement of `app:desktop`; it does not become project-global state merely because promoting it upward was convenient.
+A package used only by `app:desktop` remains a requirement of `app:desktop`; it does not become project-global state because promoting it upward was convenient. The concrete vocabulary inside `packages` is defined by supported integrations, and unknown package configuration is rejected rather than silently converted into wishful thinking.
 
-The concrete vocabulary inside `packages` is defined by supported integrations. Unknown package configuration is rejected rather than silently converted into wishful thinking.
-
-### 3.7 Qt and QML
-
-Qt Widgets is the ordinary Qt application form. QML is optional and does not introduce another artifact kind.
-
-A QML-enabled application remains a `qt_app` and adds a `qml` block:
+QML is optional and does not introduce another application kind. A QML-enabled application remains a `qt_app`:
 
 ```json
 {
@@ -676,38 +630,13 @@ A QML-enabled application remains a `qt_app` and adds a `qml` block:
 }
 ```
 
-Authored QML belongs under `app/qml/`. The `qml` block states module identity and QML ownership; its files are not repeated in `owns`. A Widgets-only application has no `qml` block and no QML requirements merely because support exists.
+Authored QML belongs under `app/qml/`. The `qml` block states module identity and QML ownership; its files are not repeated in `owns`. A Widgets-only application has no `qml` block and no QML requirements merely because QML support exists.
 
 The explicit QML file list is a deliberate exception to ordinary C++ scope discovery while module membership cannot yet be derived with equal confidence.
 
 TODO: QML ownership — reconsider whether explicit `qml.files` remains the right long-term ownership form once QML topology and module discovery are mature enough to derive safely.
 
-### 3.8 Tests and Benchmarks
-
-Ordinary tests and benchmarks belong to the artifact whose behaviour they exercise.
-
-For example:
-
-```json
-{
-  "id": "core:lib",
-  "kind": "static_lib",
-  "root": "core",
-  "owns": ["parser"],
-  "tests": {
-    "gtest": true
-  },
-  "benchmarks": {
-    "google_benchmark": true
-  }
-}
-```
-
-The manifest states the support and intent. The actual files remain in `tests/` and `benchmarks/` and are discovered through ownership; they are not copied into JSON as another inventory.
-
-A separately runnable test or benchmark may be its own artifact when it is genuinely independent rather than an ordinary companion of a referent.
-
-### 3.9 External MANIFESTO Projects
+### 3.5 External MANIFESTO Projects
 
 Another MANIFESTO-managed repository remains another project. It is built and installed independently and enters the consumer through its exported library surface rather than by joining the consumer’s source tree or CMake graph.
 
@@ -729,28 +658,15 @@ An imported provider library may be described as:
 }
 ```
 
-A local artifact then consumes that imported identity normally:
-
-```json
-{
-  "id": "app:app",
-  "kind": "exe",
-  "root": "app",
-  "owns": ["ui"],
-  "entry": "src/main.cpp",
-  "dependencies": ["packing:core"]
-}
-```
-
-The provider owns its own files. The consumer does not reproduce the provider’s scopes.
+A local artifact then consumes that imported identity through `dependencies`. The provider owns its own files; the consumer does not reproduce the provider’s scopes.
 
 `revision` expresses source-selection intent. Exact resolved state is a different concern and must not be disguised as another handwritten dependency graph.
 
 TODO: dependency lock — define the portable lock surface and its scope. Local resolution state is useful implementation state, but it is not yet the final cross-machine lock contract.
 
-### 3.10 Platform and Distribution Intent
+### 3.6 Platform and Distribution Intent
 
-Project-specific platform metadata is written only when the generated result genuinely needs it. For example, an Android-capable application may add:
+Project-specific platform metadata is written only when the generated result genuinely needs it. At project level, an Android-capable application may add the following fragment:
 
 ```json
 {
@@ -761,31 +677,30 @@ Project-specific platform metadata is written only when the generated result gen
 
 Likewise, `install_assets` and `install_artifacts` describe distribution intent. They do not redefine the asset topology or invent dependencies between independently distributed artifacts.
 
-The manifest records the exception or selection that cannot be inferred; it does not copy fixed MANIFESTO policy back into every repository.
+The manifest records an exception or selection that cannot be inferred; it does not copy fixed MANIFESTO policy back into every repository.
 
 TODO: policy exceptions — define a sparse manifest form for genuine project-specific code-style exceptions only when concrete cases justify one; exceptions should describe deviations rather than restate defaults.
 
-### 3.11 Validation and Boundaries
+### 3.7 Validation and Boundaries
 
 Paths authored in `manifest.json` are project-relative and remain inside the selected project after normalization and filesystem resolution. `..`, unsafe aliases, and symlink tricks do not turn one project into the accidental owner of its neighbour.
 
 The manifest is validated as one project state, not as a collection of individually plausible fields. Project identity, artifact identities, ownership, entries, dependency references, package requirements, paths, and the resulting dependency graph must agree before the manifest is used as the basis of state-changing work.
 
-A valid `entry` inside an impossible dependency graph does not make the manifest valid.
+A valid `entry` inside an impossible dependency graph does not make the manifest valid. Validation therefore precedes materialization: an impossible request should fail while it is still only a request rather than after half of the intended world has already been created.
 
-Validation therefore precedes materialization. An impossible request should fail while it is still only a request rather than after half of the intended world has already been created.
+### 3.8 What Does Not Belong Here
 
-### 3.12 What Does Not Belong Here
-
-`manifest.json` does not contain generated file inventories, build directories, procedural CMake, machine-local SDK paths, caches, diagnostics, temporary counters, generated reports, or copies of fixed MANIFESTO defaults.
+`manifest.json` does not contain generated file inventories, build directories, procedural CMake, machine-local SDK paths, caches, diagnostics, temporary counters, generated reports, or copies of fixed MANIFESTO defaults. Obsolete authored models such as `component`, `modules`, or `file_units` do not return merely because they once existed.
 
 Generated surfaces remain derived from authored intent. They may be inspected and used, but they do not become independent authoring surfaces merely because text files are editable.
 
 The manifest describes **intent**. Everything that can be derived safely should be derived.
 
+
 ## 4. Marx and Engels
 
-MANIFESTO is kept in practice by `marx` and `engels`. They complement one another as two halves of the same system.
+A managed project is kept aligned with MANIFESTO by `marx` and `engels`. They complement one another as two halves of the same system.
 
 Friedrich Engels **studies** the project. Karl Marx **changes** it.
 
@@ -842,6 +757,8 @@ Karl Marx does not stop at interpreting the project.
 ### 4.3 Together
 
 Their ordinary cycle begins with Engels and ends with Engels.
+
+That cycle is ordinary, not mandatory. Either actor remains useful on his own. Engels may inspect a project that needs no change; Marx may carry out an already explicit developer intent that needs no new analysis.
 
 Friedrich Engels **examines** the existing state, exposes its structure, and, where useful, **proposes** one or more changes. The developer accepts, rejects, or adjusts the proposal. Karl Marx **validates** the selected transformation against the current project and **applies** it. Engels then **examines the result**.
 
