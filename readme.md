@@ -34,7 +34,7 @@ The tree does not require block-local operational README files. Runnable surface
 
 The `assets/` directory has been designed to serve as the project’s artifact layer. It is not intended for arbitrary files and must not be used as some rubbish dump: the contents of `assets/` are grouped by purpose through a fixed first-level directory layout.
 
-Within the project’s working environment, this directory is also treated as a source for copying or linking into `build/`, `.manifest/`, and other service environments; `assets/showcase/` is excluded from this rule, as it is oriented primarily toward documentation and project presentation.
+Within the project’s working environment, this directory is also treated as a source for copying or linking into `build/`, `.ecosystem/`, and other service environments; `assets/showcase/` is excluded from this rule, as it is oriented primarily toward documentation and project presentation.
 
 * The `assets/brand/` directory is intended for the project’s visual identity. The preferred format here is `svg`, since it preserves the possibility of meaningful manual editing while remaining readable as code. This directory is also the home of `favicon.ico`.
 
@@ -78,7 +78,7 @@ The files `.clang-tidy` and `.clang-format` form a related pair of auto-generate
 
 Both files are covered by `.gitignore` and are not committed, while remaining part of the generated project layout.
 
-When present, the `build/` and `.manifest/` directories form a related pair of local service workspaces at the project root and remain covered by `.gitignore`. Unlike blocks generated directly from fixed templates, these directories are shaped primarily by the actual execution of build and control flows.
+When present, the `build/` and `.ecosystem/` directories form a related pair of local service workspaces at the project root and remain covered by `.gitignore`. Unlike blocks generated directly from fixed templates, these directories are shaped primarily by the actual execution of build and control flows.
 
 They contain intermediate states, caches, debug and diagnostic output, generated artifacts, and other transient by-products as required by active workflows. Tooling surfaces used only for development, analysis, documentation, automation, or CI – including fuller build descriptions and generated documentation configuration – are materialized there when needed. Such files belong to the active environment rather than the meaningful source tree; the tooling that creates them defines their concrete ownership and entry paths.
 
@@ -152,7 +152,6 @@ The meaningful source tree is treated as a `referent-tree`: its terminal nodes a
 
 Directories express semantic grouping rather than file-count management. A flat heap of similarly named or prefixed files is undesirable for the same reason as an artificial chain of one-child directories: both increase navigation cost without clarifying responsibility.
 
-TODO: placement — reconsider whether the structural mathematics belongs closer to Tree and Blocks once `referent` and `module` can be introduced there without front-loading the document.
 
 ### 2.2 Structural Shape
 
@@ -401,70 +400,465 @@ A useful report preserves independent causes and the raw measurements behind the
 
 Policy precedes tooling. Incomplete automatic detection does not weaken a rule, and the existence of a checker does not define the rule.
 
-## 3. manifest.json
+## 3. `manifest.json`
 
-* TODO: source of truth — define the manifest as the compact editable description of project intent, while keeping generated mechanics, tool flags, procedural CMake, warning presets, and other implementation detail outside it.
+`manifest.json` is the compact authored description of project intent. It names the project, the real artifacts it is meant to produce, the source each artifact owns, the dependencies between those artifacts, and the artifact selected for the facade.
 
-* TODO: atomic model — identify the smallest stable atoms only after sections 0–2 and Marx/Engels semantics are settled; do not revive the old `component`, `modules`, or `file_units` model where the `referent` topology already determines structure.
+It does not keep a second inventory of information that can be derived safely from the source tree, and it does not record machine-local or generated state. JSON is a particularly miserable place to rewrite a repository by hand.
 
-* TODO: project identity — define the minimal project metadata and schema/version information that genuinely belongs in every manifest.
+A small manifest should remain small. Optional fields are written when they carry intent, not because an empty field looked lonely.
 
-* TODO: artifacts — describe intended build artifacts without reproducing a handwritten CMake target graph; distinguish internal artifact references from external project dependencies.
+### 3.1 Project Form
 
-* TODO: facade/MVP — record which project artifact supplies the visitor-facing `mvp` while keeping `mvp` itself a facade contract rather than the canonical identity of that artifact.
+The minimal project form is:
 
-* TODO: tests and benchmarks — express required support and intent, leaving concrete target emission and discovery of referent companions to generated tooling.
+```json
+{
+  "id": "project_name",
+  "description": "A short description of the project",
+  "facade": "core:lib",
+  "artifacts": [
+    {
+      "id": "core:lib",
+      "kind": "static_lib",
+      "root": "core",
+      "owns": ["math"]
+    }
+  ]
+}
+```
 
-* TODO: dependencies — model dependencies on other MANIFESTO-managed repositories as separate source projects that build and install independently, then enter the consumer through normal package/library semantics rather than a shared CMake target graph.
+The project fields are:
 
-* TODO: dependency resolution — separate update policy from resolved state: `manifest.json` describes the source/channel, while a lock surface records the exact resolved commit; decide the final name and scope of that lock surface.
+| Field | Meaning |
+| --- | --- |
+| `id` | Required stable project identifier in `snake_case`. |
+| `description` | Required short description of what the project is for. |
+| `facade` | Required identity of one real artifact that fulfils the visitor-facing facade contract. |
+| `artifacts` | Required non-empty array of artifact definitions. |
+| `version` | Optional project/package version. |
+| `cpp_standard` | Optional C++ standard when the shared default is not sufficient. |
+| `install_artifacts` | Optional additional artifact identities distributed alongside the facade. |
+| `install_assets` | Optional declaration that the project’s runtime asset tree is installed. |
+| `android_application_id` | Optional stable Android application identity. |
+| `android_package_source_dir` | Optional project-relative Android package/resource directory. |
 
-* TODO: dependency lifecycle — define when resolution/update occurs versus when an already resolved world is merely built, while preserving a single mutable local realization rather than a warehouse of version directories.
+The `facade` does not create another canonical artifact called `mvp`; it selects an existing artifact to fulfil the facade described in Section 1.
 
-* TODO: package scope — keep requirements local to the smallest artifact/referent closure that needs them rather than promoting every dependency to project-global state.
+Additional distribution does not imply dependency. For example:
 
-* TODO: paths and ownership — require manifest paths to remain project-relative and incapable of escaping the project ownership boundary.
+```json
+{
+  "id": "toolset",
+  "description": "Two complementary project tools",
+  "facade": "viewer:viewer",
+  "install_artifacts": ["worker:worker"],
+  "artifacts": [
+    {
+      "id": "viewer:viewer",
+      "kind": "exe",
+      "root": "core",
+      "owns": [],
+      "entry": "src/viewer_main.cpp"
+    },
+    {
+      "id": "worker:worker",
+      "kind": "exe",
+      "root": "core",
+      "owns": [],
+      "entry": "src/worker_main.cpp"
+    }
+  ]
+}
+```
 
-* TODO: code-style exceptions — allow sparse explicit exceptions such as macro naming conventions while keeping shared defaults implicit; exceptions should describe deviations, not restate defaults.
+Two executables do not become linked merely because they are shipped together.
 
-* TODO: assets — add manifest-level asset policy only where generated staging or selection actually requires project-specific intent; do not duplicate the fixed asset topology.
+### 3.2 Artifact Form
 
-* TODO: editable/generated boundary — state which tracked surfaces are derived from the manifest and which local surfaces are disposable environment state, without making generated implementation detail part of the manifest schema.
+An artifact has a stable identity of the form `namespace:artifact`, for example `core:lib`, `app:app`, or `tools:converter`. The namespace groups related artifacts; it does not create a dependency between them.
 
-* TODO: validation — require the complete manifest and its dependency/reference graph to validate before generation or other state-changing work begins.
+The ordinary artifact form is:
+
+```json
+{
+  "id": "core:lib",
+  "kind": "static_lib",
+  "root": "core",
+  "owns": ["parser"]
+}
+```
+
+Artifact fields are:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Required globally unique `namespace:artifact` identity. |
+| `kind` | Required artifact kind: `static_lib`, `shared_lib`, `interface_lib`, `exe`, or `qt_app`. |
+| `owns` | Required array of logical source scopes; it may be empty where the artifact owns only an entry point or represents an imported library. |
+| `root` | Project-relative source root in which ownership is interpreted; ordinary project artifacts normally use `core` or `app`. |
+| `entry` | Explicit entry-point source for `exe` and `qt_app`. |
+| `dependencies` | Artifact identities linked by this artifact. |
+| `packages` | Artifact-local external package and integration requirements. |
+| `tests` | Artifact-level test support. |
+| `benchmarks` | Artifact-level benchmark support. |
+| `name` | Optional output filename stem when it should differ from the artifact identity. |
+| `description` | Optional artifact-specific description. |
+| `qml` | Optional QML module description for a `qt_app`. |
+
+Artifact identities, generated build identities, and output names must remain unambiguous.
+
+### 3.3 Ownership and Discovery
+
+`owns` describes logical scopes, not a handwritten file list.
+
+With
+
+```json
+{
+  "id": "core:lib",
+  "kind": "static_lib",
+  "root": "core",
+  "owns": ["parser", "network/http"]
+}
+```
+
+the artifact owns those responsibilities beneath `core/` and their conventional companions under `include/`, `src/`, `tests/`, and `benchmarks/`. Discovery follows the referent and bunch structure defined in Section 2; missing companion forms are not invented or required.
+
+A scope may identify one referent, a subtree, or, when deliberately broad, one of the conventional source layers. Broad scopes are used only when broad ownership is actually intended.
+
+Ownership does not overlap. Two artifacts do not quietly claim the same code and wait for the linker to negotiate custody.
+
+Shared implementation belongs to a shared artifact and enters consumers through an explicit dependency. Physical proximity is not dependency.
+
+Adding another ordinary implementation, test, or benchmark companion should therefore not require appending another filename to `manifest.json`. The manifest retains ownership intent; the project supplies the file inventory.
+
+An `entry` is explicitly owned even when `owns` is empty:
+
+```json
+{
+  "id": "tools:inspect",
+  "kind": "exe",
+  "root": "core",
+  "owns": [],
+  "entry": "src/inspect.cpp"
+}
+```
+
+The entry file need not be called `main.cpp`.
+
+### 3.4 Libraries
+
+A reusable library is expressed directly:
+
+```json
+{
+  "id": "core:lib",
+  "kind": "static_lib",
+  "root": "core",
+  "owns": ["math", "parser"]
+}
+```
+
+A shared library changes its kind:
+
+```json
+{
+  "id": "core:lib",
+  "kind": "shared_lib",
+  "root": "core",
+  "owns": ["math", "parser"]
+}
+```
+
+A library whose implementation is intentionally header-only uses `interface_lib`:
+
+```json
+{
+  "id": "core:api",
+  "kind": "interface_lib",
+  "root": "core",
+  "owns": ["api"]
+}
+```
+
+A library artifact has no executable `entry`.
+
+### 3.5 Executables and Applications
+
+A runnable artifact has an explicit `entry`:
+
+```json
+{
+  "id": "app:app",
+  "kind": "exe",
+  "root": "app",
+  "owns": ["ui"],
+  "entry": "src/main.cpp"
+}
+```
+
+A project with a reusable core and an application declares the relationship rather than relying on directory proximity:
+
+```json
+{
+  "id": "numbers_app",
+  "description": "Application using the numeric library",
+  "facade": "app:app",
+  "artifacts": [
+    {
+      "id": "core:lib",
+      "kind": "static_lib",
+      "root": "core",
+      "owns": ["math"]
+    },
+    {
+      "id": "app:app",
+      "kind": "exe",
+      "root": "app",
+      "owns": ["ui"],
+      "entry": "src/main.cpp",
+      "dependencies": ["core:lib"]
+    }
+  ]
+}
+```
+
+The dependency points to a real library artifact. Sharing a source root or namespace is not enough.
+
+### 3.6 Packages
+
+Package requirements belong to the smallest artifact that needs them.
+
+A Qt Widgets application may declare:
+
+```json
+{
+  "id": "app:desktop",
+  "kind": "qt_app",
+  "root": "app",
+  "owns": ["window"],
+  "entry": "src/main.cpp",
+  "packages": {
+    "qt": ["Core", "Gui", "Widgets"]
+  }
+}
+```
+
+A package used only by `app:desktop` remains a requirement of `app:desktop`; it does not become project-global state merely because promoting it upward was convenient.
+
+The concrete vocabulary inside `packages` is defined by supported integrations. Unknown package configuration is rejected rather than silently converted into wishful thinking.
+
+### 3.7 Qt and QML
+
+Qt Widgets is the ordinary Qt application form. QML is optional and does not introduce another artifact kind.
+
+A QML-enabled application remains a `qt_app` and adds a `qml` block:
+
+```json
+{
+  "id": "app:desktop",
+  "kind": "qt_app",
+  "root": "app",
+  "owns": [],
+  "entry": "src/main.cpp",
+  "packages": {
+    "qt": ["Core", "Gui", "Qml", "Quick"]
+  },
+  "qml": {
+    "uri": "Example.Ui",
+    "version": "1.0",
+    "files": [
+      "qml/Main.qml",
+      "qml/screens/Home.qml"
+    ]
+  }
+}
+```
+
+Authored QML belongs under `app/qml/`. The `qml` block states module identity and QML ownership; its files are not repeated in `owns`. A Widgets-only application has no `qml` block and no QML requirements merely because support exists.
+
+The explicit QML file list is a deliberate exception to ordinary C++ scope discovery while module membership cannot yet be derived with equal confidence.
+
+TODO: QML ownership — reconsider whether explicit `qml.files` remains the right long-term ownership form once QML topology and module discovery are mature enough to derive safely.
+
+### 3.8 Tests and Benchmarks
+
+Ordinary tests and benchmarks belong to the artifact whose behaviour they exercise.
+
+For example:
+
+```json
+{
+  "id": "core:lib",
+  "kind": "static_lib",
+  "root": "core",
+  "owns": ["parser"],
+  "tests": {
+    "gtest": true
+  },
+  "benchmarks": {
+    "google_benchmark": true
+  }
+}
+```
+
+The manifest states the support and intent. The actual files remain in `tests/` and `benchmarks/` and are discovered through ownership; they are not copied into JSON as another inventory.
+
+A separately runnable test or benchmark may be its own artifact when it is genuinely independent rather than an ordinary companion of a referent.
+
+### 3.9 External MANIFESTO Projects
+
+Another MANIFESTO-managed repository remains another project. It is built and installed independently and enters the consumer through its exported library surface rather than by joining the consumer’s source tree or CMake graph.
+
+An imported provider library may be described as:
+
+```json
+{
+  "id": "packing:core",
+  "kind": "static_lib",
+  "owns": [],
+  "packages": {
+    "external_project": {
+      "repository": "https://github.com/example/packing.git",
+      "revision": "compatible-revision",
+      "package": "packing",
+      "artifact": "library:core"
+    }
+  }
+}
+```
+
+A local artifact then consumes that imported identity normally:
+
+```json
+{
+  "id": "app:app",
+  "kind": "exe",
+  "root": "app",
+  "owns": ["ui"],
+  "entry": "src/main.cpp",
+  "dependencies": ["packing:core"]
+}
+```
+
+The provider owns its own files. The consumer does not reproduce the provider’s scopes.
+
+`revision` expresses source-selection intent. Exact resolved state is a different concern and must not be disguised as another handwritten dependency graph.
+
+TODO: dependency lock — define the portable lock surface and its scope. Local resolution state is useful implementation state, but it is not yet the final cross-machine lock contract.
+
+### 3.10 Platform and Distribution Intent
+
+Project-specific platform metadata is written only when the generated result genuinely needs it. For example, an Android-capable application may add:
+
+```json
+{
+  "android_application_id": "org.example.application",
+  "android_package_source_dir": "app/android"
+}
+```
+
+Likewise, `install_assets` and `install_artifacts` describe distribution intent. They do not redefine the asset topology or invent dependencies between independently distributed artifacts.
+
+The manifest records the exception or selection that cannot be inferred; it does not copy fixed MANIFESTO policy back into every repository.
+
+TODO: policy exceptions — define a sparse manifest form for genuine project-specific code-style exceptions only when concrete cases justify one; exceptions should describe deviations rather than restate defaults.
+
+### 3.11 Validation and Boundaries
+
+Paths authored in `manifest.json` are project-relative and remain inside the selected project after normalization and filesystem resolution. `..`, unsafe aliases, and symlink tricks do not turn one project into the accidental owner of its neighbour.
+
+The manifest is validated as one project state, not as a collection of individually plausible fields. Project identity, artifact identities, ownership, entries, dependency references, package requirements, paths, and the resulting dependency graph must agree before the manifest is used as the basis of state-changing work.
+
+A valid `entry` inside an impossible dependency graph does not make the manifest valid.
+
+Validation therefore precedes materialization. An impossible request should fail while it is still only a request rather than after half of the intended world has already been created.
+
+### 3.12 What Does Not Belong Here
+
+`manifest.json` does not contain generated file inventories, build directories, procedural CMake, machine-local SDK paths, caches, diagnostics, temporary counters, generated reports, or copies of fixed MANIFESTO defaults.
+
+Generated surfaces remain derived from authored intent. They may be inspected and used, but they do not become independent authoring surfaces merely because text files are editable.
+
+The manifest describes **intent**. Everything that can be derived safely should be derived.
 
 ## 4. Marx and Engels
 
-* TODO: two actors only — remove MANIFESTO as a runtime actor; the project keeps the document/repository name, while the development interface is divided between Marx and Engels.
+MANIFESTO is kept in practice by `marx` and `engels`. They complement one another as two halves of the same system.
 
-* TODO: actor boundary — define actors by responsibility rather than by today’s exact command grammar: Marx owns state-changing/materializing flows; Engels owns read-only, diagnostic, interpretive, and reporting flows.
+Friedrich Engels **studies** the project. Karl Marx **changes** it.
 
-* TODO: facade of the MANIFESTO project — keep both Marx and Engels as real facade artifacts and decide whether the repository’s visitor-facing `mvp` should resolve to Engels as the more viewer-oriented surface.
+Engels **observes**, **measures**, **models**, **compares**, and **explains**. Marx **validates**, **materializes**, **transforms**, **builds**, and **runs**. Engels may conclude that the project ought to change; Marx may carry the chosen change through.
 
-* TODO: developer promise — Marx and Engels should hide generated artifact locations and service-workspace mechanics behind stable operations; developers should not need to discover and invoke generated internals manually.
+Neither half is complete on its own. Analysis without action leaves the project as it was. Action without analysis too easily becomes activity for its own sake.
 
-* TODO: help and manuals — every CLI actor should expose complete `--help` / `help` information, guide malformed commands toward the relevant help invocation, and provide a manual or man-page surface where appropriate.
+### 4.1 Engels
 
-* TODO: wrong actor guidance — a request made to the wrong actor should identify the owning actor instead of failing as an unrelated parse error.
+`engels` deals with the project **as it is**.
 
-* TODO: dependency diagnostics — missing or incompatible dependencies should be explained before heavy work where possible; installation hints may be offered without turning the project into a per-platform package-manager manual.
+He reads its structure and code, builds representations of them, collects measurements, and looks for relations between those observations. An individual fact may be simple; a conclusion drawn from several facts need not be.
 
-* TODO: resolution/materialization — assign ownership for dependency resolution, lock updates, local source checkout/build/install materialization, and ordinary builds without collapsing dependent projects into one build graph.
+Engels distinguishes between what the project **claims about itself**, what its structure **shows**, and what the code itself **does**. When these views agree, the evidence becomes stronger. When they disagree, the disagreement is itself worth reporting.
 
-* TODO: sync/materialization — define the operation that regenerates tracked derived surfaces and the operation(s) that materialize local developer-only surfaces; generated state remains derived rather than an authoring mode.
+Friedrich Engels need not reduce every file or branch to a single verdict. He may examine the tree as a whole: its `referent`s and `bunch`es, the distribution of implementation, tests and benchmarks, heavy branches, poorly attached files, concentrated code, and other properties that become meaningful only in relation to the surrounding structure.
 
-* TODO: mutation safety — model mutations through validated project state, reject impossible requests before side effects, avoid rewriting unrelated structure, and preserve the previous valid state when a state-changing operation fails where practical.
+An `engels check` may therefore report a concrete deviation without touching it, while an `engels report` may go further and place the same observation in a wider structural context. Read-only means that authored and tracked project state remains untouched; indexes, caches, reports, and other ignored analytical material may still be created when analysis requires them.
 
-* TODO: workspace validity — workspace-wide operations must not silently omit invalid managed projects; invalid state should remain visible and attributable.
+Engels does not merely **find faults**. He may **model alternatives**.
 
-* TODO: diagnostics — expose the section-2 warning categories, severity levels, raw measurements, merged findings, and filters without turning style diagnostics into build gates.
+Where the evidence supports more than one reasonable interpretation, he may present more than one. A large implementation may remain one `bunch`, be split internally, or justify a new `referent`. A misplaced test may have one obvious destination or several plausible ones. A tree may admit more than one defensible rebalance.
 
-* TODO: reports — keep a canonical machine-readable representation of diagnostics/reports, with human-readable terminal, CI, and Pages presentations derived from the same information.
+The purpose is not to manufacture certainty where none exists. Engels may rank alternatives, explain their consequences, and state the evidence behind them. Ambiguity remains ambiguity until enough evidence exists to remove it.
 
-* TODO: CI unity — local development checks and GitHub Actions must invoke the same project policy through Marx/Engels rather than maintain a parallel CI-only truth.
+When a change appears justified, Engels may **propose** it. He may suggest another home for a file, a split of an oversized implementation, a redistribution within a `bunch`, or a broader **rebalance** of the tree.
 
-* TODO: documentation/Pages — define how generated Doxygen, retained reports/showcase artifacts, and other public documentation are materialized for GitHub Pages without introducing a separate web-project topology into MANIFESTO-managed C++ repositories.
+A proposal does not hide its grounds. If Friedrich Engels proposes to restructure the project, the developer should be able to see both **why** he arrived at that proposal and **what** the proposed change would alter.
 
-* TODO: CI enforcement — distinguish non-blocking style diagnostics from genuinely failed tests/builds/required checks, and decide where advisory versus gating CI policy belongs.
+But Engels does not apply his own proposals.
 
-* TODO: public grammar — only after actor responsibilities stabilize, decide which command names, selectors, profiles, exit/error classes, and report filters are stable public contract and which remain implementation detail.
+His task is to **understand the conditions**.
+
+### 4.2 Marx
+
+`marx` deals with **changing** the project.
+
+Karl Marx materializes what is meant to exist, synchronizes derived surfaces, formats code, builds and runs artifacts, and applies chosen structural transformations. A `marx sync` may bring derived surfaces back into agreement with authored intent; a `marx build` may materialize the development world required to produce an artifact; a chosen structural plan belongs on Marx’s side of the boundary.
+
+Marx does not act blindly. Every transformation begins from a known state and aims at a known result. Before applying a structural plan, he **validates** that the project still matches the conditions under which that plan was formed.
+
+A proposal that was sound yesterday may be stale today. Files may have moved, declarations may have changed, dependencies may have shifted, and a once-valid rebalance may no longer describe the project in front of him. Marx does not force an obsolete plan onto a different state merely because the plan once existed.
+
+If the preconditions no longer hold, the transformation is not silently approximated into something else. It must be reconsidered.
+
+Where several reasonable outcomes remain, Karl Marx does not choose architecture on the developer’s behalf. Engels may expose the alternatives; the developer chooses among them; Marx **turns the chosen direction into a new project state**.
+
+If the transformation affects several related files or branches of the tree, those changes belong to one coherent operation rather than to a loose sequence of unrelated edits. Marx should know the intended resulting state before the first meaningful part of that state becomes authoritative, and preserve the previous valid state where practical if the transformation cannot be completed.
+
+A `marx mutate` may therefore apply a transformation that Engels proposed and the developer accepted. If a rebalance is chosen, Marx performs the rebalance. If an implementation split is chosen, Marx performs the split. If a move is approved, Marx moves the material and restores the surrounding structure to consistency.
+
+Karl Marx does not stop at interpreting the project.
+
+### 4.3 Together
+
+Their ordinary cycle begins with Engels and ends with Engels.
+
+Friedrich Engels **examines** the existing state, exposes its structure, and, where useful, **proposes** one or more changes. The developer accepts, rejects, or adjusts the proposal. Karl Marx **validates** the selected transformation against the current project and **applies** it. Engels then **examines the result**.
+
+The result is not assumed correct merely because Marx completed the operation. It becomes another project state and is subject to the same observation as the one before it.
+
+This separation matters most where no single mechanical answer exists. Decomposition, rebalance, referent boundaries, test placement, and similar structural decisions may admit several defensible outcomes. Engels may gather enough evidence to make one alternative clearly preferable, but preference is not ownership of the final choice.
+
+Engels therefore preserves the distinction between **evidence**, **interpretation**, and **proposal**.
+
+Marx preserves the distinction between **intent**, **validation**, and **change**.
+
+If a request plainly belongs to the other half, the actor should point to its counterpart rather than pretend the request is meaningless. The boundary should be visible to the developer without requiring a study of internal service machinery.
+
+Together they allow the project to evolve without confusing understanding with mutation.
+
+Friedrich Engels **reveals the contradictions** of the project.
+
+Karl Marx **turns a chosen resolution into its new material state**.
+
+TODO: public grammar — command names and selectors may be refined as the interface matures, but changes to grammar must preserve this actor boundary rather than quietly move responsibility from one half to the other.
