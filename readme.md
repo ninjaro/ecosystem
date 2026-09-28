@@ -12,19 +12,21 @@ This section fixes the structure of the project: from source code to artifact, p
 
 A project must have both structure and meaning. `manifest.json` defines its formal side and stores its meta-details. `readme.md` reveals its idea and soul and must not be reduced to a dry run guide.
 
-The `core/` and `app/` blocks contain the project’s source code. The presence of at least one of them is required. Both blocks use the same internal structure: `include/`, `src/`, `tests/`, and, where appropriate, `benchmarks/`. These directories form a consistent tree. If related files are present in more than one of them, they preserve the same relative path within the directory and follow a common naming pattern.
+The `core/` and `app/` blocks contain the project’s source code. The presence of at least one of them is required. Both blocks use the same internal structure: `include/`, `src/`, `tests/`, and, where appropriate, `benchmarks/`. These directories describe related views of the same source topology rather than four trees that must contain the same number of files. `include/` is the reference layer; the other layers mirror its paths and naming where the relationship is real and useful to a human reader. One declared responsibility may therefore have one implementation file or a whole bunch of them without becoming several responsibilities by bureaucratic magic.
 
-* `include/` defines the reference layer of this structure and contains primarily interface and template files.
+* `include/` defines the reference layer of this structure and contains declarations and interface material. Implementations do not belong here merely because C++ occasionally makes that inconvenient. Conventional include-side template implementations may be tolerated where the inclusion model is deliberately preferred, but they are not the preferred shape.
 
-* `src/` contains the block’s working source files, including implementation files and `entry-point` sources.
+* `src/` contains the block’s working implementation files, including template implementations and `entry-point` sources.
 
-* `tests/` contains test files. Independently observable behaviour declared in `include/` belongs under test.
+* `tests/` contains test files. Independently observable behaviour declared in `include/` belongs under test. A test is named and placed for the interface or behaviour it intends to validate, not for every dependency that happens to execute underneath it.
 
 * `benchmarks/` is an optional directory for benchmark files and is introduced only where performance measurements are actually justified.
 
-For files in `tests/` and `benchmarks/`, the same general principle is used: the base name is preserved, while the layer type is expressed by a suffix. The suffix for `tests/` is `_tests`; the suffix for `benchmarks/` is `_benchmarks`. If a test or benchmark `.cpp` grows too large, it may be split into logically grouped batches whose indices form a contiguous sequence beginning at `0` and ending no later than `9`. The index is omitted when no split is needed; a split test may therefore use names such as `foo_tests_0.cpp`, `foo_tests_1.cpp`, and `foo_tests_2.cpp`.
+For files in `tests/` and `benchmarks/`, the same general principle is used: the referent name remains recognizable, while the layer type is expressed by the `_tests` or `_benchmarks` suffix. Several files belonging to the same referent prefer meaningful `snake_case` qualifiers such as `foo_errors_tests.cpp` or `foo_recovery_tests.cpp`; numbered batches remain acceptable where the parts are deliberately homogeneous and a semantic name would only pretend to know more than it does.
 
 The distinction between `core/` and `app/` is semantic rather than structural. The `core/` block contains non-windowed project code. Code in `core/` may form a reusable library surface, including use outside the repository, while its `entry-point`s provide whatever runnable surface is appropriate to the project stage – for example a CLI, an executable example, diagnostics, or another compact interface. The `app/` block is intended for a windowed interface. Dependencies between these blocks are asymmetric: `app/` may depend on `core/`, whereas `core/` must remain independent of `app/`.
+
+Qt Widgets is the ordinary and preferred Qt application path. When QML is genuinely useful, authored QML belongs under `app/qml/` as an optional interface surface of the same application; it does not create another top-level source block, another application kind, or replace the `include/`, `src/`, `tests/`, and `benchmarks/` structure. A Widgets-only application has no reason to carry QML machinery merely because the ecosystem knows how to support it.
 
 The tree does not require block-local operational README files. Runnable surfaces expose usage through their own help or manual interface, while reusable APIs are documented from their declarations.
 
@@ -134,13 +136,17 @@ Local verification and GitHub-side automation apply the same project policy rath
 
 Style is not treated here as a cosmetic layer. It includes naming, source placement, decomposition, control flow, documentation, and the local shape of code because these choices determine how easily the project can be read, navigated, tested, and changed.
 
-The rules in this section define the clean state of project code. Violations produce diagnostics rather than build prohibitions. A diagnostic records a deviation from MANIFESTO; it never prescribes a mechanical remedy. File splitting, new directories, helper extraction, or new abstractions are justified only when they clarify responsibility, locality, or behaviour – never merely because they make one metric smaller.
+The rules in this section define the clean state of project code and the properties worth observing. They describe the model, not the implementation of a particular checker. A structurally ugly project may still compile perfectly well; compilers have never claimed to be literary critics. File splitting, new directories, helper extraction, or new abstractions are justified only when they clarify responsibility, locality, or behaviour – never merely because they make one metric smaller.
 
 ### 2.1 Referents and Modules
 
-The primary structural unit of the source tree is the `referent`: a header file under `include/` that defines a named entity or a coherent group of entities and serves as the point of reference for related files.
+The primary structural unit of the source tree is the `referent`: a project-owned declaration header under `include/` that defines a named entity or a coherent group of entities and serves as the point of reference for related files.
 
-Files in `src/`, companion `.tpp` files, tests in `tests/`, and benchmarks in `benchmarks/` are interpreted in relation to a `referent`. Within `core/` and `app/`, every project-owned C++ source unit is therefore a `referent`, a companion of a `referent`, or an `entry-point` containing `main()`.
+Files in `src/`, tests in `tests/`, and benchmarks in `benchmarks/` are interpreted in relation to a `referent`. Template implementations belong to the implementation side of that relation and normally live under `src/`. Within `core/` and `app/`, every project-owned C/C++ source unit is therefore a `referent`, a companion of a `referent`, or an `entry-point` containing `main()`.
+
+For a referent `r`, the files associated with it inside one non-reference layer form that layer’s `bunch` of `r`. A bunch may contain one file or many. Splitting an implementation, test, or benchmark file does not create another referent by itself. MANIFESTO is not Java with a linker attached: a new translation unit does not automatically deserve a new header and a ceremonial abstraction of its own.
+
+Mirroring is intended to be obvious rather than bijective. Related files preserve the referent’s complete `snake_case` stem as their natural naming prefix and follow the same relative path where that path still expresses the same responsibility. Paths are allowed to do useful work; a flat heap of ever-longer prefixes is not a substitute for structure. Common prefixes between nearby referents are normal when the concepts are genuinely related, but a developer should not need semantic archaeology merely to guess which interface a file belongs to.
 
 The meaningful source tree is treated as a `referent-tree`: its terminal nodes are `referent`s, while directories that organize them are `module`s. A directory qualifies as a `module` if and only if its subtree contains at least one descendant `referent`; a `module` may contain `referent`s directly, nested `module`s, or both. Subtrees that contain no `referent` are ignored when source structure is evaluated.
 
@@ -214,13 +220,60 @@ The local structural hint is
 L(v)=\frac{1}{2}I_R(v)+\frac{1}{3}D(v)+\frac{1}{6}W(v).
 ```
 
-The `3:2:1` weighting gives referent imbalance precedence over depth and width while keeping all three structural effects visible. `L(v)` is a diagnostic hint, not a normalized quality score. Tree-level reporting aggregates local hints without replacing the local causes they describe.
+The `3:2:1` weighting gives referent imbalance precedence over depth and width while keeping all three structural effects visible. `L(v)` is a structural model, not a normalized quality score and not a specification of one scanner algorithm. Implementations preserve the meaning and direction of the model; harmless rounding or extraction differences do not become philosophical crises over two lines or one file.
 
 ### 2.3 Volume and Navigation
 
 Tree shape cannot reveal an oversized terminal `referent`, so textual volume is measured independently from topology.
 
-For a source file `f`, let $P(f)$ denote its physical line count, including blank and comment-only lines, and let $S(f)$ denote its effective source line count, excluding them. $P(f)$ measures navigation span; $S(f)$ measures implementation concentration. Navigation and spatial orientation are comprehension costs rather than cosmetic concerns [ref-navigation] [ref-spatial-navigation].
+For a source file `f`, let $P(f)$ denote its physical line count, including blank and comment-only lines, and let $S(f)$ denote its effective source line count: lines containing source tokens, including preprocessor directives, while excluding blank and comment-only lines. Let $C_{\mathrm{comment}}(f)$ denote comment-only lines and $B_{\mathrm{blank}}(f)$ blank lines. A line containing code and an inline comment belongs to $S(f)$ rather than being counted twice. Thus
+
+```math
+P(f)=S(f)+C_{\mathrm{comment}}(f)+B_{\mathrm{blank}}(f).
+```
+
+$P(f)$ measures navigation span: comments and whitespace still occupy places a reader moves through. $S(f)$ measures code concentration. The additional counts remain useful observations even where no mature model yet turns them into a judgement. Comments and whitespace are not waste merely because subtraction is easy. Navigation and spatial orientation are comprehension costs rather than cosmetic concerns [ref-navigation] [ref-spatial-navigation].
+
+Modern editors can fold functions, comments, and other regions, so raw physical span is not a complete model of navigation cost. Folding reduces visible span without making the underlying structure disappear; outline or collapsed-span measurements are a legitimate research direction, but no such metric is fixed here.
+
+For a referent `r` and layer $`\ell\in\{\mathrm{src},\mathrm{tests},\mathrm{benchmarks}\}`$, let $`\mathcal{G}_\ell(r)`$ denote the layer’s bunch of files associated with `r`. Define
+
+```math
+K_\ell(r)=|\mathcal{G}_\ell(r)|,
+```
+
+and
+
+```math
+P_\ell(r)=\sum_{f\in\mathcal{G}_\ell(r)}P(f), \qquad
+S_\ell(r)=\sum_{f\in\mathcal{G}_\ell(r)}S(f).
+```
+
+The same aggregation may be retained for comment-only and blank lines. File count and total volume answer different questions: one referent implemented by eight small files is not the same shape as one implemented by a single file of the same total size.
+
+When $S_\ell(r)>0$, define the effective-source share of a file
+
+```math
+w_f=\frac{S(f)}{S_\ell(r)}.
+```
+
+The within-bunch entropy and effective file count are
+
+```math
+H_\ell(r)=-\sum_{f\in\mathcal{G}_\ell(r)} w_f\ln w_f,
+\qquad
+K^{\mathrm{eff}}_\ell(r)=e^{H_\ell(r)}.
+```
+
+with the usual convention $0\ln 0=0$.
+
+The largest-file share is
+
+```math
+\Delta_\ell(r)=\max_{f\in\mathcal{G}_\ell(r)} w_f.
+```
+
+$K_\ell(r)$ measures literal fragmentation, $K^{\mathrm{eff}}_\ell(r)$ measures how many materially substantial files the bunch behaves as if it had, and $\Delta_\ell(r)$ makes single-file dominance visible. These are observations and mathematical models, not an instruction to split or merge files. Effective-number interpretations of entropy provide the mathematical basis for this distinction [ref-hill-effective-count].
 
 For a `referent` $r$, let $`\mathcal{P}(r)`$ denote its production files: its header and production companions, excluding tests and benchmarks. Define
 
@@ -256,45 +309,17 @@ with the usual convention $0\log 0=0$.
 
 `I_R(v)` and `I_S(v)` remain independent. The first measures imbalance in the distribution of named responsibilities; the second measures implementation-volume concentration even when referent counts are balanced. Architectural analyzability work similarly separates decomposition from distribution of implementation volume [ref-analyzability].
 
-File-size bounds are derived from representative C++ corpora rather than a universal average because source-file size distributions are strongly skewed. `core/` and `app/` use separate reference corpora so framework-heavy application code is not judged by the distribution of non-windowed code [ref-file-size] [ref-metric-thresholds].
+File and bunch volume are better understood through ranges than through one universal magic cutoff. Source-file size distributions are strongly skewed, and different roles such as headers, implementation, tests, benchmarks, `core/`, and `app/` need not share the same useful ranges [ref-file-size] [ref-metric-thresholds]. Concrete boundaries, severity classes, corpus selection, and the combination of several measurements are calibration choices for tooling rather than constants of this model. Independent measurements remain visible even if a later heuristic combines them [ref-metric-combination].
 
-Let
+Generated and service material is excluded from these source-structure measurements: the model describes authored project code, not the scaffolding produced to inspect or build it.
 
-```math
-b(f)\in\{\mathrm{core},\mathrm{app}\}, \qquad k(f)\in\{\mathrm{header},\mathrm{source}\}.
-```
-
-identify the source block and file role. For a representative benchmark corpus $`\mathcal{B}`$, warning bounds are expressed by quantiles:
-
-```math
-T^{P}_{b,k}(q)=Q_q(\{P(f)\mid f\in\mathcal{B}_{b,k}\}),
-```
-
-and
-
-```math
-T^{S}_{b,k}(q)=Q_q(\{S(f)\mid f\in\mathcal{B}_{b,k}\}).
-```
-
-Ordinary and stronger warnings use distinct quantiles. Separate corpora give `app/` its own reference distribution rather than an arbitrary multiplier.
-
-TODO: file-volume bounds — choose the ordinary and strong warning quantiles; define corpus construction so one large project cannot dominate by file count; maintain separate `core/`, Qt-oriented `app/`, and other relevant C++ reference corpora.
+TODO: file-volume bounds — calibrate useful role-specific ranges and corpus construction for files and bunches without promoting one current threshold or severity scheme into permanent MANIFESTO law.
 
 ### 2.4 Functions and Complexity
 
 Function span, control-flow complexity, and nesting describe different reading costs and remain independently visible.
 
-For a function `g`, let `P(g)` denote the physical line span of its definition. The soft span target is
-
-```math
-T_P^{\mathrm{function}}=60,
-```
-
-using the C++ Core Guidelines’ practical one-editor-screen bound as the reference [ref-cpp-guidelines]. The corresponding relative excess is
-
-```math
-F_P(g)=E(P(g),60).
-```
+For a function `g`, let $P(g)$ denote the physical line span of its definition.
 
 Cyclomatic complexity follows McCabe. For a control-flow graph `G` with `e` edges, `n` nodes, and `p` connected components,
 
@@ -308,93 +333,47 @@ For the connected control-flow graph of one function,
 \mu(g)=e_g-n_g+2.
 ```
 
-The soft complexity target is
+Let $N(g)$ denote the maximum nested control-flow depth of `g`. A long linear function, a short branch-heavy function, and a deeply nested function are different reading problems; none should disappear merely because another metric happens to look comfortable. Combinations of distinct metrics are more informative than one measurement alone [ref-mccabe] [ref-cpp-guidelines] [ref-metric-combination].
 
-```math
-T_\mu^{\mathrm{function}}=10,
-```
+Useful ranges for $P(g)$, $\mu(g)$, and $N(g)$ are calibration questions rather than fixed universal numbers. The mathematical quantities belong here; exact boundaries and severity mapping may evolve with evidence. Cognitive-complexity style models are a related research direction, but no additional complexity formula is fixed here.
 
-and
-
-```math
-F_\mu(g)=E(\mu(g),10).
-```
-
-These diagnostics remain separate: a long linear function and a short branch-heavy function are different problems. Findings on the same entity are presented together without collapsing their causes into a single verdict; combinations of distinct metrics are more informative than one measurement alone [ref-mccabe] [ref-cpp-guidelines] [ref-metric-combination].
-
-TODO: function nesting — define $N(g)$ as maximum control-flow nesting depth, select a C++-appropriate warning target, and test whether it adds useful signal beyond cyclomatic complexity rather than merely duplicating it.
+TODO: function nesting — validate whether $N(g)$ adds useful signal beyond cyclomatic complexity rather than merely duplicating it, and calibrate its useful ranges together with the other function measurements.
 
 ### 2.5 Naming
 
-Project-owned file and directory names remain `snake_case`. Ordinary project-owned C++ identifiers use `snake_case`; leading or trailing underscores and scope prefixes such as `m_` produce naming diagnostics rather than define a second naming system. External declarations owned by dependencies are outside this policy.
+Project-owned file and directory names remain `snake_case`. Ordinary project-owned C++ identifiers use `snake_case`; leading or trailing underscores and scope prefixes such as `m_` remain undesirable rather than defining a second naming system. External declarations owned by dependencies are outside this policy.
 
-Names are concise as well as meaningful. The checker does not reward verbosity and imposes no minimum word count: conventional short names such as `lhs`, `rhs`, `id`, `x`, or `y` are not expanded for style machinery, and no natural-language corpus is used to judge whether a short name is descriptive enough.
+Names are concise as well as meaningful. MANIFESTO does not reward verbosity and imposes no minimum word count: conventional short names such as `lhs`, `rhs`, `id`, `x`, or `y` are not expanded for style machinery, and no natural-language corpus is needed to decide that a coordinate called `x` is not suffering from insufficient prose.
 
-For a `snake_case` identifier $n$, let $W(n)$ denote the number of underscore-separated segments and $C(n)$ its character count.
+For a `snake_case` identifier $n$, let $W(n)$ denote the number of underscore-separated segments and $C(n)$ its character count. Together they describe naming verbosity without pretending to measure meaning. Test names naturally encode the subject together with scenario or expectation and may therefore occupy a broader useful range than ordinary identifiers [ref-identifiers] [ref-identifier-guidelines].
 
-For ordinary project identifiers, the upper warning bounds are
+Concrete verbosity ranges are calibration rather than vocabulary and need not be frozen into MANIFESTO.
 
-```math
-W(n)>4, \qquad C(n)>25.
-```
-
-These bounds define mechanical limits on naming verbosity and are supported by identifier-naming research [ref-identifiers] [ref-identifier-guidelines]. Test names naturally encode the subject together with scenario or expectation, so their word-count bound is
-
-```math
-W_{\mathrm{test}}(n)>7.
-```
-
-No lower word or character bound is defined, and the checker does not infer identifier meaning from natural language.
-
-TODO: naming exceptions — calibrate the test-name character bound; decide the sparse exception model for code symbols such as macros and generated include guards; keep file and directory naming independent of those code-level exceptions.
+TODO: naming exceptions — decide the sparse exception model for code symbols such as macros and generated include guards; keep file and directory naming independent of those code-level exceptions.
 
 ### 2.6 Locality and Namespaces
 
 Ordinary project logic has explicit ownership in the `referent` structure and does not accumulate as hidden translation-unit-local mass. A useful helper may belong to an existing referent and does not require its own file or abstraction, but substantial named behaviour has an explicit declaration and a deliberate place in the source tree.
 
-Every anonymous namespace produces one locality diagnostic. For an anonymous namespace `u`, the checker reports
+Anonymous namespaces work against that preference by hiding ownership inside a translation unit. Their declaration count and effective line count are useful measurements because a tiny local helper and a private miniature subsystem are not the same structural event. LLVM documents the same locality-of-reference problem: a reader may need to search far above a declaration to discover that it is hidden inside an anonymous namespace [ref-llvm-style].
 
-```math
-A_{\mathrm{anon}}(u)=1,
-```
-
-along with its declaration count and effective line count instead of emitting a separate warning for every declaration inside it. LLVM documents the same locality-of-reference problem: a reader may need to search far above a declaration to discover that it is hidden inside an anonymous namespace [ref-llvm-style].
-
-The diagnostic is non-blocking, but a diagnostically clean project stage contains no anonymous namespaces. Any anonymous namespace is diagnostic debt rather than a second accepted storage model for project logic.
+A diagnostically clean project stage contains no anonymous namespaces. An anonymous namespace is diagnostic debt rather than a second accepted storage model for project logic.
 
 ### 2.7 Control Flow and Lambdas
 
-All control-flow bodies use braces, including single-statement bodies. Missing braces produce a style diagnostic; the goal is stable syntactic shape under later edits rather than compactness for its own sake [ref-cert-braces].
+All control-flow bodies use braces, including single-statement bodies. The goal is stable syntactic shape under later edits rather than compactness for its own sake [ref-cert-braces].
 
-Lambdas are held to tighter limits than ordinary named functions because their main value is short, local behaviour. For a lambda `l`, reuse its physical span `P(l)` and cyclomatic complexity $`\mu(l)`$, and let $N(l)$ denote maximum nested control-flow depth inside the lambda body.
+Lambdas are held to tighter expectations than ordinary named functions because their main value is short, local behaviour. For a lambda `l`, reuse its physical span `P(l)` and cyclomatic complexity $`\mu(l)`$, and let $N(l)$ denote maximum nested control-flow depth inside the lambda body.
 
-The warning targets are
-
-```math
-T_P^{\lambda}=5,\qquad T_\mu^{\lambda}=2,\qquad T_N^{\lambda}=1.
-```
-
-A threshold excess yields the corresponding lambda diagnostic; several excesses are presented together as unnamed behavioural complexity. The span target follows the small-function range in the C++ Core Guidelines, while the stricter complexity and nesting limits keep unnamed behaviour simpler than named functions [ref-cpp-guidelines].
+These measurements remain separate. An unnamed block that is long, branch-heavy, or deeply nested is expensive for different reasons, and useful ranges for lambdas should remain tighter than for ordinary named functions without pretending that one permanent set of integer cutoffs fits every codebase [ref-cpp-guidelines].
 
 ### 2.8 Conditional Compilation
 
 Platform, backend, provider, and environment differences are expressed structurally rather than scattered through shared source files as deep conditional-compilation trees. Compact local conditional branches remain acceptable where introducing a separate abstraction would reduce locality and clarity.
 
-For a source file `f`, let $`N_{\mathrm{pp}}(f)`$ denote the maximum nesting depth of preprocessor conditionals.
+For a source file `f`, let $`N_{\mathrm{pp}}(f)`$ denote the maximum nesting depth of preprocessor conditionals. Increasing depth increases the amount of mutually conditional structure a reader must keep in mind. Developer studies of the C preprocessor report broad discomfort with deeper nesting and comprehension problems around conditional-compilation structure [ref-preprocessor]. The measurement constrains the shape worth watching, not the refactoring strategy; an abstraction introduced only to improve a number can still be a worse structural result.
 
-The warning model is
-
-```math
-N_{\mathrm{pp}}(f)>2
-```
-
-for an ordinary warning and
-
-```math
-N_{\mathrm{pp}}(f)>3
-```
-
-for a stronger warning. Developer studies of the C preprocessor report broad discomfort with deeper nesting and comprehension problems around conditional-compilation structure [ref-preprocessor]. These diagnostics constrain nesting, not the refactoring strategy; an abstraction introduced only to silence the checker is itself a worse structural result.
+Concrete range boundaries belong to calibration rather than to the definition of $N_{\mathrm{pp}}(f)$.
 
 ### 2.9 Documentation
 
@@ -410,15 +389,15 @@ TODO: text hygiene — reconsider the older ASCII-only source/Markdown and Engli
 
 ### 2.10 Diagnostic Cleanliness
 
-Let $`\mathcal{W}(P)`$ denote the active set of style and structural diagnostics for a project snapshot $P$, and let
+Let $`\mathcal{W}(P)`$ denote the active set of style and structural deviations reported for a project snapshot $P$, and let
 
 ```math
 N(P)=|\mathcal{W}(P)|.
 ```
 
-A project stage with $N(P)=0$ is `diagnostically clean`. Every active diagnostic is diagnostic debt. Diagnostics do not block building, running, or releasing the project; they state exactly where the current project snapshot deviates from MANIFESTO.
+A project stage with $N(P)=0$ is `diagnostically clean`. Every active deviation is diagnostic debt. Diagnostic cleanliness is orthogonal to compilability: a project may produce a perfectly real artifact while still carrying structural debt.
 
-Warnings differ in category and severity, but severity describes the strength or degree of the deviation rather than changing it into a build prohibition. Reports preserve independent causes, merge related findings on the same entity when that improves explanation, and remain filterable by category and severity. A diagnostic explains what is wrong, where it is wrong, and which measurements produced that conclusion; the bibliography supports the policy rather than replacing the explanation.
+A useful report preserves independent causes and the raw measurements behind them instead of collapsing everything into one mystical quality number. The exact vocabulary of severities, calibrated ranges, exit statuses, and CI gates belongs to the concrete tooling policy rather than to this mathematical and structural model.
 
 Policy precedes tooling. Incomplete automatic detection does not weaken a rule, and the existence of a checker does not define the rule.
 
