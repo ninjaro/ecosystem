@@ -17,7 +17,6 @@ struct source_dependency {
 };
 
 std::optional<source_dependency> source_dependency_for(const component& value);
-std::string source_dependency_override(const source_dependency& value);
 
 // Build and install independent providers before configuring the consumer.
 // The returned options identify installed CMake packages, never build

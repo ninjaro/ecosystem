@@ -8,22 +8,29 @@ void test_ci_verification_evidence_contract() {
     const auto files = ecosystem::generate_tracked_surface_files(
         sample_manifest(), root.path()
     );
-    const auto* script = find_tracked_surface_file(
-        files, ".github/actions/select-manifesto-ci/evidence.cjs"
-    );
-    require_true(script != nullptr, "evidence adapter must be generated");
-    const auto destination = root.path() / "evidence.cjs";
-    write_text(destination, script->contents);
-    for (const auto* fixture : { "ci_evidence_cases.cjs", "ci_publication_cases.cjs" }) {
+    for (const auto& [adapter, fixture] :
+         std::vector<std::pair<std::string, std::string>> {
+             { "changes.cjs", "ci_change_cases.cjs" },
+             { "changes.cjs", "ci_change_policy_cases.cjs" },
+             { "changes.cjs", "ci_changed_format_cases.cjs" },
+             { "evidence.cjs", "ci_evidence_cases.cjs" },
+             { "evidence.cjs", "ci_publication_cases.cjs" } }) {
+        const auto* script = find_tracked_surface_file(
+            files, ".github/actions/select-manifesto-ci/" + adapter
+        );
+        require_true(script != nullptr, "CI adapter must be generated");
+        const auto destination = root.path() / adapter;
+        write_text(destination, script->contents);
         const auto result = ecosystem::capture_command_result(
             { "node",
-              (fs::path(ECOS_TEST_SOURCE_DIR) / "core/tests/suite" / fixture).string(),
-              destination.string() },
+              (fs::path(ECOS_TEST_SOURCE_DIR) / "core/tests/suite" / fixture)
+                  .string(),
+              destination.string(), engels_binary_path().string() },
             root.path()
         );
         require_true(
             result.exit_code == 0,
-            "GitHub evidence regressions require Node and must pass:\n"
+            "GitHub transport regressions require Node and must pass:\n"
                 + result.output
         );
     }
@@ -43,6 +50,27 @@ void test_ci_event_selection_and_full_verification() {
         = find_tracked_surface_file(files, ".github/workflows/codeql.yml");
     require_true(
         action && checks && codeql, "all CI selection consumers exist"
+    );
+    for (const auto* workflow : { checks, codeql }) {
+        require_contains(
+            workflow->contents, "fetch-depth: 0\n      - id: selection",
+            "change resolution requires history before selection"
+        );
+        require_contains(
+            workflow->contents,
+            "changes: ${{ steps.selection.outputs.changes }}",
+            "later jobs must receive the same structured event delta"
+        );
+        require_contains(
+            workflow->contents,
+            "path: ${{ steps.selection.outputs.changes-file }}",
+            "change resolution must remain inspectable as an artifact"
+        );
+    }
+    require_contains(
+        action->contents,
+        "require(process.env.CHANGES_MODULE).collect({context, core});",
+        "selection must collect event changes without duplicating local policy"
     );
     const auto selection = root.path() / "select.sh";
     const auto outputs = root.path() / "outputs";
@@ -345,7 +373,8 @@ void test_ci_stage_reports_intermediate_and_pipeline_failures() {
                 "CodeQL must cover arbitrary manifest-owned source directories"
             );
             require_contains(
-                workflow->contents, "uses: ./.github/actions/select-manifesto-ci",
+                workflow->contents,
+                "uses: ./.github/actions/select-manifesto-ci",
                 "CodeQL must share event selection with required checks"
             );
         }
@@ -676,8 +705,11 @@ void test_ci_pages_requires_complete_current_results() {
         "evidence selection must precede documentation rendering"
     );
     require_contains(
-        content, "workflow_run:\n    workflows: [Checks, CodeQL]\n    types: [completed]",
-        "either verification workflow can complete the publication prerequisites"
+        content,
+        "workflow_run:\n    workflows: [Checks, CodeQL]\n    types: "
+        "[completed]",
+        "either verification workflow can complete the publication "
+        "prerequisites"
     );
     require_contains(
         content, "github.event.workflow_run.head_sha == github.sha",
@@ -685,29 +717,37 @@ void test_ci_pages_requires_complete_current_results() {
     );
     require_contains(
         content, "ref: ${{ github.sha }}\n          persist-credentials: false",
-        "build must pin trusted workflow context and avoid persisting credentials"
+        "build must pin trusted workflow context and avoid persisting "
+        "credentials"
     );
     require_contains(
         content, "ref: ${{ needs.build.outputs.commit }}",
         "deployment must revalidate the exact site revision"
     );
     require_contains(
-        content, "group: pages-deploy-${{ github.workflow }}\n      cancel-in-progress: false",
-        "only ready deployment jobs serialize; unrelated completions cannot cancel them"
+        content,
+        "group: pages-deploy-${{ github.workflow }}\n      cancel-in-progress: "
+        "false",
+        "only ready deployment jobs serialize; unrelated completions cannot "
+        "cancel them"
     );
     require_true(
-        content.find("Revalidate deployment source") < content.find("uses: actions/configure-pages"),
+        content.find("Revalidate deployment source")
+            < content.find("uses: actions/configure-pages"),
         "source validation must precede the deployment action"
     );
     require_true(
-        content.find("Confirm current publication revision") > content.find("Upload Pages artifact"),
+        content.find("Confirm current publication revision")
+            > content.find("Upload Pages artifact"),
         "a branch advance during upload must block deployment scheduling"
     );
     require_contains(
         content,
-        "- name: Run coverage when supported\n        if: ${{ github.event_name == "
+        "- name: Run coverage when supported\n        if: ${{ "
+        "github.event_name == "
         "'workflow_dispatch' && steps.repository.outputs.status == 'passed' }}",
-        "automatic publication must use selected coverage without repeating its test run"
+        "automatic publication must use selected coverage without repeating "
+        "its test run"
     );
     require_contains(
         content,
@@ -766,12 +806,15 @@ void test_ci_pages_requires_complete_current_results() {
         required.push_back(reports / stage / "summary.md");
         required.push_back(reports / stage / "output.log");
     }
-    const auto coverage = root.path() / ".ecosystem/github/presentation/reports/coverage.json";
+    const auto coverage
+        = root.path() / ".ecosystem/github/presentation/reports/coverage.json";
     const auto site = root.path() / ".ecosystem/sphinx/html/index.html";
     required.push_back(
         root.path() / ".ecosystem/sphinx/html/_manifesto/index.html"
     );
-    required.push_back(root.path() / ".ecosystem/github/presentation/receipt.json");
+    required.push_back(
+        root.path() / ".ecosystem/github/presentation/receipt.json"
+    );
     required.push_back(coverage);
     required.push_back(site);
     for (const auto& file : required)
@@ -839,26 +882,35 @@ void test_ci_pages_requires_complete_current_results() {
     fs::remove_all(reports / "02-coverage-check");
     require_true(
         run_gate(automatic, "workflow_run").exit_code == 0,
-        "automatic publication uses validated remote evidence without local coverage"
+        "automatic publication uses validated remote evidence without local "
+        "coverage"
     );
     for (const auto index : { 10U, 11U }) {
-        for (const auto* value : { "", "false", "failure", "skipped", "cancelled" }) {
+        for (const auto* value :
+             { "", "false", "failure", "skipped", "cancelled" }) {
             auto invalid = automatic;
             invalid[index].second = value;
             require_true(
                 run_gate(invalid, "workflow_run").exit_code != 0,
-                "missing automatic evidence or revalidation must block publication"
+                "missing automatic evidence or revalidation must block "
+                "publication"
             );
         }
     }
     fs::remove(coverage);
-    require_true(run_gate(automatic, "workflow_run").exit_code != 0,
-        "successful remote coverage still requires its selected report");
+    require_true(
+        run_gate(automatic, "workflow_run").exit_code != 0,
+        "successful remote coverage still requires its selected report"
+    );
     automatic[4].second = "skipped";
-    require_true(run_gate(automatic, "workflow_run").exit_code == 0,
-        "explicit unsupported remote coverage may publish");
-    require_true(run_gate(automatic, "push").exit_code != 0,
-        "ordinary push events cannot bypass workflow completion selection");
+    require_true(
+        run_gate(automatic, "workflow_run").exit_code == 0,
+        "explicit unsupported remote coverage may publish"
+    );
+    require_true(
+        run_gate(automatic, "push").exit_code != 0,
+        "ordinary push events cannot bypass workflow completion selection"
+    );
 }
 
 void test_github_bootstrap_vars_validate_explicit_selection() {
@@ -1488,7 +1540,8 @@ void test_cli_check_ci_keeps_optional_features_out_of_required_checks() {
         "an explicitly requested dormant operation must propagate tool failure"
     );
     require_contains(
-        result.output, "sphinx-build is unavailable", "explicit failure must name Sphinx"
+        result.output, "sphinx-build is unavailable",
+        "explicit failure must name Sphinx"
     );
     require_contains(
         result.output, "optional tool deliberately unavailable",

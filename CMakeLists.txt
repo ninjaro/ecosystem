@@ -129,6 +129,7 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/packages/package_surface_render.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/packages/package_surface_rule.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/benchmark.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/changes.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/doctor.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/doxygen.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/groups.hpp
@@ -172,6 +173,7 @@ set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_render.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_rule.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/changes.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doctor.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doxygen.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/groups.cpp
@@ -213,6 +215,7 @@ set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_render.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_rule.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/changes.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doctor.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doxygen.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/groups.cpp

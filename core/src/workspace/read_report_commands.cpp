@@ -2,6 +2,7 @@
 
 #include "analysis/personal.hpp"
 #include "command_internal.hpp"
+#include "workspace/changes.hpp"
 
 #include <optional>
 #include <string>
@@ -133,12 +134,18 @@ command_error run_report(
         );
         return command_error::invalid_request;
     }
-    if (kind == "toolchains" && requested_artifact) {
+    if ((kind == "toolchains" || kind == "changes") && requested_artifact) {
         print_error(
             err, command_error::invalid_request,
-            "toolchains report does not support artifact filters"
+            kind + " report does not support artifact filters"
         );
         return command_error::invalid_request;
+    }
+    if (kind == "changes") {
+        // Optional local inspection of shared change policy; it does not
+        // configure or build the project.
+        out << change_report(project_root, manifest_value).dump(2) << "\n";
+        return command_error::ok;
     }
     ensure_local_artifacts(project_root, false, false);
 
@@ -185,6 +192,13 @@ command_error run_workspace_report(
     const workspace_scope& scope, std::ostream& out, std::ostream& err,
     const bool json_output
 ) {
+    if (kind == "changes") {
+        print_error(
+            err, command_error::invalid_request,
+            "changes report requires a project root and its event record"
+        );
+        return command_error::invalid_request;
+    }
     if (!contains_string(known_report_kinds, kind)) {
         print_error(
             err, command_error::invalid_request,

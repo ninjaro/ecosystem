@@ -32,6 +32,7 @@ struct benchmark_request {
 struct check_request {
     args_list scope_args;
     std::optional<std::string> sphinx_theme;
+    bool changed_files = false;
 };
 
 struct prerelease_request {

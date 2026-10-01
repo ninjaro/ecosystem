@@ -938,10 +938,7 @@ string_list validate_manifest(const manifest& value) {
             continue;
         const auto identity
             = format_artifact_ref({ owner.id, owner.artifacts.front().id });
-        auto claims = ownership_candidates(owner);
-        if (!owner.ownership->entry.empty())
-            claims.push_back((fs::path(owner.root) / owner.ownership->entry)
-                                 .lexically_normal());
+        const auto claims = owned_path_candidates(owner);
         for (const auto& claim : claims) {
             for (const auto& [prior, other] : ownership_claims) {
                 if (identity != other
@@ -1135,10 +1132,7 @@ discover_owned_files(manifest* value, const fs::path& project_root) {
             continue;
         const auto identity
             = format_artifact_ref({ owner.id, owner.artifacts.front().id });
-        auto candidates = ownership_candidates(owner);
-        if (!owner.ownership->entry.empty())
-            candidates.push_back((fs::path(owner.root) / owner.ownership->entry)
-                                     .lexically_normal());
+        const auto candidates = owned_path_candidates(owner);
         auto path_errors = validate_project_paths(base, candidates);
         errors.insert(errors.end(), path_errors.begin(), path_errors.end());
         if (!path_errors.empty())
@@ -1294,6 +1288,17 @@ discover_owned_files(manifest* value, const fs::path& project_root) {
             std::sort(paths->begin(), paths->end());
     }
     return errors;
+}
+
+std::vector<fs::path> owned_path_candidates(const component& owner) {
+    if (!owner.ownership)
+        return {};
+    auto result = manifest_support::ownership_candidates(owner);
+    if (!owner.ownership->entry.empty())
+        result.push_back(
+            (fs::path(owner.root) / owner.ownership->entry).lexically_normal()
+        );
+    return result;
 }
 
 json to_json(const manifest& value) {

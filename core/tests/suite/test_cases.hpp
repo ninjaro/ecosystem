@@ -4,6 +4,8 @@
 
 namespace ecosystem_test_support {
 
+void test_android_source_facade(const std::filesystem::path& ndk);
+
 // Analysis.
 void test_cli_check_naming_reports_identifier_overflow_and_honors_allowlist();
 void test_personal_naming_uses_declarations_and_exact_policy_boundaries();
@@ -236,7 +238,16 @@ void test_cli_workspace_personal_reports_keep_all_selected_results();
 
 // Source dependencies.
 void test_external_project_generates_imported_library();
+void test_source_facade_outer_preserves_installed_consumer();
+void test_source_facade_outer_delegates_library_install();
+void test_source_facade_pins_revisions_and_rejects_stale_packages();
+void test_source_facade_preserves_shared_and_interface_contracts();
+void test_source_facade_reports_provider_failures();
+void test_real_facade_packages(const std::filesystem::path& prefix);
 void test_source_dependency_local_override_builds_and_installs_before_consumer();
+void test_source_local_map_selects_mutable_checkouts_and_preserves_facade();
+void test_source_local_map_rejects_invalid_configuration();
+void test_source_local_map_applies_to_recursive_providers();
 void test_source_dependency_repository_selection_is_stable_and_explicit();
 void test_source_dependency_consumer_exports_are_relocatable();
 void test_source_dependency_shared_and_interface_usage_requirements();

@@ -654,10 +654,11 @@ command_error run_check_tidy(
 command_error run_check_format(
     const fs::path& project_root, const manifest& manifest_value,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
-    std::ostream& err
+    std::ostream& err, const bool changed_files = false
 ) {
     return run_format_files(
-        project_root, manifest_value, requested_artifact, false, out, err
+        project_root, manifest_value, requested_artifact, false, out, err,
+        changed_files
     );
 }
 
@@ -890,8 +891,15 @@ command_error run_check(
     const std::string& profile,
     const std::optional<artifact_ref>& requested_artifact,
     const std::optional<std::string>& sphinx_theme, std::ostream& out,
-    std::ostream& err
+    std::ostream& err, const bool changed_files = false
 ) {
+    if (changed_files && (profile != "format" || requested_artifact)) {
+        print_error(
+            err, command_error::invalid_request,
+            "--changes requires check format without an artifact filter"
+        );
+        return command_error::invalid_request;
+    }
     if (!contains_string(known_check_profiles, profile)) {
         print_error(
             err, command_error::invalid_request,
@@ -941,7 +949,8 @@ command_error run_check(
     }
     if (profile == "format") {
         return run_check_format(
-            project_root, manifest_value, requested_artifact, out, err
+            project_root, manifest_value, requested_artifact, out, err,
+            changed_files
         );
     }
     if (profile == "naming" || profile == "style") {
@@ -1081,11 +1090,11 @@ command_error run_check(
     const std::string& profile,
     const std::optional<artifact_ref>& requested_artifact,
     const std::optional<std::string>& sphinx_theme, std::ostream& out,
-    std::ostream& err
+    std::ostream& err, const bool changed_files
 ) {
     return command_support::run_check(
-        project_root, manifest_value, profile, requested_artifact,
-        sphinx_theme, out, err
+        project_root, manifest_value, profile, requested_artifact, sphinx_theme,
+        out, err, changed_files
     );
 }
 

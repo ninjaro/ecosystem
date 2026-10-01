@@ -1,9 +1,39 @@
-#include "suite/test_support.hpp"
 #include "suite/test_cases.hpp"
+#include "suite/test_support.hpp"
 
 using namespace ecosystem_test_support;
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--facade-android") {
+        if (argc != 3) {
+            std::cerr << "usage: " << argv[0]
+                      << " --facade-android <ndk-root>\n";
+            return 2;
+        }
+        try {
+            test_android_source_facade(fs::absolute(argv[2]));
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[failed] Android source facade: " << error.what()
+                      << "\n";
+            return 1;
+        }
+    }
+    if (argc > 1 && std::string(argv[1]) == "--facade-packages") {
+        if (argc != 3) {
+            std::cerr << "usage: " << argv[0]
+                      << " --facade-packages <installed-prefix>\n";
+            return 2;
+        }
+        try {
+            test_real_facade_packages(fs::absolute(argv[2]));
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[failed] installed facade packages: " << error.what()
+                      << "\n";
+            return 1;
+        }
+    }
     if (argc == 2 && std::string(argv[1]) == "--sphinx-integration") {
         try {
             test_cli_sphinx_native_xml_breathe_pipeline();
@@ -35,7 +65,8 @@ int main(int argc, char** argv) {
     }
     if (argc > 1 && std::string(argv[1]) == "--workspace-conformance") {
         if (argc != 3) {
-            std::cerr << "usage: " << argv[0] << " --workspace-conformance <root>\n";
+            std::cerr << "usage: " << argv[0]
+                      << " --workspace-conformance <root>\n";
             return 2;
         }
         const auto errors = workspace_conformance_errors(fs::absolute(argv[2]));
@@ -94,11 +125,27 @@ int main(int argc, char** argv) {
           test_tracked_facade_limits_surface_to_entry_artifact_closure },
         { "external_project_generates_imported_library",
           test_external_project_generates_imported_library },
+        { "source_facade_outer_preserves_installed_consumer",
+          test_source_facade_outer_preserves_installed_consumer },
+        { "source_facade_outer_delegates_library_install",
+          test_source_facade_outer_delegates_library_install },
+        { "source_facade_pins_revisions_and_rejects_stale_packages",
+          test_source_facade_pins_revisions_and_rejects_stale_packages },
+        { "source_facade_preserves_shared_and_interface_contracts",
+          test_source_facade_preserves_shared_and_interface_contracts },
+        { "source_facade_reports_provider_failures",
+          test_source_facade_reports_provider_failures },
         { "source_dependency_local_override_builds_and_installs_before_"
           "consumer",
           test_source_dependency_local_override_builds_and_installs_before_consumer },
         { "source_dependency_repository_selection_is_stable_and_explicit",
           test_source_dependency_repository_selection_is_stable_and_explicit },
+        { "source_local_map_selects_mutable_checkouts_and_preserves_facade",
+          test_source_local_map_selects_mutable_checkouts_and_preserves_facade },
+        { "source_local_map_rejects_invalid_configuration",
+          test_source_local_map_rejects_invalid_configuration },
+        { "source_local_map_applies_to_recursive_providers",
+          test_source_local_map_applies_to_recursive_providers },
         { "source_dependency_consumer_exports_are_relocatable",
           test_source_dependency_consumer_exports_are_relocatable },
         { "source_dependency_shared_and_interface_usage_requirements",

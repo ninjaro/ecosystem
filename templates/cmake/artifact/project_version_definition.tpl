@@ -1,4 +1,4 @@
 target_compile_definitions({{target_name}}
-        {{link_scope}}
+        PRIVATE
         ECOSYSTEM_PROJECT_VERSION="${PROJECT_VERSION}"
 )

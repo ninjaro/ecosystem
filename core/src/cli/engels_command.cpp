@@ -114,6 +114,15 @@ int run_engels_command(
             );
             return exit_code(command_error::invalid_request);
         }
+        if (request->changed_files
+            && (workspace_mode || args[1] != "format"
+                || !request->scope_args.empty())) {
+            emit_command_error(
+                err, command_error::invalid_request,
+                "--changes requires check format in a project without selectors"
+            );
+            return exit_code(command_error::invalid_request);
+        }
         if (workspace_mode) {
             workspace_scope scope;
             const command_error parse_status = parse_workspace_scope(
@@ -150,7 +159,8 @@ int run_engels_command(
         }
         return exit_code(run_check(
             project_root, *current_manifest_report.value, args[1],
-            requested_artifact, request->sphinx_theme, out, err
+            requested_artifact, request->sphinx_theme, out, err,
+            request->changed_files
         ));
     }
 

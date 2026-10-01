@@ -11,6 +11,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace ecosystem {
 namespace {
@@ -46,6 +47,129 @@ namespace {
         if (!error.empty())
             throw std::runtime_error(error);
         return json::parse(text);
+    }
+
+    using local_sources = std::map<std::string, std::string>;
+
+    local_sources read_local_sources(const fs::path& project) {
+        const auto path = project / "manifesto.local.json";
+        try {
+            if (!fs::exists(fs::symlink_status(path)))
+                return {};
+            if (!fs::is_regular_file(path))
+                throw std::runtime_error("expected a readable regular file");
+            std::string error;
+            const auto text = read_text_file(path, &error);
+            if (!error.empty())
+                throw std::runtime_error(error);
+            // Duplicate keys must not silently select a different checkout.
+            std::vector<std::set<std::string>> keys;
+            const auto config = json::parse(
+                text, [&](int, json::parse_event_t event, json& item) {
+                    if (event == json::parse_event_t::object_start)
+                        keys.emplace_back();
+                    else if (event == json::parse_event_t::object_end)
+                        keys.pop_back();
+                    else if (
+                        event == json::parse_event_t::key
+                        && !keys.back().insert(item.get<std::string>()).second
+                    )
+                        throw std::runtime_error(
+                            "duplicate key: " + item.get<std::string>()
+                        );
+                    return true;
+                }
+            );
+            if (!config.is_object() || config.size() != 1
+                || !config.contains("sources")
+                || !config.at("sources").is_object())
+                throw std::runtime_error(
+                    "expected an object containing only a 'sources' "
+                    "repository-to-absolute-path object"
+                );
+            local_sources result;
+            for (const auto& [repository, source] :
+                 config.at("sources").items()) {
+                if (trimmed(repository).empty()
+                    || std::any_of(
+                        repository.begin(), repository.end(),
+                        [](unsigned char c) { return std::iscntrl(c); }
+                    ))
+                    throw std::runtime_error(
+                        "source repository keys must be nonempty literal "
+                        "selectors"
+                    );
+                if (!source.is_string()
+                    || !fs::path(source.get<std::string>()).is_absolute()
+                    || std::any_of(
+                        source.get_ref<const std::string&>().begin(),
+                        source.get_ref<const std::string&>().end(),
+                        [](unsigned char c) { return std::iscntrl(c); }
+                    ))
+                    throw std::runtime_error(
+                        "source mapping for " + repository
+                        + " must be an absolute path string without control "
+                          "characters"
+                    );
+                result.emplace(repository, source.get<std::string>());
+            }
+            return result;
+        } catch (const std::exception& error) {
+            throw std::runtime_error(
+                "invalid local source map " + path.string() + ": "
+                + error.what()
+            );
+        }
+    }
+
+    // Recognize the retired spelling only to prevent silent remote fallback.
+    std::string legacy_source_variable(const source_dependency& value) {
+        auto name = value.repository;
+        while (!name.empty() && name.back() == '/')
+            name.pop_back();
+        const auto slash = name.find_last_of('/');
+        if (slash != std::string::npos)
+            name.erase(0, slash + 1);
+        if (name.ends_with(".git"))
+            name.resize(name.size() - 4);
+        for (char& character : name) {
+            const auto byte = static_cast<unsigned char>(character);
+            character = std::isalnum(byte)
+                ? static_cast<char>(std::toupper(byte))
+                : '_';
+        }
+        return name + "_SOURCE_DIR";
+    }
+
+    std::string local_source(
+        const source_dependency& dependency, const local_sources& sources,
+        const fs::path& project
+    ) {
+        const auto mapped = sources.find(dependency.repository);
+        const auto origin = (project / "manifesto.local.json").string()
+            + " sources[" + dependency.repository + "]";
+        if (mapped == sources.end()) {
+            const auto variable = legacy_source_variable(dependency);
+            const char* environment = std::getenv(variable.c_str());
+            if (environment && *environment)
+                throw std::runtime_error(
+                    variable + " no longer selects source dependencies; add "
+                    + origin + " with the absolute checkout path, or unset "
+                    + variable + " to use authored repository/revision"
+                );
+            return {};
+        }
+        const auto& local = mapped->second;
+        try {
+            if (!fs::path(local).is_absolute())
+                throw std::runtime_error("must be an absolute path");
+            const auto source = fs::canonical(local);
+            if (!fs::is_directory(source))
+                throw std::runtime_error("must select a directory");
+            return source.string();
+        } catch (const std::exception& error) {
+            throw std::runtime_error(origin + ": " + error.what());
+        }
     }
 
     // A stable directory key, not a trust check. The complete intent is checked
@@ -120,9 +244,8 @@ namespace {
             )
                     .empty()) {
             throw std::runtime_error(
-                "managed source checkout changed: " + source.string() + "; use "
-                + source_dependency_override(dependency)
-                + " for mutable local work"
+                "managed source checkout changed: " + source.string()
+                + "; use manifesto.local.json for mutable local work"
             );
         }
         return source;
@@ -131,6 +254,7 @@ namespace {
     struct preparation {
         std::string profile;
         fs::path storage_root;
+        local_sources sources;
         std::set<std::string> active;
         std::map<std::string, json> selected_packages;
 
@@ -151,9 +275,8 @@ namespace {
                         "managed source dependency preparation currently "
                         "requires a desktop profile"
                     );
-                const auto variable = source_dependency_override(*dependency);
-                const char* override_value = std::getenv(variable.c_str());
-                const std::string local = override_value ? override_value : "";
+                const auto local
+                    = local_source(*dependency, sources, storage_root);
                 const json intent { { "repository", dependency->repository },
                                     { "revision", dependency->revision },
                                     { "local", local } };
@@ -182,11 +305,7 @@ namespace {
                     throw std::runtime_error(paths.front());
                 fs::path source;
                 if (!local.empty()) {
-                    if (!fs::path(local).is_absolute())
-                        throw std::runtime_error(
-                            variable + " must be an absolute path"
-                        );
-                    source = fs::canonical(local);
+                    source = local;
                 } else {
                     source = checkout(*dependency, state, intent);
                 }
@@ -303,29 +422,14 @@ std::optional<source_dependency> source_dependency_for(const component& value) {
                                *artifact };
 }
 
-std::string source_dependency_override(const source_dependency& value) {
-    auto name = value.repository;
-    while (!name.empty() && name.back() == '/')
-        name.pop_back();
-    const auto slash = name.find_last_of('/');
-    if (slash != std::string::npos)
-        name.erase(0, slash + 1);
-    if (name.ends_with(".git"))
-        name.resize(name.size() - 4);
-    for (char& character : name) {
-        const auto byte = static_cast<unsigned char>(character);
-        character
-            = std::isalnum(byte) ? static_cast<char>(std::toupper(byte)) : '_';
-    }
-    return name + "_SOURCE_DIR";
-}
-
 command_error prepare_source_dependencies(
     const fs::path& project_root, const manifest& value,
     const std::string& profile, string_list* cmake_options,
     std::string* error_message
 ) try {
-    preparation state { profile, project_root, {}, {} };
+    preparation state {
+        profile, project_root, read_local_sources(project_root), {}, {}
+    };
     *cmake_options = state.prepare(
         project_root, value, local_state_dir(project_root) / "dependencies"
     );

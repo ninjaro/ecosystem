@@ -110,6 +110,10 @@ string_list validate_manifest(const manifest& value);
 string_list discover_owned_files(
     manifest* value, const std::filesystem::path& project_root
 );
+// Project-relative ownership scopes and companion candidates, including entry
+// and QML paths. Does not require files to exist (e.g. deleted change inputs).
+std::vector<std::filesystem::path>
+owned_path_candidates(const component& owner);
 json to_json(const manifest& value);
 
 /// Split a namespace:artifact selector; return no value for invalid syntax.

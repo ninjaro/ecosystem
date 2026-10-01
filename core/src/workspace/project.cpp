@@ -1051,7 +1051,7 @@ std::vector<std::string> supported_check_profiles(const manifest& value) {
 }
 
 std::vector<std::string> supported_report_kinds() {
-    return { "cxx", "toolchains", "matrix", "naming", "style" };
+    return { "cxx", "toolchains", "matrix", "naming", "style", "changes" };
 }
 
 std::vector<std::string> supported_platforms(const manifest& value) {

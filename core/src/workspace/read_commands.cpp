@@ -7,6 +7,7 @@
 #include "packages/package_catalog.hpp"
 #include "packages/package_summary.hpp"
 #include "workspace/benchmark.hpp"
+#include "workspace/changes.hpp"
 #include "workspace/doctor.hpp"
 #include "workspace/groups.hpp"
 #include "workspace/mutation.hpp"
@@ -44,14 +45,14 @@ namespace command_support {
         "tests",  "coverage", "leaks", "java", "tidy",   "format",
         "naming", "style",    "repo",  "doxy", "sphinx", "ci",
     };
-    const std::vector<std::string> known_report_kinds { "cxx", "toolchains",
+    const std::vector<std::string> known_report_kinds { "cxx",    "toolchains",
                                                         "matrix", "naming",
-                                                        "style" };
+                                                        "style",  "changes" };
 
     command_error run_format_files(
         const fs::path& project_root, const manifest& manifest_value,
         const std::optional<artifact_ref>& requested_artifact, const bool apply,
-        std::ostream& out, std::ostream& err
+        std::ostream& out, std::ostream& err, const bool changed_files
     ) {
         if (requested_artifact
             && !resolve_artifact(manifest_value, requested_artifact)) {
@@ -62,9 +63,31 @@ namespace command_support {
             );
             return command_error::invalid_request;
         }
-        const auto files = format_candidate_files(
+        auto files = format_candidate_files(
             manifest_value, project_root, requested_artifact
         );
+        if (changed_files) {
+            const auto report = change_report(project_root, manifest_value);
+            const auto scope
+                = report.at("format").at("scope").get<std::string>();
+            out << "format selection: " << scope << "\n";
+            if (scope == "none")
+                files.clear();
+            else if (scope == "changed") {
+                std::set<std::string> selected;
+                for (const auto& path : report.at("format").at("files"))
+                    selected.insert(path.get<std::string>());
+                std::erase_if(files, [&](const auto& file) {
+                    return !selected.contains(
+                        file.lexically_relative(project_root).generic_string()
+                    );
+                });
+            }
+            if (files.empty()) {
+                out << "format: no files\n";
+                return command_error::ok;
+            }
+        }
         std::vector<fs::path> relative_paths;
         for (const auto& file : files)
             relative_paths.push_back(file.lexically_relative(project_root));

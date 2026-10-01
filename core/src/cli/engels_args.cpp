@@ -49,6 +49,7 @@ std::string engels_usage_text() {
            "  list "
            "[components|artifacts|profiles|platforms|matrix|projects|groups]\n"
            "  check <profile> [component:artifact] [--project <project> ...]\n"
+           "  check format --changes\n"
            "  doctor [profile] [component:artifact] [--project <project> ...]\n"
            "  doctor <component:artifact> --profile <profile>\n"
            "  report <kind> [component:artifact] [--project <project> ...] "
@@ -56,7 +57,7 @@ std::string engels_usage_text() {
            "\ncheck profiles: format tidy tests coverage leaks naming style "
            "repo ci "
            "doxy sphinx java\n"
-           "report kinds: matrix cxx naming style toolchains\n";
+           "report kinds: matrix cxx naming style toolchains changes\n";
 }
 
 std::optional<engels_request> parse_engels_request(

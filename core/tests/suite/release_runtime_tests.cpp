@@ -745,7 +745,17 @@ void test_prerelease_packages_installed_source_provider_runtime() {
             authored["artifacts"][1]["name"] = "consumer";
         write_text(project / "manifest.json", authored.dump(2));
     }
-    scoped_env override_path("NUMBERS_SOURCE_DIR", provider.string());
+    write_text(
+        consumer / "manifesto.local.json",
+        json(
+            { { "sources",
+                { { "https://example.invalid/numbers.git",
+                    provider.string() } } } }
+        ).dump(2)
+    );
+    scoped_env override_path(
+        "NUMBERS_SOURCE_DIR", (root.path() / "invalid-legacy-override").string()
+    );
     const auto result
         = run_marx_cli(consumer, "prerelease --version-base 1.0.0");
     require_true(
@@ -785,6 +795,12 @@ void test_prerelease_packages_installed_source_provider_runtime() {
           "-C", prefix.string() }
     );
     require_true(unpacked.exit_code == 0, "provider package must extract");
+    for (const auto& entry : fs::recursive_directory_iterator(prefix)) {
+        require_true(
+            entry.path().filename() != "manifesto.local.json",
+            "release payload must exclude machine-local source mappings"
+        );
+    }
     fs::rename(provider, root.path() / "unavailable-provider");
     fs::rename(consumer, root.path() / "unavailable-consumer");
     const auto run = ecosystem::capture_command_result(

@@ -1,49 +1,22 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
-void test_external_project_generates_imported_library() {
-    temp_dir root;
-    ecosystem::manifest manifest_value = sample_external_project_manifest();
-    require_true(
-        ecosystem::validate_manifest(manifest_value).empty(),
-        "valid external project intent must pass manifest validation"
-    );
-
-    const std::string generated_cmake
-        = ecosystem::generate_cmakelists(manifest_value, root.path());
-    require_contains(
-        generated_cmake, "find_package(packing CONFIG REQUIRED)",
-        "external components must consume installed CMake packages"
-    );
-    require_contains(
-        generated_cmake,
-        "add_library(packing_library__core ALIAS packing::library__core)",
-        "the local authored identity must alias the provider target and all "
-        "its usage requirements"
-    );
-    for (const auto* forbidden : { "ExternalProject_Add", "IMPORTED_LOCATION",
-                                   "_binary_dir", "copy_directory" }) {
-        require_not_contains(
-            generated_cmake, forbidden,
-            "consumers must not synthesize provider build layouts"
+namespace {
+    void map_provider(const fs::path& consumer, const fs::path& provider) {
+        const auto manifest
+            = json::parse(read_text(consumer / "manifest.json"));
+        const auto repository = manifest["artifacts"][0]["packages"]
+                                        ["external_project"]["repository"]
+                                            .get<std::string>();
+        write_text(
+            consumer / "manifesto.local.json",
+            json(
+                { { "sources", { { repository, provider.string() } } } }
+            ).dump(2)
         );
     }
-
-    manifest_value.components.front().modules = { "packing/geometry" };
-    const ecosystem::string_list errors
-        = ecosystem::validate_manifest(manifest_value);
-    require_true(
-        std::any_of(
-            errors.begin(), errors.end(),
-            [](const std::string& error) {
-                return error.find("must not redeclare repository-owned")
-                    != std::string::npos;
-            }
-        ),
-        "external source modules must remain owned by their repository"
-    );
 }
 
 void test_source_dependency_local_override_builds_and_installs_before_consumer() {
@@ -51,7 +24,7 @@ void test_source_dependency_local_override_builds_and_installs_before_consumer()
     write_source_dependency_fixture(root.path());
     const auto provider = root.path() / "provider";
     const auto consumer = root.path() / "consumer";
-    scoped_env override_path("NUMBERS_SOURCE_DIR", provider.string());
+    map_provider(consumer, provider);
     auto result = run_marx_cli(consumer, "build debug");
     require_true(
         result.exit_code == 0,
@@ -223,7 +196,7 @@ void test_source_dependency_repository_selection_is_stable_and_explicit() {
         "new intent must not mutate the previous cached selection"
     );
     {
-        scoped_env override_path("PROVIDER_SOURCE_DIR", provider.string());
+        map_provider(consumer, provider);
         write_text(
             provider / "src/answer.cpp",
             "#include <answer.hpp>\nint answer(std::span<const int>) { return "
@@ -238,6 +211,7 @@ void test_source_dependency_repository_selection_is_stable_and_explicit() {
                 + result.output
         );
     }
+    fs::remove(consumer / "manifesto.local.json");
     expect(44);
     result = run_marx_cli(consumer, "build debug");
     require_true(
@@ -269,7 +243,7 @@ void test_source_dependency_consumer_exports_are_relocatable() {
         consumer / "src/wrapper.cpp",
         "#include <wrapper.hpp>\nint wrapped_answer() { return answer({}); }\n"
     );
-    scoped_env override_path("NUMBERS_SOURCE_DIR", provider.string());
+    map_provider(consumer, provider);
     const auto result = run_marx_cli(consumer, "build debug");
     require_true(
         result.exit_code == 0,
@@ -362,7 +336,7 @@ void test_source_dependency_shared_and_interface_usage_requirements() {
                 "answer(std::span<const int>) { return 42; }\n"
             );
         }
-        scoped_env override_path("NUMBERS_SOURCE_DIR", provider.string());
+        map_provider(consumer, provider);
         const auto result = run_marx_cli(consumer, "build debug");
         require_true(
             result.exit_code == 0
@@ -432,7 +406,7 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
         const auto provider = root.path() / "provider";
         const auto consumer = root.path() / "consumer";
         mutate(provider, consumer);
-        scoped_env override_path("NUMBERS_SOURCE_DIR", provider.string());
+        map_provider(consumer, provider);
         const auto result = run_marx_cli(consumer, "build debug");
         require_true(
             result.exit_code == 5,
@@ -458,7 +432,7 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
     const auto provider = root.path() / "provider";
     const auto consumer = root.path() / "consumer";
     {
-        scoped_env relative("NUMBERS_SOURCE_DIR", "../provider");
+        map_provider(consumer, "../provider");
         const auto result = run_marx_cli(consumer, "build debug");
         require_true(
             result.exit_code == 5, "ambiguous relative overrides must fail"
@@ -478,7 +452,7 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
     );
     scoped_env cmake("MANIFESTO_TEST_REAL_CMAKE", real_cmake);
     scoped_env path("PATH", tools.string() + ":" + current_path_env());
-    scoped_env override_path("NUMBERS_SOURCE_DIR", provider.string());
+    map_provider(consumer, provider);
     const auto result = run_marx_cli(consumer, "build debug");
     require_true(
         result.exit_code == 5,

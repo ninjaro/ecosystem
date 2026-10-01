@@ -22,15 +22,27 @@ jobs:
       pull-requests: read
     runs-on: ubuntu-24.04
     outputs:
+      changes: ${{ steps.selection.outputs.changes }}
       scope: ${{ steps.selection.outputs.scope }}
       verified: ${{ steps.selection.outputs.verified }}
       source: ${{ steps.selection.outputs.source }}
     steps:
       - uses: {{checkout_action}}
+        with:
+          fetch-depth: 0
       - id: selection
         uses: ./.github/actions/select-manifesto-ci
         with:
           kind: checks
+
+      - name: Upload change resolution
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-changes-{{project_id}}-checks
+          path: ${{ steps.selection.outputs.changes-file }}
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Upload reused verification reports
         if: ${{ steps.selection.outputs.scope == 'reuse' }}

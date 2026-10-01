@@ -61,11 +61,14 @@ set(GTest_FOUND TRUE)
         write_text(
             provider / "include/wrapper.hpp",
             "#pragma once\n#include \"api.hpp\"\nint answer();\n"
+            "const char* provider_version();\n"
         );
         write_text(
             provider / "src/wrapper.cpp",
             "#include \"wrapper.hpp\"\n#include \"base.hpp\"\nint answer() { "
             "return base() + 1; }\n"
+            "const char* provider_version() { return "
+            "ECOSYSTEM_PROJECT_VERSION; }\n"
         );
         write_text(
             provider / "include/unowned.hpp",
@@ -102,6 +105,11 @@ set(GTest_FOUND TRUE)
         for (const auto& file :
              fs::directory_iterator(relocated / "lib64/cmake/portable")) {
             const auto text = read_text(file.path());
+            require_not_contains(
+                text, "ECOSYSTEM_PROJECT_VERSION",
+                "installed libraries, including interface dependencies, must "
+                "not export the generic project-version macro"
+            );
             for (const auto& forbidden : { provider, build, prefix })
                 require_not_contains(
                     text, forbidden.string(),
@@ -112,19 +120,24 @@ set(GTest_FOUND TRUE)
         const auto consumer = root.path() / "consumer";
         write_text(
             consumer / "CMakeLists.txt", R"(cmake_minimum_required(VERSION 3.20)
-project(consumer LANGUAGES CXX)
+project(consumer VERSION 9.8.7 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 find_package(portable 1.2 CONFIG REQUIRED)
 find_package(portable 1.2 CONFIG REQUIRED)
 add_executable(consumer main.cpp)
+target_compile_definitions(consumer PRIVATE ECOSYSTEM_PROJECT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(consumer PRIVATE portable::core__lib)
 )"
         );
         write_text(
             consumer / "main.cpp",
-            "#include <wrapper.hpp>\nint main() { int data[2]{}; "
+            "#include <wrapper.hpp>\n#include <string_view>\n"
+            "static_assert(std::string_view(ECOSYSTEM_PROJECT_VERSION) == "
+            "\"9.8.7\");\n"
+            "int main() { int data[2]{}; "
             "cxxopts::Options options(\"consumer\"); return answer() == 42 && "
-            "size(data) == 2 ? 0 : 1; }\n"
+            "size(data) == 2 && std::string_view(provider_version()) == "
+            "\"1.2.3\" ? 0 : 1; }\n"
         );
         run({ "cmake", "-S", consumer.string(), "-B",
               (root.path() / "consumer-build").string(),

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -317,6 +318,7 @@ namespace sync_support {
             ".github/renovate.json",
             ".github/actions/run-manifesto-stage/action.yml",
             ".github/actions/select-manifesto-ci/action.yml",
+            ".github/actions/select-manifesto-ci/changes.cjs",
             ".github/actions/select-manifesto-ci/evidence.cjs",
             ".github/actions/publish-manifesto-report/action.yml",
             ".github/actions/setup-manifesto/action.yml",
@@ -944,14 +946,12 @@ namespace sync_support {
     }
 
     std::string render_project_version_definition(
-        const std::string& target_name, const std::string& link_scope,
-        const std::string& indent
+        const std::string& target_name, const std::string& indent
     ) {
         return render_indented_sync_template(
             "cmake/artifact/project_version_definition.tpl",
             {
                 { "target_name", target_name },
-                { "link_scope", link_scope },
             },
             indent
         );
@@ -1390,6 +1390,60 @@ namespace sync_support {
         );
     }
 
+    std::string cmake_bracket(const std::string& text) {
+        std::string equal = "=";
+        while (text.find("]" + equal + "]") != std::string::npos)
+            equal += "=";
+        return "[" + equal + "[" + text + "]" + equal + "]";
+    }
+
+    std::string render_facade_outer(
+        const manifest& value, const std::vector<const component*>& components
+    ) {
+        std::map<std::string, source_dependency> providers;
+        for (const auto* component_value : components) {
+            const auto dependency = source_dependency_for(*component_value);
+            if (!dependency)
+                continue;
+            const auto [position, inserted]
+                = providers.emplace(dependency->package, *dependency);
+            if (!inserted
+                && (position->second.repository != dependency->repository
+                    || position->second.revision != dependency->revision)) {
+                throw template_render_error(
+                    "conflicting facade provider source selections for package "
+                    + dependency->package + ": " + position->second.repository
+                    + " @ " + position->second.revision + " versus "
+                    + dependency->repository + " @ " + dependency->revision
+                );
+            }
+        }
+        if (providers.empty())
+            return {};
+        std::string declarations;
+        json identity = json::array();
+        for (const auto& [package, dependency] : providers) {
+            declarations += "    _manifesto_source(" + cmake_bracket(package)
+                + " " + cmake_bracket(dependency.repository) + " "
+                + cmake_bracket(dependency.revision) + ")\n";
+            identity.push_back(
+                { package, dependency.repository, dependency.revision }
+            );
+        }
+        return render_required_sync_template(
+            "cmake/facade_outer.tpl",
+            { { "project_id", value.id },
+              { "project_version",
+                value.version.empty() ? "0.1.0" : value.version },
+              { "provider_identity", cmake_bracket(identity.dump()) },
+              { "provider_setup",
+                render_required_sync_template(
+                    "cmake/facade_providers.tpl",
+                    { { "provider_declarations", declarations } }
+                ) } }
+        );
+    }
+
     std::set<std::string> exported_library_keys(const manifest& value) {
         std::set<std::string> keys;
         auto roots = value.install_artifacts;
@@ -1495,6 +1549,8 @@ namespace sync_support {
             : std::string();
 
         std::ostringstream stream;
+        if (!developer_surface)
+            stream << render_facade_outer(value, components);
         stream << render_required_sync_template(
             "cmake/surface_prefix.tpl",
             {
@@ -1746,9 +1802,10 @@ namespace sync_support {
                 }
                 stream << render_apply_defaults_line(target_name, indent)
                        << "\n";
-                if (!value.version.empty()) {
+                if (!value.version.empty()
+                    && artifact_value->kind != "interface_lib") {
                     stream << render_project_version_definition(
-                        target_name, link_scope, indent
+                        target_name, indent
                     ) << "\n";
                 }
 
@@ -2158,6 +2215,11 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
         &files, ".github/actions/select-manifesto-ci/action.yml",
         { ".github/actions/select-manifesto-ci/action.yml",
           "tracked/.github/actions/select-manifesto-ci/action.yml.tpl" },
+        workflow_bindings, error_sink
+    );
+    append_tracked_template_file(
+        &files, ".github/actions/select-manifesto-ci/changes.cjs",
+        { "tracked/.github/actions/select-manifesto-ci/changes.cjs.tpl" },
         workflow_bindings, error_sink
     );
     append_tracked_template_file(

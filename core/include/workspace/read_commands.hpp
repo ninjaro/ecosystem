@@ -22,7 +22,7 @@ command_error run_check(
     const std::string& profile,
     const std::optional<artifact_ref>& requested_artifact,
     const std::optional<std::string>& sphinx_theme, std::ostream& out,
-    std::ostream& err
+    std::ostream& err, bool changed_files = false
 );
 command_error run_workspace_check(
     const workspace_context& workspace, const std::string& profile,

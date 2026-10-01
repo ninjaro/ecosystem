@@ -223,19 +223,23 @@ std::optional<check_request> parse_check_request(
     std::string* error_message
 ) {
     const std::string usage_message = common_args_support::expected_usage(
-        actor_name, "check <profile> [component:artifact] [--theme <theme>]"
+        actor_name,
+        "check <profile> [component:artifact] [--theme <theme>] [--changes]"
     );
 
     cxxopts::Options options(actor_name + " check", "");
-    options.add_options()(
+    auto add_option = options.add_options();
+    add_option(
         "project", "Workspace project selector",
         cxxopts::value<std::vector<std::string>>()
-    )(
+    );
+    add_option(
         "group", "Workspace group selector",
         cxxopts::value<std::vector<std::string>>()
-    )(
-        "theme", "Sphinx theme override", cxxopts::value<std::string>()
-    )("scope", "", cxxopts::value<std::vector<std::string>>());
+    );
+    add_option("theme", "Sphinx theme override", cxxopts::value<std::string>());
+    add_option("changes", "Verify formatting for validated event changes");
+    add_option("scope", "", cxxopts::value<std::vector<std::string>>());
     options.parse_positional({ "scope" });
 
     const std::optional<cxxopts::ParseResult> result
@@ -245,12 +249,15 @@ std::optional<check_request> parse_check_request(
     if (!result.has_value()) {
         return std::nullopt;
     }
-    if (common_args_support::duplicate_option(*result, "theme")) {
+    if (common_args_support::duplicate_option(*result, "theme")
+        || common_args_support::duplicate_option(*result, "changes")) {
         *error_message = usage_message;
         return std::nullopt;
     }
 
     check_request request;
+    request.changed_files
+        = result->count("changes") != 0U && (*result)["changes"].as<bool>();
     request.scope_args = common_args_support::scope_args_from_result(*result);
     if (result->count("theme") != 0U) {
         request.sphinx_theme = (*result)["theme"].as<std::string>();
