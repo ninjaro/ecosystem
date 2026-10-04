@@ -72,6 +72,8 @@ for (const mode of ['fresh', 'reuse', 'mixed']) for (const trigger of ['checks',
     assert.equal(receipt.tested_commit, f.context.sha);
     assert.equal(receipt.files['github/reports/03-codeql-analysis/summary.md'].bytes, 16);
     assert.equal(receipt.coverage, 'passed');
+    assert.equal(receipt.verification.checks.verification.stages.format, 'full');
+    assert.equal(receipt.verification.codeql.verification.stages.analysis, 'full');
     await f.revalidate(source);
     f.write('.ecosystem/doxygen/html/index.html', 'fresh API');
     execFileSync('python3', ['-c',
@@ -101,6 +103,10 @@ const failures = {
   'PR receipt substituted for push': f => f.changeReceipt('checks', r => { r.pr = f.pr; r.tested_commit = f.tested; }),
   'config differs': f => f.changeReceipt('codeql', r => { r.policy.github_tree = 'wrong'; }),
   'receipt revision differs': f => f.changeReceipt('checks', r => { r.tested_commit = f.head; }),
+  'legacy verification scope': f => f.changeReceipt('checks', r => { r.schema = 1; delete r.verification; }),
+  'narrow formatting scope': f => f.changeReceipt('checks', r => { r.verification.stages.format = 'changed'; }),
+  'skipped analysis scope': f => f.changeReceipt('codeql', r => { r.verification.stages.analysis = 'none'; }),
+  'missing verification inputs': f => f.changeReceipt('codeql', r => { delete r.verification.selection; }),
   'API unavailable': f => { f.state.hook = () => { throw Error('unavailable'); }; },
   'incomplete fresh result labeled reuse': f => { f.state.jobs[101][1].steps[1].conclusion = 'skipped'; },
   'newer failed workflow run': f => {

@@ -84,16 +84,6 @@ function(ecosystem_apply_defaults target_name)
         )
     endif ()
 endfunction()
-function(ecosystem_stage_assets target_name)
-    add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_CURRENT_SOURCE_DIR}/assets
-            $<TARGET_FILE_DIR:${target_name}>/assets
-    )
-endfunction()
-
-
 
 # Runtime data belongs to the tooling install, independently of project assets.
 file(RELATIVE_PATH MANIFESTO_INSTALL_TEMPLATE_PATH
@@ -141,14 +131,22 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/source_dependencies.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/sync.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/template_text.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling/android.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling/build.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling/process.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling/sphinx.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/workspace_scope.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/write_commands.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/command_internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/ci.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_cases.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_support.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/release.hpp
 )
 set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang.cpp
@@ -183,11 +181,22 @@ set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_doctor_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_report_commands.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/archives.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/metadata.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/payload.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/runtime.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/signing.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/state.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/repository.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/source_dependencies.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/sync.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/template_text.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/android.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/build.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/inventory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/process.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/sphinx.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/workspace_scope.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/write_commands.cpp
@@ -225,11 +234,22 @@ set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_doctor_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_report_commands.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/archives.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/metadata.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/payload.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/runtime.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/signing.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/state.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/repository.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/source_dependencies.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/sync.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/template_text.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/android.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/build.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/inventory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/process.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/sphinx.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/workspace_scope.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/write_commands.cpp
@@ -373,8 +393,6 @@ set_target_properties(engels__engels PROPERTIES OUTPUT_NAME engels)
 
 ecosystem_apply_defaults(engels__engels)
 
-ecosystem_stage_assets(engels__engels)
-
 
 add_library(marx__cli STATIC
     ${MANIFESTO_MARX_CLI_HEADERS}
@@ -416,8 +434,6 @@ target_link_libraries(marx__marx PRIVATE
 set_target_properties(marx__marx PROPERTIES OUTPUT_NAME marx)
 
 ecosystem_apply_defaults(marx__marx)
-
-ecosystem_stage_assets(marx__marx)
 
 
 # The visitor name is generated state; the selected target keeps its identity.

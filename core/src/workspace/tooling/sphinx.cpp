@@ -1,0 +1,247 @@
+#include "internal.hpp"
+#include "workspace/tooling.hpp"
+
+#include "workspace/project.hpp"
+#include "workspace/template_text.hpp"
+
+namespace fs = std::filesystem;
+
+namespace ecosystem {
+using namespace tooling_detail;
+
+namespace {
+
+    bool render_template(
+        const fs::path& relative_path, const template_bindings& bindings,
+        std::string* contents, std::string* error_message
+    ) {
+        *contents
+            = render_text_template(relative_path, bindings, error_message);
+        return error_message == nullptr || error_message->empty();
+    }
+
+    bool
+    tree_has_extension(const fs::path& root, const std::string& extension) {
+        std::error_code error;
+        if (!fs::exists(root, error) || error) {
+            return false;
+        }
+
+        fs::recursive_directory_iterator iterator(root, error);
+        const fs::recursive_directory_iterator end;
+        while (!error && iterator != end) {
+            if (iterator->is_regular_file(error)
+                && iterator->path().extension().generic_string() == extension) {
+                return true;
+            }
+
+            error.clear();
+            iterator.increment(error);
+        }
+
+        return false;
+    }
+
+    void validate_outputs(const fs::path& root) {
+        const auto inspect = [&](const fs::path& path) {
+            std::error_code error;
+            const auto status = fs::symlink_status(path, error);
+            if (error && error != std::errc::no_such_file_or_directory)
+                throw template_render_error(
+                    path.string() + ": " + error.message()
+                );
+            if (fs::is_symlink(status))
+                throw template_render_error(
+                    "Sphinx service output must not use a symlink: "
+                    + path.lexically_relative(root).generic_string()
+                );
+            if (fs::is_regular_file(status) && fs::hard_link_count(path) > 1)
+                throw template_render_error(
+                    "Sphinx service output must not use a hard link: "
+                    + path.lexically_relative(root).generic_string()
+                );
+            if (fs::exists(status) && !fs::is_directory(status)
+                && !fs::is_regular_file(status))
+                throw template_render_error(
+                    "invalid Sphinx output path type: "
+                    + path.lexically_relative(root).generic_string()
+                );
+            return status;
+        };
+        const auto directory = local_sphinx_dir(root);
+        for (const auto& path :
+             { local_state_dir(root), directory, directory / "conf.py",
+               directory / "manifesto_presentation.py",
+               directory / "sphinx.log", directory / "html",
+               directory / "html.pending", directory / "html.previous" }) {
+            const auto status = inspect(path);
+            const bool file = path.filename() == "conf.py"
+                || path.filename() == "manifesto_presentation.py"
+                || path.filename() == "sphinx.log";
+            if (fs::exists(status)
+                && (file ? !fs::is_regular_file(status)
+                         : !fs::is_directory(status)))
+                throw template_render_error(
+                    "invalid Sphinx output path type: "
+                    + path.lexically_relative(root).generic_string()
+                );
+        }
+        // Sphinx writes nested pages and cached doctrees as well as conf.py.
+        // Reject aliases before any generated configuration is replaced.
+        if (fs::is_directory(directory))
+            for (const auto& entry :
+                 fs::recursive_directory_iterator(directory))
+                inspect(entry.path());
+    }
+
+} // namespace
+
+bool write_local_sphinx_conf(
+    const fs::path& project_root, const std::string& project_name,
+    std::string* error_message
+) {
+    error_message->clear();
+    try {
+        validate_outputs(project_root);
+    } catch (const std::exception& error) {
+        if (error_message)
+            *error_message = error.what();
+        return false;
+    }
+    const fs::path docs_dir = project_root / "docs";
+    json excluded = json::array({ "_build" });
+    const auto selection = docs_dir / "sphinx.json";
+    try {
+        if (fs::exists(fs::symlink_status(selection))) {
+            const auto errors
+                = validate_project_paths(project_root, { "docs/sphinx.json" });
+            if (!errors.empty())
+                throw template_render_error(errors.front());
+            const auto contents = read_text_file(selection, error_message);
+            if (!error_message->empty())
+                return false;
+            const auto options = json::parse(contents);
+            if (!options.is_object())
+                throw template_render_error("expected an object");
+            for (const auto& [key, value] : options.items()) {
+                if (key != "exclude_patterns" || !value.is_array())
+                    throw template_render_error(
+                        "only an exclude_patterns array is supported"
+                    );
+                for (const auto& pattern : value) {
+                    if (!pattern.is_string()
+                        || pattern.get<std::string>().empty())
+                        throw template_render_error(
+                            "exclude_patterns must contain nonempty strings"
+                        );
+                    excluded.push_back(pattern);
+                }
+            }
+        }
+    } catch (const std::exception& error) {
+        *error_message = "docs/sphinx.json: " + std::string(error.what());
+        return false;
+    }
+    const bool has_markdown_docs = tree_has_extension(docs_dir, ".md");
+    std::string contents;
+    if (!render_template(
+            "tooling/sphinx_conf.py.tpl",
+            {
+                { "project_name", json(project_name).dump() },
+                { "exclude_patterns", excluded.dump() },
+                { "extensions",
+                  has_markdown_docs ? "    'myst_parser',\n" : std::string() },
+                { "source_suffix_markdown",
+                  has_markdown_docs ? "    '.md': 'markdown',\n"
+                                    : std::string() },
+            },
+            &contents, error_message
+        )) {
+        return false;
+    }
+
+    std::string presentation;
+    if (!render_template(
+            "tooling/sphinx_presentation.py.tpl", {}, &presentation,
+            error_message
+        ))
+        return false;
+    return write_text_file(
+               local_sphinx_dir(project_root) / "manifesto_presentation.py",
+               presentation, error_message
+           )
+        && write_text_file(
+               local_sphinx_dir(project_root) / "conf.py", contents,
+               error_message
+        );
+}
+
+bool prepare_local_sphinx_output(
+    const fs::path& root, std::string* error_message
+) {
+    const auto directory = local_sphinx_dir(root);
+    try {
+        validate_outputs(root);
+        // A failed publication rollback is recovery state, never disposable
+        // cache.
+        if (fs::exists(directory / "html.previous"))
+            throw template_render_error(
+                "Sphinx recovery output exists at "
+                ".ecosystem/sphinx/html.previous; "
+                "restore or move it before rebuilding"
+            );
+        fs::remove_all(directory / "html.pending");
+        fs::create_directories(directory / "html.pending");
+        return write_text_file(directory / "sphinx.log", "", error_message);
+    } catch (const std::exception& error) {
+        *error_message = error.what();
+        return false;
+    }
+}
+
+bool publish_local_sphinx_output(
+    const fs::path& root, std::string* error_message
+) {
+    const auto directory = local_sphinx_dir(root);
+    const auto pending = directory / "html.pending";
+    const auto published = directory / "html";
+    const auto previous = directory / "html.previous";
+    try {
+        validate_outputs(root);
+        if (!fs::is_regular_file(pending / "index.html")
+            || fs::file_size(pending / "index.html") == 0)
+            throw template_render_error(
+                "sphinx produced no fresh HTML index; expected "
+                ".ecosystem/sphinx/html.pending/index.html"
+            );
+        if (fs::exists(previous))
+            throw template_render_error(
+                "Sphinx recovery output exists at "
+                ".ecosystem/sphinx/html.previous"
+            );
+        const bool had_output = fs::exists(published);
+        if (had_output)
+            fs::rename(published, previous);
+        std::error_code publish_error;
+        fs::rename(pending, published, publish_error);
+        if (publish_error) {
+            std::error_code rollback_error;
+            if (had_output)
+                fs::rename(previous, published, rollback_error);
+            throw template_render_error(
+                "unable to publish Sphinx HTML: " + publish_error.message()
+                + (rollback_error
+                       ? "; restore .ecosystem/sphinx/html.previous: "
+                           + rollback_error.message()
+                       : "")
+            );
+        }
+        fs::remove_all(previous);
+        return true;
+    } catch (const std::exception& error) {
+        *error_message = error.what();
+        return false;
+    }
+}
+
+} // namespace ecosystem

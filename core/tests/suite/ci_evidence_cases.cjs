@@ -11,6 +11,12 @@ test('record successful checks and CodeQL with immutable identity and report has
   const f = fixture(t);
   for (const kind of ['checks', 'codeql']) {
     const receipt = await f.record(kind);
+    assert.equal(receipt.schema, 2);
+    assert.deepEqual(receipt.verification, {scope: 'full',
+      selection: {kind: 'whole-tree', tree: f.tree, manifest: f.git('rev-parse', 'HEAD:manifest.json')},
+      stages: kind === 'checks'
+        ? {repository: 'full', build: 'full', tests: 'full', java: 'full', tidy: 'full', format: 'full', coverage: 'full'}
+        : {repository: 'full', build: 'full', analysis: 'full'}});
     assert.equal(receipt.tested_commit, f.tested);
     assert.equal(receipt.tested_tree, f.tree);
     assert.equal(receipt.run_head, f.head);
@@ -24,6 +30,15 @@ test('record successful checks and CodeQL with immutable identity and report has
     assert.equal(f.outputs.name, evidence.artifactName(kind, receipt.run_id, 1));
   }
 });
+
+for (const scope of [undefined, '', 'cheap', 'changed', 'presentation', 'reuse', 'security'])
+  test('non-full scope cannot create a reusable receipt: ' + scope, async t => {
+    const f = fixture(t);
+    for (const kind of ['checks', 'codeql']) {
+      await assert.rejects(f.record(kind, {VERIFICATION_SCOPE: scope}), /explicit full verification scope/);
+      assert.equal(f.outputs.name, undefined);
+    }
+  });
 
 test('unsupported coverage is recorded explicitly without an old coverage report', async t => {
   const f = fixture(t);
@@ -154,6 +169,8 @@ for (const strategy of ['merge', 'squash', 'rebase'])
       assert.equal(source.checks.artifact_id, 303);
       assert.equal(source.codeql.artifact_id, 404);
       assert.equal(source.tree, f.tree);
+      assert.equal(source.checks.verification.scope, 'full');
+      assert.equal(source.codeql.verification.stages.analysis, 'full');
       assert.ok(fs.existsSync(path.join(f.outputs.reports, kind === 'checks' ? 'github/reports/01-required-checks/summary.md' : '01-tracked-surface/summary.md')));
     }
   });
@@ -180,6 +197,15 @@ const failures = {
   'old rerun artifact': f => { f.runs[101].run_attempt = 2; },
   'receipt from another attempt': f => f.changeReceipt('checks', r => { r.run_attempt = 2; }),
   'receipt from another workflow': f => f.changeReceipt('checks', r => { r.workflow_id = 999; }),
+  'legacy receipt without scope': f => f.changeReceipt('checks', r => { r.schema = 1; delete r.verification; }),
+  'missing verification scope': f => f.changeReceipt('checks', r => { delete r.verification; }),
+  'narrow formatting claimed as full': f => f.changeReceipt('checks', r => { r.verification.stages.format = 'changed'; }),
+  'missing required stage scope': f => f.changeReceipt('checks', r => { delete r.verification.stages.tidy; }),
+  'presentation-only CodeQL': f => f.changeReceipt('codeql', r => { r.verification.scope = 'presentation'; }),
+  'skipped CodeQL analysis': f => f.changeReceipt('codeql', r => { r.verification.stages.analysis = 'none'; }),
+  'unexpected classification input': f => f.changeReceipt('checks', r => { r.verification.selection.delta = []; }),
+  'stale verification input tree': f => f.changeReceipt('checks', r => { r.verification.selection.tree = f.head; }),
+  'stale verification manifest': f => f.changeReceipt('checks', r => { r.verification.selection.manifest = f.head; }),
   'receipt workflow configuration mismatch': f => f.changeReceipt('checks', r => { r.policy.github_tree = 'wrong'; }),
   'receipt tested revision is not a merge': f => f.changeReceipt('checks', r => { r.tested_commit = f.head; r.tooling_commit = f.head; }),
   'stale base': f => f.changeReceipt('checks', r => { r.pr.base = f.head; }),

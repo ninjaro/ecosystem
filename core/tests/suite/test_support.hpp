@@ -293,15 +293,6 @@ void write_source_dependency_fixture(const fs::path& root);
 
 ecosystem::string_list workspace_conformance_errors(const fs::path& root);
 
-std::string github_shell_program(
-    const std::string& yaml, const std::string& step_name,
-    const std::size_t indentation
-);
-
-std::string github_substitute(
-    std::string text, const std::string& expression, const std::string& value
-);
-
 void write_fake_doxygen_tool(const fs::path& path);
 
 void write_doxygen_project(const fs::path& root, const std::string& id);

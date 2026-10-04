@@ -187,6 +187,7 @@ jobs:
         uses: {{github_script_action}}
         env:
           EVIDENCE_KIND: codeql
+          VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}
           TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
           REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
           REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}

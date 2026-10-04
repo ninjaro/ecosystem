@@ -65,6 +65,16 @@ jobs:
       CMAKE_BUILD_PARALLEL_LEVEL: {{manifesto_build_parallelism}}
     steps:
       - uses: {{checkout_action}}
+        with:
+          fetch-depth: ${{ needs.select.outputs.scope == 'cheap' && '0' || '1' }}
+
+      # Resolve against this job's checkout; selection artifacts are diagnostic.
+      - name: Resolve checked-out changes
+        if: ${{ needs.select.outputs.scope == 'cheap' }}
+        uses: {{github_script_action}}
+        with:
+          script: |
+            require('./.github/actions/select-manifesto-ci/changes.cjs').collect({context, core});
 
       - name: Setup manifesto tool
         if: ${{ needs.select.outputs.scope != 'reuse' }}
@@ -91,7 +101,7 @@ jobs:
             case "$CHECK_SCOPE" in
               cheap)
                 "${{ steps.manifesto.outputs.engels-binary }}" check repo
-                "${{ steps.manifesto.outputs.engels-binary }}" check format
+                "${{ steps.manifesto.outputs.engels-binary }}" check format --changes
                 ;;
               full)
                 "${{ steps.manifesto.outputs.marx-binary }}" build debug
@@ -120,6 +130,7 @@ jobs:
           name: ci-reports-{{project_id}}-checks
           path: |
             .ecosystem/github/reports
+            .ecosystem/github/changes.json
             .ecosystem/reports
           include-hidden-files: true
           if-no-files-found: warn
@@ -175,6 +186,7 @@ jobs:
         uses: {{github_script_action}}
         env:
           EVIDENCE_KIND: checks
+          VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}
           TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
           CHECK_OUTCOME: ${{ steps.required.outcome }}
           CHECK_STATUS: ${{ steps.required.outputs.status }}

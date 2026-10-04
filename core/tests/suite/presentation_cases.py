@@ -40,9 +40,13 @@ class PresentationTests(unittest.TestCase):
 
     def evidence(self, status='passed', kind='checks'):
         prefix = '.ecosystem/evidence/'
-        receipt = {'schema': 1, 'kind': kind, 'policy': {'project': 'example'},
+        receipt = {'schema': 2 if kind == 'checks' else 1, 'kind': kind, 'policy': {'project': 'example'},
                    'tested_commit': self.git('rev-parse', 'HEAD'), 'tested_tree': self.git('rev-parse', 'HEAD^{tree}'),
                    'coverage': status, 'files': {}}
+        if kind == 'checks':
+            receipt['verification'] = {'scope': 'full', 'selection': {'kind': 'whole-tree',
+                'tree': receipt['tested_tree'], 'manifest': self.git('rev-parse', 'HEAD:manifest.json')},
+                'stages': {stage: 'full' for stage in ('repository', 'build', 'tests', 'java', 'tidy', 'format', 'coverage')}}
         stages = ['01-required-checks' if kind == 'checks' else '01-tracked-surface', '02-coverage-check']
         files = {f'github/reports/{stage}/{name}': '<script>do not execute</script>' for stage in stages for name in ['summary.md', 'output.log']}
         if status == 'passed':
@@ -83,11 +87,18 @@ class PresentationTests(unittest.TestCase):
 
     def test_receipt_failures(self):
         directory, original = self.evidence()
-        for field, value in [('schema', 2), ('kind', 'other'), ('coverage', 'failed'), ('tested_tree', 'stale'), ('tested_commit', ''), ('policy', {'project': 'other'}), ('files', {})]:
+        for field, value in [('schema', 1), ('kind', 'other'), ('coverage', 'failed'), ('tested_tree', 'stale'), ('tested_commit', ''), ('policy', {'project': 'other'}), ('files', {}), ('verification', None)]:
             with self.subTest(field=field):
                 self.write('.ecosystem/evidence/receipt.json', json.dumps(dict(original, **{field: value})))
                 with self.assertRaises(ValueError):
                     presentation.compose(self.root, directory)
+
+    def test_narrow_scope_cannot_be_presented_as_full(self):
+        directory, receipt = self.evidence()
+        receipt['verification']['stages']['format'] = 'changed'
+        self.write('.ecosystem/evidence/receipt.json', json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, 'scope'):
+            presentation.compose(self.root, directory)
 
     def test_tampered_report(self):
         directory, _ = self.evidence()

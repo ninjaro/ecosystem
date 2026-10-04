@@ -70,7 +70,9 @@ def verification(inputs, evidence):
     directory = Path(evidence).absolute().relative_to(inputs.root.absolute())
     prefix = directory.as_posix() + '/'
     receipt = json.loads(inputs.read(prefix + 'receipt.json'))
-    require(receipt.get('schema') == 1 and receipt.get('kind') in ('checks', 'pages', 'publication'), 'unknown receipt')
+    kind = receipt.get('kind')
+    require(kind in ('checks', 'pages', 'publication')
+            and receipt.get('schema') == (2 if kind == 'checks' else 1), 'unknown receipt')
     project = json.loads(inputs.read('manifest.json'))['id']
     require(receipt.get('policy', {}).get('project') == project, 'receipt project differs')
     def git(*args):
@@ -79,6 +81,14 @@ def verification(inputs, evidence):
     git('diff', '--quiet', '--ignore-submodules=none', 'HEAD')
     require(not git('ls-files', '--others', '--exclude-standard'), 'untracked authored inputs differ')
     require(re.fullmatch('[0-9a-f]{40}', receipt.get('tested_commit', '')), 'invalid tested revision')
+    def full_scope(value, stages):
+        expected = {'scope': 'full', 'selection': {'kind': 'whole-tree', 'tree': receipt['tested_tree'],
+                    'manifest': git('rev-parse', 'HEAD:manifest.json')},
+                    'stages': {stage: 'full' for stage in stages}}
+        require(value == expected, 'incomplete verification scope')
+    check_stages = ('repository', 'build', 'tests', 'java', 'tidy', 'format', 'coverage')
+    if kind == 'checks':
+        full_scope(receipt.get('verification'), check_stages)
     coverage = receipt.get('coverage')
     require(coverage in ('passed', 'skipped'), 'coverage is incomplete')
     stages = ['01-tracked-surface', '02-coverage-check'] if receipt['kind'] == 'pages' else ['01-required-checks', '02-coverage-check']
@@ -88,6 +98,8 @@ def verification(inputs, evidence):
         require(source.get('schema') == 1 and source.get('commit') == receipt['tested_commit']
                 and source.get('tree') == receipt['tested_tree'] and source.get('pushes')
                 and source.get('checks') and source.get('codeql'), 'missing publication provenance')
+        full_scope(source['checks'].get('verification'), check_stages)
+        full_scope(source['codeql'].get('verification'), ('repository', 'build', 'analysis'))
         stage_files['01-tracked-surface'] = ('summary.md', 'output.log')
         stage_files['02-codeql-build'] = ('summary.md', 'output.log')
         stage_files['03-codeql-analysis'] = ('summary.md',)
@@ -102,7 +114,7 @@ def verification(inputs, evidence):
         require(data or name.endswith('/output.log'), 'empty report: ' + name)
         reports[name] = data
     source = {key: receipt.get(key) for key in ('kind', 'repository', 'run_id', 'run_attempt', 'tested_commit', 'tested_tree')}
-    if receipt['kind'] == 'publication':
+    if receipt['kind'] in ('checks', 'publication'):
         source['verification'] = receipt['verification']
     body = '<h3>Source</h3>' + pre(json.dumps(source, indent=2))
     body += '<h3>Coverage</h3>'

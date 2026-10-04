@@ -1,5 +1,8 @@
 #pragma once
 
+#include "ci.hpp"
+#include "../workspace/release.hpp"
+
 #include <filesystem>
 
 namespace ecosystem_test_support {
@@ -55,20 +58,6 @@ void test_cli_check_tidy_honors_full_artifact_identity_and_configuration();
 void test_cli_format_shares_verifier_selection_and_tool();
 void test_cli_workspace_format_respects_selected_projects_and_artifacts();
 void test_cli_check_java_builds_shared_libraries_and_runs_gradle_tests();
-
-// Ci.
-void test_ci_stage_reports_intermediate_and_pipeline_failures();
-void test_ci_required_result_enforces_failures_and_missing_evidence();
-void test_ci_pages_requires_complete_current_results();
-void test_ci_event_selection_and_full_verification();
-void test_ci_verification_evidence_contract();
-void test_github_bootstrap_vars_validate_explicit_selection();
-void test_ci_bootstrap_builds_reviewed_checkout_and_repository_layouts();
-void test_ci_bootstrap_rejects_missing_inputs_and_escaping_layouts();
-void test_generated_builds_reject_compiler_warnings_in_c_and_cxx();
-void test_cli_required_checks_propagate_failures_and_reject_empty_ctest_runs();
-void test_cli_check_ci_fails_fast_on_repository_policy_drift();
-void test_cli_check_ci_keeps_optional_features_out_of_required_checks();
 
 // Cli workspace.
 void test_workspace_conformance_reports_all_projects();
@@ -193,21 +182,6 @@ void test_prerelease_retains_recovery_state_and_rejects_publication_aliases();
 void test_prerelease_rejects_colliding_install_payloads();
 void test_cli_prerelease_includes_install_companions();
 void test_cli_prerelease_signs_repo_metadata_when_requested();
-
-// Release runtime.
-void test_prerelease_packages_linked_runtime_closure();
-void test_prerelease_maps_native_dependencies_and_preserves_state_on_query_failures();
-// Opt-in integration acceptance: uses native cached distribution packages and
-// user namespaces. It is intentionally outside the ordinary portable suite.
-void test_prerelease_installs_in_an_isolated_pacman_root(
-    const std::filesystem::path& cache
-);
-void test_prerelease_packages_installed_source_provider_runtime();
-void test_prerelease_retains_soname_aliases_and_rejects_runtime_conflicts();
-void test_prerelease_runtime_failures_preserve_previous_release();
-void test_prerelease_tooling_archives_carry_their_template_bundle();
-void test_prerelease_rejects_missing_or_aliased_tooling_data();
-void test_prerelease_respects_asset_install_intent();
 
 // Reports.
 void test_cli_report_matrix();

@@ -41,7 +41,7 @@ function fixture(t) {
     runs[runId] = {id: runId, run_attempt: 1, workflow_id: runId + 1000,
       path: `.github/workflows/${kind === 'checks' ? 'tests' : 'codeql'}.yml`,
       repository, head_sha: head, event: 'pull_request', pull_requests: [pr], status: 'completed', conclusion: 'success'};
-    const env = {EVIDENCE_KIND: kind, TOOL_SOURCE_ROOT: root, GITHUB_RUN_ATTEMPT: '1',
+    const env = {EVIDENCE_KIND: kind, VERIFICATION_SCOPE: 'full', TOOL_SOURCE_ROOT: root, GITHUB_RUN_ATTEMPT: '1',
       CODEQL_INIT_STATUS: 'success', CODEQL_ANALYZE_STATUS: 'success'};
     for (const prefix of ['CHECK', 'COVERAGE', 'REPOSITORY', 'CODEQL_BUILD']) {
       env[prefix + '_OUTCOME'] = 'success'; env[prefix + '_STATUS'] = 'passed'; env[prefix + '_EXIT_CODE'] = '0';
