@@ -13,9 +13,9 @@ struct marx_request {
 };
 
 std::string marx_usage_text();
+bool validate_assets_request(const args_list& args, std::string* error_message);
 
-std::optional<marx_request> parse_marx_request(
-    const args_list& args, std::string* error_message
-);
+std::optional<marx_request>
+parse_marx_request(const args_list& args, std::string* error_message);
 
-}  // namespace ecosystem::marx_cli_support
+} // namespace ecosystem::marx_cli_support

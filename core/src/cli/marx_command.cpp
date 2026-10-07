@@ -59,6 +59,12 @@ int handle_mutate_command(
         return exit_code(command_error::invalid_request);
     }
 
+    if (mutate_args[0] == "assets")
+        return run_assets_command(
+            project_root, args_list(mutate_args.begin() + 1, mutate_args.end()),
+            out, err
+        );
+
     if (mutate_args[0] == "add" && mutate_args[1] == "component") {
         std::string parse_error;
         const std::optional<add_component_options> options
@@ -247,10 +253,15 @@ int run_marx_command(
     if (args[0] == "mutate") {
         if (workspace_mode) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 "mutate requires a managed project directory, not a workspace "
                 "root"
+            );
+            return exit_code(command_error::invalid_request);
+        }
+        if (!has_project_manifest) {
+            marx_command_support::emit_manifest_report_errors(
+                current_manifest_report, err
             );
             return exit_code(command_error::invalid_request);
         }

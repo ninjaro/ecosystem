@@ -1,7 +1,9 @@
 #pragma once
 
-#include "ci.hpp"
+#include "../workspace/assets.hpp"
 #include "../workspace/release.hpp"
+#include "ci.hpp"
+#include "documentation.hpp"
 
 #include <filesystem>
 
@@ -88,21 +90,6 @@ void test_cli_build_release_uses_release_build_type();
 void test_cli_check_repo_rejects_legacy_repository_entries();
 void test_cli_check_repo_rejects_tracked_surface_drift();
 void test_cli_workspace_check_repo_rejects_gitlink_project_scripts();
-
-// Documentation.
-void test_doxygen_configuration_uses_exact_ownership_and_service_state();
-void test_cli_doxygen_generates_native_scoped_documentation();
-void test_cli_doxy_propagates_native_graphviz_errors_with_zero_tool_exit();
-void test_cli_doxy_retains_tool_failures_and_requires_fresh_output();
-void test_cli_doxy_rejects_service_output_aliases_before_writing();
-void test_cli_workspace_doxy_keeps_selected_artifact_outputs_separate();
-void test_cli_check_doxy_rejects_failed_configuration();
-void test_cli_check_sphinx_generates_local_conf_with_rtd_theme();
-void test_sphinx_presentation_contract();
-void test_cli_check_sphinx_theme_flag_sets_theme_override();
-void test_cli_check_sphinx_rejects_output_aliases_before_writing();
-void test_cli_check_sphinx_preserves_published_output_on_failures();
-void test_cli_sphinx_native_xml_breathe_pipeline();
 
 // Generation.
 void test_sync_matches_tracked_surfaces();

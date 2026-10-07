@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "workspace/assets.hpp"
 
 #include "packages/package_cache.hpp"
 
@@ -144,11 +145,21 @@ bool stage_payload(
 
     if ((resolved.artifact_value->kind == "exe"
          || resolved.artifact_value->kind == "qt_app")
-        && install_assets && project_has_assets_dir(project_root)
-        && !copy_directory_tree(
-            project_root / "assets", install_dir / "assets", error_message
-        )) {
-        return false;
+        && install_assets && project_has_assets_dir(project_root)) {
+        for (const auto& category : runtime_asset_categories()) {
+            const auto source = project_root / "assets" / category;
+            if (!fs::exists(source))
+                continue;
+            if (!fs::is_directory(source) || fs::is_symlink(source)) {
+                *error_message
+                    = "invalid runtime asset category: " + source.string();
+                return false;
+            }
+            if (!copy_directory_tree(
+                    source, install_dir / "assets" / category, error_message
+                ))
+                return false;
+        }
     }
 
     payload_sources->emplace(destination, built_artifact_path);

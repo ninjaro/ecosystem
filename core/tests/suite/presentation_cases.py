@@ -40,7 +40,7 @@ class PresentationTests(unittest.TestCase):
 
     def evidence(self, status='passed', kind='checks'):
         prefix = '.ecosystem/evidence/'
-        receipt = {'schema': 2 if kind == 'checks' else 1, 'kind': kind, 'policy': {'project': 'example'},
+        receipt = {'schema': 3 if kind == 'checks' else 1, 'kind': kind, 'policy': {'project': 'example'},
                    'tested_commit': self.git('rev-parse', 'HEAD'), 'tested_tree': self.git('rev-parse', 'HEAD^{tree}'),
                    'coverage': status, 'files': {}}
         if kind == 'checks':
@@ -49,6 +49,13 @@ class PresentationTests(unittest.TestCase):
                 'stages': {stage: 'full' for stage in ('repository', 'build', 'tests', 'java', 'tidy', 'format', 'coverage')}}
         stages = ['01-required-checks' if kind == 'checks' else '01-tracked-surface', '02-coverage-check']
         files = {f'github/reports/{stage}/{name}': '<script>do not execute</script>' for stage in stages for name in ['summary.md', 'output.log']}
+        if kind == 'checks':
+            receipt['event'] = 'workflow_dispatch'
+            files['github/selection/checks.json'] = json.dumps({'schema': 1,
+                'input': {'schema': 1, 'event': receipt['event'], 'event_commit': receipt['tested_commit'],
+                          'checkout': None, 'complete': False, 'paths': [], 'changes': []},
+                'report': {'schema': 1, 'project': 'example', 'delta_validated': False,
+                           'classification': 'full', 'format': {'scope': 'full'}}})
         if status == 'passed':
             files['reports/coverage.json'] = json.dumps({'type': 'llvm.coverage.json.export', 'data': [{'files': [{}], 'totals': {'lines': {'count': 10, 'covered': 7}, 'branches': {'count': 0, 'covered': 0}}}]})
         for name, data in files.items():
@@ -98,6 +105,29 @@ class PresentationTests(unittest.TestCase):
         receipt['verification']['stages']['format'] = 'changed'
         self.write('.ecosystem/evidence/receipt.json', json.dumps(receipt))
         with self.assertRaisesRegex(ValueError, 'scope'):
+            presentation.compose(self.root, directory)
+
+    def test_invalid_classification_binding(self):
+        directory, receipt = self.evidence()
+        name = 'github/selection/checks.json'
+        original = json.loads((directory / name).read_text())
+        for section, key, value in [('input', 'event_commit', '0' * 40), ('input', 'event', 'push'),
+                                    ('report', 'project', 'other'), ('report', 'classification', 'presentation')]:
+            with self.subTest(key=key):
+                selection = json.loads(json.dumps(original))
+                selection[section][key] = value
+                data = json.dumps(selection)
+                self.write('.ecosystem/evidence/' + name, data)
+                receipt['files'][name] = {'bytes': len(data.encode()), 'sha256': hashlib.sha256(data.encode()).hexdigest()}
+                self.write('.ecosystem/evidence/receipt.json', json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError, 'classification'):
+                    presentation.compose(self.root, directory)
+
+    def test_missing_classification_snapshot(self):
+        directory, receipt = self.evidence()
+        receipt['files'].pop('github/selection/checks.json')
+        self.write('.ecosystem/evidence/receipt.json', json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, 'report set'):
             presentation.compose(self.root, directory)
 
     def test_tampered_report(self):
@@ -160,6 +190,11 @@ class PresentationTests(unittest.TestCase):
                 presentation.compose(self.root)
         finally:
             presentation.LIMIT = old
+
+    def test_empty_api_index(self):
+        self.write('.ecosystem/doxygen/html/index.html', '')
+        with self.assertRaisesRegex(ValueError, 'Doxygen HTML'):
+            presentation.compose(self.root)
 
     def test_benchmark_success_identity_and_failure(self):
         self.write('.ecosystem/reports/benchmark/bench/speed/result.json', json.dumps({'artifact': 'bench:speed', 'profile': 'release', 'status': 'passed', 'exit_code': 0, 'log': 'bench_log.txt'}))

@@ -118,6 +118,7 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/packages/package_surface_block.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/packages/package_surface_render.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/packages/package_surface_rule.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/assets.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/benchmark.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/changes.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/doctor.hpp
@@ -140,12 +141,15 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/write_commands.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal_internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/command_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/ci.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/documentation.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_cases.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_support.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/assets.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/release.hpp
 )
 set(MANIFESTO_CORE_CORE_SOURCES
@@ -170,6 +174,10 @@ set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_block.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_render.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_rule.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/file_rules.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/index.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/topology.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/update.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/changes.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doctor.cpp
@@ -223,6 +231,10 @@ set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_block.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_render.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/packages/package_surface_rule.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/file_rules.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/index.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/topology.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/update.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/changes.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doctor.cpp
@@ -296,11 +308,13 @@ set(MANIFESTO_MARX_CLI_HEADERS
 set(MANIFESTO_MARX_CLI_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_cli.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command/assets.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command.cpp
 )
 set(MANIFESTO_MARX_CLI_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_cli.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command/assets.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command.cpp
 )
 set(MANIFESTO_MARX_MARX_HEADERS

@@ -62,6 +62,39 @@ def link(destination, label):
     return '<a href="' + quote(destination, safe='/') + '">' + html.escape(label) + '</a>'
 
 
+def change_selection(selection, identity, project, manifest):
+    require(isinstance(selection, dict) and selection.get('schema') == 1, 'invalid change selection')
+    require(identity.get('event') in ('push', 'pull_request', 'workflow_dispatch', 'schedule')
+            and isinstance(identity.get('commit'), str)
+            and re.fullmatch('[0-9a-f]{40}', identity['commit']), 'invalid classification provenance')
+    event, report = selection.get('input'), selection.get('report')
+    require(isinstance(event, dict) and isinstance(report, dict), 'missing classification inputs')
+    require(event.get('schema') == 1 and report.get('schema') == 1
+            and event.get('event') == identity.get('event') and event.get('event_commit') == identity.get('commit')
+            and event.get('checkout') in (None, identity.get('commit'))
+            and type(event.get('complete')) is bool and isinstance(event.get('paths'), list)
+            and isinstance(event.get('changes'), list) and report.get('project') == project
+            and type(report.get('delta_validated')) is bool
+            and report.get('classification') in ('full', 'affected', 'presentation', 'none'), 'invalid classification identity')
+    if event['complete']:
+        require(event.get('checkout') == identity['commit']
+                and all(isinstance(event.get(key), str) and re.fullmatch('[0-9a-f]{40}', event[key])
+                        for key in ('base', 'head', 'comparison_base')),
+                'incomplete change comparison')
+        pr = identity.get('pr') or {}
+        require((event['event'] == 'pull_request' and event['base'] == pr.get('base') and event['head'] == pr.get('head'))
+                or (event['event'] == 'push' and event['head'] == identity['commit'] and event['comparison_base'] == event['base']),
+                'change event differs')
+    else:
+        require(not event['paths'] and not event['changes'] and not report['delta_validated'], 'incomplete delta has a selection')
+    if report['delta_validated']:
+        comparison = {key: event.get(key) for key in ('event', 'checkout', 'base', 'head', 'comparison_base')}
+        comparison['manifest_blob'] = manifest
+        require(event['complete'] and report.get('comparison') == comparison, 'classification comparison differs')
+    else:
+        require(report['classification'] == 'full' and report.get('format', {}).get('scope') == 'full', 'unvalidated narrow classification')
+
+
 def verification(inputs, evidence):
     if not evidence:
         return '<p>No verification evidence was selected for this documentation build.</p>'
@@ -72,7 +105,7 @@ def verification(inputs, evidence):
     receipt = json.loads(inputs.read(prefix + 'receipt.json'))
     kind = receipt.get('kind')
     require(kind in ('checks', 'pages', 'publication')
-            and receipt.get('schema') == (2 if kind == 'checks' else 1), 'unknown receipt')
+            and receipt.get('schema') == {'checks': 3, 'publication': 2, 'pages': 1}[kind], 'unknown receipt')
     project = json.loads(inputs.read('manifest.json'))['id']
     require(receipt.get('policy', {}).get('project') == project, 'receipt project differs')
     def git(*args):
@@ -104,6 +137,8 @@ def verification(inputs, evidence):
         stage_files['02-codeql-build'] = ('summary.md', 'output.log')
         stage_files['03-codeql-analysis'] = ('summary.md',)
     expected = {f'github/reports/{stage}/{name}' for stage, names in stage_files.items() for name in names}
+    selections = ['checks', 'codeql'] if kind == 'publication' else ['checks'] if kind == 'checks' else []
+    expected.update(f'github/selection/{selected}.json' for selected in selections)
     if coverage == 'passed':
         expected.add('reports/coverage.json')
     require(isinstance(receipt.get('files'), dict) and set(receipt['files']) == expected, 'incomplete report set')
@@ -113,6 +148,14 @@ def verification(inputs, evidence):
         require(len(data) == record.get('bytes') and hashlib.sha256(data).hexdigest() == record.get('sha256'), 'report digest differs: ' + name)
         require(data or name.endswith('/output.log'), 'empty report: ' + name)
         reports[name] = data
+    for selected in selections:
+        name = f'github/selection/{selected}.json'
+        identity = {'event': receipt.get('event'), 'commit': receipt['tested_commit'], 'pr': receipt.get('pr')}
+        if kind == 'publication':
+            identity = receipt['verification'][selected].get('change', {})
+            require(isinstance(identity, dict) and all(identity.get(key) == receipt['files'][name][key]
+                    for key in ('bytes', 'sha256')), 'classification provenance differs')
+        change_selection(json.loads(reports[name]), identity, project, git('rev-parse', 'HEAD:manifest.json'))
     source = {key: receipt.get(key) for key in ('kind', 'repository', 'run_id', 'run_attempt', 'tested_commit', 'tested_tree')}
     if receipt['kind'] in ('checks', 'publication'):
         source['verification'] = receipt['verification']
@@ -196,7 +239,8 @@ def compose(root, evidence=None):
     inputs = Inputs(root)
     body = '<h1>Project results</h1><h2>C++ API</h2><p>' + link('doxygen/index.html', 'Standalone Doxygen reference') + '</p>'
     doxygen = safe_path(root, '.ecosystem/doxygen/html')
-    require(safe_path(root, '.ecosystem/doxygen/html/index.html').is_file(), 'Doxygen HTML is missing')
+    index = safe_path(root, '.ecosystem/doxygen/html/index.html')
+    require(index.is_file() and index.stat().st_size > 0, 'Doxygen HTML is missing or empty')
     doxygen_bytes = 0
     for path in sorted(doxygen.rglob('*')):
         require(not path.is_symlink(), 'symlink in Doxygen output')

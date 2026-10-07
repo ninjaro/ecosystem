@@ -12,6 +12,7 @@ async function publicationFixture(t, mode = 'fresh', triggerKind = 'checks') {
   state.tip = f.context.sha;
   state.defaultBranch = 'main';
   state.pushes = {};
+  const selected = f.selection({...f.context, payload: {...f.context.payload, before: f.base, after: f.context.sha}});
   for (const [kind, id] of [['checks', 101], ['codeql', 202]]) {
     const reuse = mode !== 'fresh';
     const pushId = reuse ? id + 400 : id;
@@ -27,6 +28,7 @@ async function publicationFixture(t, mode = 'fresh', triggerKind = 'checks') {
       for (const name of ['Setup manifesto tool', kind === 'checks' ? 'Run required local checks' : 'Verify generated tracked surfaces'])
         job.steps.push({name, status: 'completed', conclusion: 'skipped'});
     } else {
+      f.changeSelection(kind, selection => Object.assign(selection, selected));
       f.changeReceipt(kind, receipt => {
         receipt.event = 'push'; receipt.pr = null; receipt.run_head = f.context.sha;
         receipt.tested_commit = f.context.sha; receipt.tooling_commit = f.context.sha;
@@ -39,6 +41,10 @@ async function publicationFixture(t, mode = 'fresh', triggerKind = 'checks') {
     for (const job of state.jobs[501]) job.run_id = 501;
     const file = path.join(f.root, '.ecosystem/github/evidence/checks/receipt.json');
     const receipt = JSON.parse(fs.readFileSync(file));
+    const selectionName = 'github/selection/checks.json';
+    const selectionData = JSON.stringify(selected) + '\n';
+    f.write('.ecosystem/github/evidence/checks/' + selectionName, selectionData);
+    receipt.files[selectionName] = {bytes: Buffer.byteLength(selectionData), sha256: evidence.hash(selectionData)};
     Object.assign(receipt, {event: 'push', pr: null, run_id: run.id, run_head: f.context.sha,
       tested_commit: f.context.sha, tooling_commit: f.context.sha});
     fs.writeFileSync(file, JSON.stringify(receipt));
@@ -69,11 +75,18 @@ for (const mode of ['fresh', 'reuse', 'mixed']) for (const trigger of ['checks',
     const source = f.outputs.source;
     const receipt = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, 'receipt.json')));
     assert.equal(receipt.kind, 'publication');
+    assert.equal(receipt.schema, 2);
     assert.equal(receipt.tested_commit, f.context.sha);
     assert.equal(receipt.files['github/reports/03-codeql-analysis/summary.md'].bytes, 16);
     assert.equal(receipt.coverage, 'passed');
     assert.equal(receipt.verification.checks.verification.stages.format, 'full');
     assert.equal(receipt.verification.codeql.verification.stages.analysis, 'full');
+    for (const kind of ['checks', 'codeql']) {
+      const name = `github/selection/${kind}.json`;
+      assert.equal(receipt.verification[kind].change.sha256, receipt.files[name].sha256);
+      const selection = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, name)));
+      assert.equal(selection.input.event_commit, receipt.verification[kind].change.commit);
+    }
     await f.revalidate(source);
     f.write('.ecosystem/doxygen/html/index.html', 'fresh API');
     execFileSync('python3', ['-c',
@@ -104,8 +117,12 @@ const failures = {
   'config differs': f => f.changeReceipt('codeql', r => { r.policy.github_tree = 'wrong'; }),
   'receipt revision differs': f => f.changeReceipt('checks', r => { r.tested_commit = f.head; }),
   'legacy verification scope': f => f.changeReceipt('checks', r => { r.schema = 1; delete r.verification; }),
+  'missing classification receipt': f => f.changeReceipt('checks', r => { r.schema = 2; delete r.files['github/selection/checks.json']; }),
+  'wrong classification revision': f => f.changeSelection('checks', s => { s.input.event_commit = f.head; }),
+  'wrong classification manifest': f => f.changeSelection('codeql', s => { s.report.comparison.manifest_blob = f.head; }),
   'narrow formatting scope': f => f.changeReceipt('checks', r => { r.verification.stages.format = 'changed'; }),
   'skipped analysis scope': f => f.changeReceipt('codeql', r => { r.verification.stages.analysis = 'none'; }),
+  'delta CodeQL receipt': f => f.changeReceipt('codeql', r => { r.schema = 1; r.kind = 'codeql-delta'; r.verification.scope = 'delta'; }),
   'missing verification inputs': f => f.changeReceipt('codeql', r => { delete r.verification.selection; }),
   'API unavailable': f => { f.state.hook = () => { throw Error('unavailable'); }; },
   'incomplete fresh result labeled reuse': f => { f.state.jobs[101][1].steps[1].conclusion = 'skipped'; },

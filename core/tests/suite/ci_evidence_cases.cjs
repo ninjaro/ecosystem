@@ -11,7 +11,7 @@ test('record successful checks and CodeQL with immutable identity and report has
   const f = fixture(t);
   for (const kind of ['checks', 'codeql']) {
     const receipt = await f.record(kind);
-    assert.equal(receipt.schema, 2);
+    assert.equal(receipt.schema, 3);
     assert.deepEqual(receipt.verification, {scope: 'full',
       selection: {kind: 'whole-tree', tree: f.tree, manifest: f.git('rev-parse', 'HEAD:manifest.json')},
       stages: kind === 'checks'
@@ -23,6 +23,10 @@ test('record successful checks and CodeQL with immutable identity and report has
     assert.equal(receipt.pr.base, f.base);
     assert.equal(receipt.repository.id, 7);
     assert.equal(receipt.run_attempt, 1);
+    const selection = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, `github/selection/${kind}.json`)));
+    assert.equal(selection.input.event_commit, f.tested);
+    assert.equal(selection.report.classification, 'affected');
+    assert.equal(selection.report.comparison.manifest_blob, receipt.policy.manifest);
     for (const [name, expected] of Object.entries(receipt.files)) {
       const data = fs.readFileSync(path.join(f.outputs.directory, name));
       assert.deepEqual(expected, {bytes: data.length, sha256: evidence.hash(data)});
@@ -39,6 +43,63 @@ for (const scope of [undefined, '', 'cheap', 'changed', 'presentation', 'reuse',
       assert.equal(f.outputs.name, undefined);
     }
   });
+
+for (const kind of ['checks', 'codeql']) {
+  test(`${kind} presentation relevance still attests only actual full execution`, async t => {
+    const f = fixture(t, 'docs');
+    const receipt = await f.record(kind);
+    const snapshot = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, `github/selection/${kind}.json`)));
+    assert.equal(snapshot.report.classification, 'presentation');
+    assert.equal(snapshot.report.checks.codeql, 'none');
+    assert.equal(receipt.verification.scope, 'full');
+    assert.ok(Object.values(receipt.verification.stages).every(scope => scope === 'full'));
+  });
+  test(`${kind} incomplete history preserves an explicit full fallback`, async t => {
+    const f = fixture(t);
+    f.write('.git/shallow', f.tested + '\n');
+    f.selection();
+    const receipt = await f.record(kind);
+    const snapshot = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, `github/selection/${kind}.json`)));
+    assert.equal(snapshot.input.reason, 'shallow-history');
+    assert.equal(snapshot.input.complete, false);
+    assert.equal(snapshot.report.classification, 'full');
+    assert.equal(receipt.verification.scope, 'full');
+  });
+}
+
+for (const [name, change] of Object.entries({
+  'missing event': f => fs.unlinkSync(path.join(f.root, '.ecosystem/github/changes.json')),
+  'missing classification': f => fs.unlinkSync(path.join(f.root, '.ecosystem/github/classification.json')),
+  'malformed classification': f => f.write('.ecosystem/github/classification.json', 'not json'),
+  'altered event': f => {
+    const file = '.ecosystem/github/changes.json';
+    const value = JSON.parse(fs.readFileSync(path.join(f.root, file))); value.base = f.head;
+    f.write(file, JSON.stringify(value));
+  },
+  'altered classification': f => {
+    const file = '.ecosystem/github/classification.json';
+    const value = JSON.parse(fs.readFileSync(path.join(f.root, file))); value.classification = 'presentation';
+    f.write(file, JSON.stringify(value));
+  },
+  'aliased classification': f => {
+    const file = path.join(f.root, '.ecosystem/github/classification.json');
+    fs.renameSync(file, file + '.retained'); fs.symlinkSync(file + '.retained', file);
+  },
+})) test('record rejects ' + name, async t => {
+  const f = fixture(t);
+  change(f);
+  for (const kind of ['checks', 'codeql']) {
+    await assert.rejects(f.record(kind));
+    assert.equal(f.outputs.name, undefined);
+    assert.equal(fs.existsSync(path.join(f.root, '.ecosystem/github/evidence', kind)), false);
+  }
+});
+
+test('record requires the native classifier executable', async t => {
+  const f = fixture(t);
+  await assert.rejects(f.record('checks', {ENGELS_BINARY: ''}), /missing-engels-binary/);
+  assert.equal(f.outputs.name, undefined);
+});
 
 test('unsupported coverage is recorded explicitly without an old coverage report', async t => {
   const f = fixture(t);
@@ -198,7 +259,24 @@ const failures = {
   'receipt from another attempt': f => f.changeReceipt('checks', r => { r.run_attempt = 2; }),
   'receipt from another workflow': f => f.changeReceipt('checks', r => { r.workflow_id = 999; }),
   'legacy receipt without scope': f => f.changeReceipt('checks', r => { r.schema = 1; delete r.verification; }),
+  'legacy receipt without classification': f => f.changeReceipt('checks', r => { r.schema = 2; delete r.files['github/selection/checks.json']; }),
+  'missing selection snapshot': f => f.changeReceipt('checks', r => { delete r.files['github/selection/checks.json']; }),
+  'selection checkout mismatch': f => f.changeSelection('checks', s => { s.input.checkout = f.head; }),
+  'selection event mismatch': f => f.changeSelection('checks', s => { s.input.event = 'push'; }),
+  'selection revision mismatch': f => f.changeSelection('checks', s => { s.input.event_commit = f.head; }),
+  'selection base mismatch': f => f.changeSelection('checks', s => { s.input.base = f.head; }),
+  'selection head mismatch': f => f.changeSelection('checks', s => { s.input.head = f.base; }),
+  'classification manifest mismatch': f => f.changeSelection('codeql', s => { s.report.comparison.manifest_blob = f.head; }),
+  'classification project mismatch': f => f.changeSelection('codeql', s => { s.report.project = 'other'; }),
+  'classification comparison mismatch': f => f.changeSelection('codeql', s => { s.report.comparison.comparison_base = f.head; }),
+  'mutated classification snapshot': f => {
+    f.write('.ecosystem/github/evidence/checks/github/selection/checks.json', '{}'); f.repack('checks');
+  },
+  'unvalidated narrow classification': f => f.changeSelection('checks', s => { s.report.delta_validated = false; }),
+  'incomplete input with selected paths': f => f.changeSelection('checks', s => { s.input.complete = false; }),
   'missing verification scope': f => f.changeReceipt('checks', r => { delete r.verification; }),
+  'delta CodeQL receipt': f => f.changeReceipt('codeql', r => { r.schema = 1; r.kind = 'codeql-delta'; r.verification.scope = 'delta'; }),
+  'delta artifact name': f => { f.state.artifacts[404].name = evidence.artifactName('codeql', 202, 1, 'delta'); },
   'narrow formatting claimed as full': f => f.changeReceipt('checks', r => { r.verification.stages.format = 'changed'; }),
   'missing required stage scope': f => f.changeReceipt('checks', r => { delete r.verification.stages.tidy; }),
   'presentation-only CodeQL': f => f.changeReceipt('codeql', r => { r.verification.scope = 'presentation'; }),

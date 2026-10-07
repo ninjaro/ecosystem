@@ -257,6 +257,9 @@ void test_ci_result_gates() {
     require_true(codeql != nullptr, "CodeQL adapter must exist");
     write_text(gate, ci_shell(codeql->contents, "Enforce CodeQL result", 8));
     const std::vector<std::pair<std::string, std::string>> clean {
+        { "CODEQL_SCOPE", "full" },
+        { "REPOSITORY_OUTCOME", "success" },
+        { "REPOSITORY_EXIT_CODE", "0" },
         { "REPOSITORY_STATUS", "passed" },
         { "CODEQL_INIT_STATUS", "success" },
         { "CODEQL_BUILD_STATUS", "passed" },

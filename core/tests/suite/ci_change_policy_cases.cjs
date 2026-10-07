@@ -13,6 +13,7 @@ function full(report, validated = true) {
   assert.equal(report.classification, 'full');
   assert.deepEqual(report.affected_artifacts, all);
   assert.equal(report.format.scope, 'full');
+  assert.equal(report.execution.codeql, 'full');
   for (const check of ['repository', 'build', 'tests', 'coverage', 'codeql']) assert.equal(report.checks[check], 'full');
 }
 
@@ -31,10 +32,44 @@ for (const name of ['code/src/api.cpp', 'code/include/api.hpp', 'code/tests/api_
     assert.equal(report.checks.tests, 'affected');
     assert.equal(report.checks.codeql, 'full');
     assert.equal(report.checks.coverage, 'full');
+    assert.equal(report.execution.codeql, 'full', 'pushes retain a full security/publication baseline');
     assert.equal(report.checks.repository, 'full');
     assert.equal(report.comparison.manifest_blob, f.git('rev-parse', 'HEAD:manifest.json'));
     assert.equal(f.git('status', '--porcelain'), '', 'report must preserve tracked inputs');
     assert.equal(fs.existsSync(path.join(f.root, '.ecosystem/build')), false, 'report must not configure/build');
+  });
+}
+
+for (const scenario of ['docs', 'empty', 'source', 'header', 'assets', 'manifest', 'unknown',
+  'rename', 'delete', 'dirty', 'shallow', 'owned-docs']) {
+  test(`PR CodeQL execution: ${scenario}`, t => {
+    const f = fixture(t);
+    let base = f.base;
+    if (scenario === 'owned-docs') {
+      f.manifest.artifacts[3].root = 'docs'; f.manifest.artifacts[3].owns = ['include'];
+      f.write('manifest.json', JSON.stringify(f.manifest));
+      f.write('docs/include/readme.md', 'old\n'); base = f.commit('own build input');
+      f.write('docs/include/readme.md', 'new\n');
+    } else if (scenario === 'source') f.write('program/src/main.cpp', 'int main() { return 1; }\n');
+    else if (scenario === 'header') f.write('code/include/api.hpp', '#pragma once\nint next_answer();\n');
+    else if (scenario === 'assets') f.write('assets/data.txt', 'data\n');
+    else if (scenario === 'manifest') f.write('manifest.json', JSON.stringify({...f.manifest, description: 'new'}));
+    else if (scenario === 'unknown') f.write('input.cfg', 'data\n');
+    else if (scenario === 'rename') f.git('mv', 'docs/guide.md', 'docs/renamed.md');
+    else if (scenario === 'delete') f.git('rm', 'docs/guide.md');
+    else if (scenario !== 'empty') f.write('docs/guide.md', 'New guide\n');
+    if (scenario === 'empty') f.git('commit', '--allow-empty', '-qm', 'empty PR');
+    else f.commit('PR input');
+    const head = f.git('rev-parse', 'HEAD');
+    const merge = f.git('commit-tree', f.git('rev-parse', 'HEAD^{tree}'), '-p', base, '-p', head, '-m', 'merge');
+    f.git('checkout', '-q', '--detach', merge);
+    const input = changes.resolve({root: f.root, context: {eventName: 'pull_request', sha: merge,
+      payload: {pull_request: {base: {sha: base}, head: {sha: head}}}}});
+    if (scenario === 'dirty') f.write('docs/guide.md', 'Uncommitted\n');
+    if (scenario === 'shallow') f.write('.git/shallow', merge + '\n');
+    const report = f.report(input);
+    assert.equal(report.execution.codeql, ['docs', 'empty'].includes(scenario) ? 'repository' : 'full', report.reason);
+    assert.equal(fs.existsSync(path.join(f.root, '.ecosystem/build')), false);
   });
 }
 

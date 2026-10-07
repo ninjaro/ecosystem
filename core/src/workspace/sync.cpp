@@ -1,4 +1,5 @@
 #include "workspace/sync.hpp"
+#include "workspace/assets.hpp"
 
 #include "packages/package_summary.hpp"
 #include "packages/package_surface.hpp"
@@ -1487,6 +1488,12 @@ namespace sync_support {
         const std::string source_root_expression = developer_surface
             ? "${ECOSYSTEM_PROJECT_ROOT}"
             : "${CMAKE_CURRENT_SOURCE_DIR}";
+        std::string runtime_categories;
+        for (const auto& category : runtime_asset_categories()) {
+            if (!runtime_categories.empty())
+                runtime_categories += ' ';
+            runtime_categories += category;
+        }
         const std::set<std::string> selected_artifact_keys = developer_surface
             ? all_artifact_keys(value)
             : tracked_facade_artifact_keys(value);
@@ -1513,6 +1520,7 @@ namespace sync_support {
             ? render_required_sync_template(
                   "cmake/assets_install.tpl",
                   {
+                      { "runtime_categories", runtime_categories },
                       { "source_root_expression", source_root_expression },
                       { "project_id", value.id },
                   }
@@ -1527,6 +1535,7 @@ namespace sync_support {
                         render_required_sync_template(
                             "cmake/assets_embed.tpl",
                             {
+                                { "runtime_categories", runtime_categories },
                                 { "source_root_expression",
                                   source_root_expression },
                                 { "project_id", value.id },
@@ -1539,6 +1548,11 @@ namespace sync_support {
             ? render_required_sync_template(
                   "cmake/assets_function.tpl",
                   {
+                      { "assets_stage_script",
+                        render_required_sync_template(
+                            "cmake/assets_stage.tpl",
+                            { { "runtime_categories", runtime_categories } }
+                        ) },
                       { "source_root_expression", source_root_expression },
                       { "project_id", value.id },
                       { "assets_embed_function_block",

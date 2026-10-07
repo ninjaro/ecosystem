@@ -2,6 +2,7 @@
 
 #include <cxxopts.hpp>
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -47,6 +48,10 @@ std::string marx_usage_text() {
     return "usage: marx <command> [options] [arguments]\n"
            "\n"
            "commands:\n"
+           "  mutate assets put <category> <id> <path> <type> [--description "
+           "<text>] "
+           "[--datetime <text>] [--before <id>]\n"
+           "  mutate assets remove <category> <id>\n"
            "  sync [--project <project> ...] [--group <group> ...]\n"
            "  format [component:artifact] [--project <project> ...] [--group "
            "<group> ...]\n"
@@ -72,6 +77,10 @@ bool validate_mutate_request(
         *error_message = "expected: marx mutate <subcommand>";
         return false;
     }
+    if (args[0] == "assets")
+        return validate_assets_request(
+            args_list(args.begin() + 1, args.end()), error_message
+        );
     if (args[0] == "add" && args[1] == "component") {
         return parse_add_component_options("marx", args, error_message)
             .has_value();
@@ -104,9 +113,31 @@ bool validate_mutate_request(
     return false;
 }
 
-std::optional<marx_request> parse_marx_request(
+bool validate_assets_request(
     const args_list& args, std::string* error_message
 ) {
+    if (args.size() == 3 && args[0] == "remove")
+        return true;
+    if (args.size() >= 5 && args[0] == "put" && (args.size() - 5) % 2 == 0) {
+        std::set<std::string> seen;
+        bool valid = true;
+        for (std::size_t i = 5; i < args.size(); i += 2)
+            valid = valid
+                && (args[i] == "--description" || args[i] == "--datetime"
+                    || args[i] == "--before")
+                && seen.insert(args[i]).second;
+        if (valid)
+            return true;
+    }
+    *error_message
+        = "expected: marx mutate assets put <category> <id> <path> <type> "
+          "[--description <text>] [--datetime <text>] [--before <id>]\n"
+          "or: marx mutate assets remove <category> <id>";
+    return false;
+}
+
+std::optional<marx_request>
+parse_marx_request(const args_list& args, std::string* error_message) {
     cxxopts::Options options("marx", "");
     options.allow_unrecognised_options();
     options.add_options()("command", "", cxxopts::value<std::string>());

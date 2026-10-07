@@ -66,11 +66,11 @@ jobs:
     steps:
       - uses: {{checkout_action}}
         with:
-          fetch-depth: ${{ needs.select.outputs.scope == 'cheap' && '0' || '1' }}
+          fetch-depth: ${{ needs.select.outputs.scope != 'reuse' && '0' || '1' }}
 
       # Resolve against this job's checkout; selection artifacts are diagnostic.
       - name: Resolve checked-out changes
-        if: ${{ needs.select.outputs.scope == 'cheap' }}
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
         uses: {{github_script_action}}
         with:
           script: |
@@ -87,6 +87,28 @@ jobs:
           manifesto-ref: {{manifesto_ref}}
           build-parallelism: {{manifesto_build_parallelism}}
           install-project-deps: ${{ needs.select.outputs.scope == 'full' }}
+
+      - name: Classify checked-out changes
+        if: ${{ needs.select.outputs.scope == 'full' }}
+        id: classification
+        uses: {{github_script_action}}
+        env:
+          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+        with:
+          script: |
+            require('./.github/actions/select-manifesto-ci/changes.cjs').classify({core, binary: process.env.ENGELS_BINARY});
+
+      - name: Upload change classification
+        if: ${{ steps.classification.outcome == 'success' }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-classification-{{project_id}}-checks
+          path: |
+            .ecosystem/github/changes.json
+            .ecosystem/github/classification.json
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Run required local checks
         if: ${{ needs.select.outputs.scope != 'reuse' }}
@@ -188,6 +210,7 @@ jobs:
           EVIDENCE_KIND: checks
           VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}
           TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
+          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
           CHECK_OUTCOME: ${{ steps.required.outcome }}
           CHECK_STATUS: ${{ steps.required.outputs.status }}
           CHECK_EXIT_CODE: ${{ steps.required.outputs.exit-code }}

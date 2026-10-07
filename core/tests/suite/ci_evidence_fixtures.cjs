@@ -5,8 +5,10 @@ const path = require('node:path');
 const os = require('node:os');
 const {execFileSync} = require('node:child_process');
 const evidence = require(path.resolve(process.argv[2]));
+const changes = require(path.join(path.dirname(path.resolve(process.argv[2])), 'changes.cjs'));
+const engels = path.resolve(process.argv[3]);
 
-function fixture(t) {
+function fixture(t, delta = 'source') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-ci-evidence-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const git = (...args) => execFileSync('git', ['-C', root, '-c', 'commit.gpgsign=false', ...args], {encoding: 'utf8'}).trim();
@@ -15,15 +17,18 @@ function fixture(t) {
     fs.writeFileSync(path.join(root, name), data);
   };
   git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid');
-  write('manifest.json', '{"id":"fixture"}');
+  write('manifest.json', JSON.stringify({id: 'fixture', description: 'Evidence fixture.', facade: 'app:main',
+    artifacts: [{id: 'app:main', kind: 'exe', root: '.', owns: [], entry: 'src/main.cpp'}]}));
   write('manifesto.github.vars.json', '{"manifesto_bootstrap":"checkout"}');
   write('.github/workflows/tests.yml', 'checks policy');
   write('.github/workflows/codeql.yml', 'codeql policy');
   write('.gitignore', '.ecosystem/\n');
+  write('src/main.cpp', 'int main() { return 0; }\n');
   git('add', '.'); git('commit', '-qm', 'base');
   const base = git('rev-parse', 'HEAD');
-  write('src/main.cpp', 'int main() { return 0; }\n');
-  git('add', '.'); git('commit', '-qm', 'feature');
+  if (delta === 'docs') write('docs/guide.md', '# Guide\n');
+  else if (delta !== 'empty') write('src/main.cpp', 'int main() { return 1; }\n');
+  git('add', '.'); git('commit', '--allow-empty', '-qm', 'feature');
   const head = git('rev-parse', 'HEAD');
   const tree = git('rev-parse', 'HEAD^{tree}');
   const tested = git('commit-tree', tree, '-p', base, '-p', head, '-m', 'test merge');
@@ -35,27 +40,37 @@ function fixture(t) {
   const core = {setOutput: (key, value) => { outputs[key] = value; }, notice: m => notices.push(m), info: m => notices.push(m)};
   const runs = {};
   const github = {rest: {actions: {getWorkflowRun: async ({run_id}) => ({data: runs[run_id]})}}};
+  const context = {repo: {owner: 'owner', repo: 'project'}, sha: tested, eventName: 'pull_request',
+    ref: 'refs/pull/42/merge', payload: {repository, pull_request: pr}};
+  function selection(selected = context) {
+    const input = changes.resolve({root, context: selected});
+    write('.ecosystem/github/changes.json', JSON.stringify(input));
+    const report = changes.inspect({root, binary: engels});
+    write('.ecosystem/github/classification.json', JSON.stringify(report));
+    return {schema: 1, input, report};
+  }
+  selection();
   async function record(kind = 'checks', overrides = {}) {
     delete outputs.name; delete outputs.directory;
     const runId = kind === 'checks' ? 101 : 202;
     runs[runId] = {id: runId, run_attempt: 1, workflow_id: runId + 1000,
       path: `.github/workflows/${kind === 'checks' ? 'tests' : 'codeql'}.yml`,
-      repository, head_sha: head, event: 'pull_request', pull_requests: [pr], status: 'completed', conclusion: 'success'};
-    const env = {EVIDENCE_KIND: kind, VERIFICATION_SCOPE: 'full', TOOL_SOURCE_ROOT: root, GITHUB_RUN_ATTEMPT: '1',
+      repository, head_sha: context.eventName === 'pull_request' ? head : context.sha,
+      event: context.eventName, pull_requests: context.payload.pull_request ? [pr] : [], status: 'completed', conclusion: 'success'};
+    const env = {EVIDENCE_KIND: kind, VERIFICATION_SCOPE: 'full', TOOL_SOURCE_ROOT: root, ENGELS_BINARY: engels, GITHUB_RUN_ATTEMPT: '1',
       CODEQL_INIT_STATUS: 'success', CODEQL_ANALYZE_STATUS: 'success'};
     for (const prefix of ['CHECK', 'COVERAGE', 'REPOSITORY', 'CODEQL_BUILD']) {
       env[prefix + '_OUTCOME'] = 'success'; env[prefix + '_STATUS'] = 'passed'; env[prefix + '_EXIT_CODE'] = '0';
     }
     Object.assign(env, overrides);
-    for (const name of evidence.fileNames(kind, env.COVERAGE_STATUS))
+    for (const name of evidence.fileNames(kind, env.COVERAGE_STATUS).filter(name => !name.startsWith('github/selection/')))
       write('.ecosystem/' + name, name === 'reports/coverage.json'
         ? '{"type":"llvm.coverage.json.export","data":[{"files":[{}],"totals":{"lines":{"count":10,"covered":7}}}]}' : 'native evidence\n');
-    const context = {repo: {owner: 'owner', repo: 'project'}, runId, sha: tested, eventName: 'pull_request', payload: {repository, pull_request: pr}};
-    await evidence.record({github, core, context, env, root});
+    await evidence.record({github, core, context: {...context, runId}, env, root});
     if (!outputs.directory) return null;
     return JSON.parse(fs.readFileSync(path.join(outputs.directory, 'receipt.json')));
   }
-  return {root, git, write, base, head, tree, tested, pr, repository, outputs, notices, core, github, runs, record};
+  return {root, git, write, base, head, tree, tested, pr, repository, outputs, notices, core, github, runs, record, selection, record_context: context};
 }
 
 async function consumerFixture(t, strategy = 'squash') {
@@ -87,6 +102,15 @@ async function consumerFixture(t, strategy = 'squash') {
     change(receipt);
     fs.writeFileSync(file, JSON.stringify(receipt));
     repack(kind);
+  }
+  function changeSelection(kind, change) {
+    const name = `github/selection/${kind}.json`;
+    const file = path.join(f.root, '.ecosystem/github/evidence', kind, name);
+    const value = JSON.parse(fs.readFileSync(file));
+    change(value);
+    const data = JSON.stringify(value) + '\n';
+    fs.writeFileSync(file, data);
+    changeReceipt(kind, receipt => { receipt.files[name] = {bytes: Buffer.byteLength(data), sha256: evidence.hash(data)}; });
   }
   for (const kind of ['checks', 'codeql']) {
     const run = f.runs[kind === 'checks' ? 101 : 202];
@@ -125,7 +149,7 @@ async function consumerFixture(t, strategy = 'squash') {
   };
   const select = async (kind = 'checks', scope = 'full') => evidence.select({github: f.github, context,
     core: f.core, root: f.root, env: {BASE_SCOPE: scope, EVIDENCE_KIND: kind}});
-  return {...f, state, context, repack, changeReceipt, select};
+  return {...f, state, context, repack, changeReceipt, changeSelection, select};
 }
 
 module.exports = {fixture, consumerFixture, evidence};

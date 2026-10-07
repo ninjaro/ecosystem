@@ -13,26 +13,37 @@ void test_ci_evidence() {
     require_true(workflow != nullptr, "Checks workflow must be generated");
     const auto workflow_path = root.path() / "tests.yml";
     write_text(workflow_path, workflow->contents);
+    const auto* codeql
+        = find_tracked_surface_file(files, ".github/workflows/codeql.yml");
+    require_true(codeql != nullptr, "CodeQL workflow must be generated");
+    const auto codeql_path = root.path() / "codeql.yml";
+    write_text(codeql_path, codeql->contents);
+    for (const auto* adapter : { "changes.cjs", "evidence.cjs" }) {
+        const auto* script = find_tracked_surface_file(
+            files, ".github/actions/select-manifesto-ci/" + std::string(adapter)
+        );
+        require_true(script != nullptr, "CI adapter must be generated");
+        const auto destination = root.path() / adapter;
+        write_text(destination, script->contents);
+    }
     for (const auto& [adapter, fixture] :
          std::vector<std::pair<std::string, std::string>> {
              { "changes.cjs", "ci_change_cases.cjs" },
              { "changes.cjs", "ci_change_policy_cases.cjs" },
              { "changes.cjs", "ci_changed_format_cases.cjs" },
              { "changes.cjs", "ci_cheap_format_cases.cjs" },
+             { "changes.cjs", "ci_classification_cases.cjs" },
+             { "changes.cjs", "ci_codeql_cases.cjs" },
              { "evidence.cjs", "ci_evidence_cases.cjs" },
+             { "evidence.cjs", "ci_codeql_delta_cases.cjs" },
              { "evidence.cjs", "ci_publication_cases.cjs" } }) {
-        const auto* script = find_tracked_surface_file(
-            files, ".github/actions/select-manifesto-ci/" + adapter
-        );
-        require_true(script != nullptr, "CI adapter must be generated");
         const auto destination = root.path() / adapter;
-        write_text(destination, script->contents);
         const auto result = ecosystem::capture_command_result(
             { "node",
               (fs::path(ECOS_TEST_SOURCE_DIR) / "core/tests/suite" / fixture)
                   .string(),
               destination.string(), engels_binary_path().string(),
-              workflow_path.string() },
+              workflow_path.string(), codeql_path.string() },
             root.path()
         );
         require_true(

@@ -1,3 +1,4 @@
+#include "workspace/assets.hpp"
 #include "workspace/read_commands.hpp"
 
 #include "analysis/personal.hpp"
@@ -856,6 +857,12 @@ command_error run_check_repo(
     const fs::path& project_root, const manifest& manifest_value,
     std::ostream& out, std::ostream& err
 ) {
+    const auto asset_errors = validate_assets(project_root);
+    if (!asset_errors.empty()) {
+        for (const auto& issue : asset_errors)
+            print_error(err, command_error::task_failed, issue);
+        return command_error::task_failed;
+    }
     const string_list issues = forbidden_repository_entries(project_root);
     if (!issues.empty()) {
         err << "forbidden repository entries:\n";

@@ -227,7 +227,12 @@ void test_release_asset_intent() {
     require_true(selected.has_value(), "asset fixture must resolve");
     const auto binary = root.path() / "output/app";
     write_text(binary, "application fixture");
-    write_text(root.path() / "assets/visible.txt", "opted-in asset\n");
+    write_text(root.path() / "assets/sets/visible.txt", "opted-in asset\n");
+    write_text(
+        root.path() / "assets/sets/showcase/runtime.dat",
+        "nested runtime asset\n"
+    );
+    write_text(root.path() / "assets/showcase/demo.pdf", "presentation only\n");
     ecosystem::prerelease_version version;
     ecosystem::prerelease_artifacts artifacts;
     std::string error;
@@ -248,11 +253,21 @@ void test_release_asset_intent() {
             listing.exit_code == 0, "native archive listing must succeed"
         );
         require_true(
-            (listing.output.find("usr/bin/assets/visible.txt")
+            (listing.output.find("usr/bin/assets/sets/visible.txt")
              != std::string::npos)
                 == enabled,
             "each archive must reflect current asset install intent, without "
             "stale payloads"
+        );
+        require_true(
+            (listing.output.find("usr/bin/assets/sets/showcase/runtime.dat")
+             != std::string::npos)
+                == enabled,
+            "nested runtime directories keep their ownership"
+        );
+        require_not_contains(
+            listing.output, "usr/bin/assets/showcase/",
+            "native packages must exclude project presentation media"
         );
     }
 }

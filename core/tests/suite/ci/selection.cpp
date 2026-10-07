@@ -125,15 +125,15 @@ void test_ci_selection() {
     );
     require_contains(
         checks->contents,
-        "fetch-depth: ${{ needs.select.outputs.scope == 'cheap' && '0' || '1' "
+        "fetch-depth: ${{ needs.select.outputs.scope != 'reuse' && '0' || '1' "
         "}}",
-        "cheap formatting requires history in the verification checkout"
+        "fresh verification requires history in its own checkout"
     );
     require_contains(
         checks->contents,
         "- name: Resolve checked-out changes\n"
-        "        if: ${{ needs.select.outputs.scope == 'cheap' }}",
-        "cheap checks must bind changes to their own checkout before setup"
+        "        if: ${{ needs.select.outputs.scope != 'reuse' }}",
+        "fresh checks must bind changes to their own checkout before setup"
     );
     const auto* setup = find_tracked_surface_file(
         files, ".github/actions/setup-manifesto/action.yml"

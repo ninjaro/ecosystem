@@ -208,12 +208,15 @@ bool publish_local_sphinx_output(
     const auto previous = directory / "html.previous";
     try {
         validate_outputs(root);
-        if (!fs::is_regular_file(pending / "index.html")
-            || fs::file_size(pending / "index.html") == 0)
-            throw template_render_error(
-                "sphinx produced no fresh HTML index; expected "
-                ".ecosystem/sphinx/html.pending/index.html"
-            );
+        for (const auto* name : { "index.html", "_manifesto/index.html",
+                                  "_manifesto/doxygen/index.html" })
+            if (!fs::is_regular_file(pending / name)
+                || fs::file_size(pending / name) == 0)
+                throw template_render_error(
+                    "sphinx produced no fresh HTML index; expected "
+                    ".ecosystem/sphinx/html.pending/"
+                    + std::string(name)
+                );
         if (fs::exists(previous))
             throw template_render_error(
                 "Sphinx recovery output exists at "

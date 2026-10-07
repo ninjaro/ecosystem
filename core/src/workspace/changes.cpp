@@ -256,6 +256,7 @@ json change_report(const fs::path& root, const manifest& value) {
                   { "paths", json::array() },
                   { "affected_projects", json::array({ value.id }) },
                   { "affected_artifacts", all_artifacts },
+                  { "execution", { { "codeql", "full" } } },
                   { "format",
                     { { "scope", "full" }, { "files", json::array() } } },
                   { "checks",
@@ -410,6 +411,10 @@ json change_report(const fs::path& root, const manifest& value) {
         result["checks"]["tests"] = affected.empty() ? "none" : "affected";
         result["checks"]["codeql"] = affected.empty() ? "none" : "full";
         result["checks"]["presentation"] = presentation;
+        // PR deltas may omit analysis. Pushes and independent baselines still
+        // establish full evidence for publication and security.
+        if (affected.empty() && input.at("event") == "pull_request")
+            result["execution"]["codeql"] = "repository";
         return result;
     } catch (const json::exception&) {
         result["reason"] = "invalid-change-record";
