@@ -26,7 +26,19 @@ struct diagnostic_finding {
 };
 
 json to_json(const diagnostic_finding& finding);
-// Both checks and report commands render the canonical JSON result.
-void render_diagnostic_report(const json& report, std::ostream& out);
+
+enum class diagnostic_format { terminal, markdown };
+
+/// Selects displayed findings; snapshot contents and analysis status stay
+/// intact.
+struct diagnostic_view {
+    diagnostic_format format = diagnostic_format::terminal;
+    std::optional<std::string> category;
+    std::optional<std::string> severity;
+};
+
+void render_diagnostic_report(
+    const json& report, std::ostream& out, const diagnostic_view& view = {}
+);
 
 } // namespace ecosystem

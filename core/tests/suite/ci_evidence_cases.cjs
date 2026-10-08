@@ -185,7 +185,7 @@ test('manual Pages snapshots only its current successful prerequisites', async t
   assert.equal(f.outputs.name, undefined, 'manual presentation must not create a reusable CI artifact');
   f.write('.ecosystem/doxygen/html/index.html', 'fresh API');
   execFileSync('python3', ['-c',
-    'import pathlib,runpy,sys\nm=runpy.run_path(sys.argv[1])\nbody,files=m["compose"](pathlib.Path(sys.argv[2]),sys.argv[3])\nassert "70.0%" in body and "01-tracked-surface" in body\nassert "doxygen/index.html" in files',
+    'import pathlib,runpy,sys\nsys.dont_write_bytecode=True\nsys.path.insert(0,str(pathlib.Path(sys.argv[1]).parent))\nm=runpy.run_path(sys.argv[1])\nbody,files,pages=m["compose"](pathlib.Path(sys.argv[2]),sys.argv[3])\nassert "70.0%" in body and "01-tracked-surface" in body\nassert "doxygen/index.html" in files',
     path.resolve(__dirname, '../../../templates/tooling/sphinx_presentation.py.tpl'), f.root, f.outputs.directory]);
 });
 

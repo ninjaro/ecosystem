@@ -185,11 +185,13 @@ void test_ci_selection() {
             "native docs dependencies support full tests or explicit "
             "documentation"
         );
-        require_true(
-            (result.output.find("python3-venv") != std::string::npos)
-                == (docs == "true"),
-            "Sphinx dependencies remain explicit"
-        );
+        for (const auto* package :
+             { "python3-venv", "poppler-utils", "ffmpeg" })
+            require_true(
+                (result.output.find(package) != std::string::npos)
+                    == (docs == "true"),
+                "presentation dependencies remain explicit"
+            );
     }
 
     // Execute the exact generated local-operation selection with recording

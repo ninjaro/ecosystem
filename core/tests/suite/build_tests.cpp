@@ -630,6 +630,14 @@ void test_installed_actors_use_their_template_bundle() {
         fs::is_regular_file(bundle / "tracked/.github/workflows/tests.yml.tpl"),
         "install must include hidden tracked template directories"
     );
+    for (const auto* name :
+         { "inputs.py", "reports.py", "benchmarks.py", "benchmark_data.py",
+           "diagnostics.py", "diagnostics.js", "diagnostics.css", "assets.py",
+           "readme.py", "previews.py", "carousel.css", "carousel.js" })
+        require_true(
+            fs::is_regular_file(bundle / "tooling/sphinx_presentation" / name),
+            "installed tooling must carry its presentation companions"
+        );
     const auto surface = bundle / "cmake/surface_prefix.tpl";
     write_text(surface, "# installed bundle\n" + read_text(surface));
     write_text(

@@ -4,6 +4,16 @@
 using namespace ecosystem_test_support;
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--tex-integration") {
+        try {
+            test_tex_native();
+            std::cout << "[ok] native TeX/showcase/Sphinx pipeline\n";
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[failed] native TeX: " << error.what() << "\n";
+            return 1;
+        }
+    }
     if (argc > 1 && std::string(argv[1]) == "--facade-android") {
         if (argc != 3) {
             std::cerr << "usage: " << argv[0]
@@ -81,7 +91,17 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::vector<std::pair<std::string, std::function<void()>>> tests {
+        { "diagnostic_views", test_diagnostic_views },
+        { "report_display_scope", test_report_display_scope },
         { "asset_categories", test_asset_categories },
+        { "tex_selection", test_tex_selection },
+        { "tex_registration", test_tex_registration },
+        { "tex_failures", test_tex_failures },
+        { "tex_rollback", test_tex_rollback },
+        { "tex_aliases", test_tex_aliases },
+        { "tex_ownership", test_tex_ownership },
+        { "tex_tooling", test_tex_tooling },
+        { "tex_workspace", test_tex_workspace },
         { "asset_branches", test_asset_branches },
         { "asset_ignore_rules", test_asset_ignore_rules },
         { "asset_report_names", test_asset_report_names },
@@ -89,6 +109,7 @@ int main(int argc, char** argv) {
         { "asset_index_order", test_asset_index_order },
         { "asset_index_errors", test_asset_index_errors },
         { "asset_controller_order", test_asset_controller_order },
+        { "asset_batch_update", test_asset_batch_update },
         { "asset_controller_errors", test_asset_controller_errors },
         { "asset_controller_aliases", test_asset_controller_aliases },
         { "asset_controller_cli", test_asset_controller_cli },

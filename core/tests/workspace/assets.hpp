@@ -10,6 +10,7 @@ void test_asset_repo_gate();
 void test_asset_index_order();
 void test_asset_index_errors();
 void test_asset_controller_order();
+void test_asset_batch_update();
 void test_asset_controller_errors();
 void test_asset_controller_aliases();
 void test_asset_controller_cli();

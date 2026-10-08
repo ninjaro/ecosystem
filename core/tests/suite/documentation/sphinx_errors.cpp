@@ -5,10 +5,24 @@ namespace ecosystem_test_support {
 
 void test_sphinx_output_aliases() {
     for (const auto* relative :
-         { ".ecosystem", ".ecosystem/sphinx", ".ecosystem/sphinx/conf.py",
+         { ".ecosystem",
+           ".ecosystem/sphinx",
+           ".ecosystem/sphinx/conf.py",
            ".ecosystem/sphinx/manifesto_presentation.py",
-           ".ecosystem/sphinx/html", ".ecosystem/sphinx/html/nested/index.html",
-           ".ecosystem/sphinx/html/.doctrees", ".ecosystem/sphinx/html.pending",
+           ".ecosystem/sphinx/sphinx_presentation",
+           ".ecosystem/sphinx/sphinx_presentation/assets.py",
+           ".ecosystem/sphinx/sphinx_presentation/benchmarks.py",
+           ".ecosystem/sphinx/sphinx_presentation/benchmark_data.py",
+           ".ecosystem/sphinx/sphinx_presentation/diagnostics.py",
+           ".ecosystem/sphinx/sphinx_presentation/diagnostics.js",
+           ".ecosystem/sphinx/sphinx_presentation/diagnostics.css",
+           ".ecosystem/sphinx/sphinx_presentation/previews.py",
+           ".ecosystem/sphinx/sphinx_presentation/carousel.css",
+           ".ecosystem/sphinx/sphinx_presentation/carousel.js",
+           ".ecosystem/sphinx/html",
+           ".ecosystem/sphinx/html/nested/index.html",
+           ".ecosystem/sphinx/html/.doctrees",
+           ".ecosystem/sphinx/html.pending",
            ".ecosystem/sphinx/html.previous",
            ".ecosystem/sphinx/sphinx.log" }) {
         temp_dir root;
@@ -17,8 +31,9 @@ void test_sphinx_output_aliases() {
         const auto authored = read_text(project / "manifest.json");
         const auto destination = project / "authored";
         const auto alias = project / relative;
-        const bool file_alias
-            = alias.extension() == ".py" || alias.extension() == ".html";
+        const bool file_alias = alias.extension() == ".py"
+            || alias.extension() == ".html" || alias.extension() == ".css"
+            || alias.extension() == ".js";
         const bool html_alias
             = std::string(relative).starts_with(".ecosystem/sphinx/html");
         if (html_alias)

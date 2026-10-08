@@ -53,7 +53,7 @@ std::string engels_usage_text() {
            "  doctor [profile] [component:artifact] [--project <project> ...]\n"
            "  doctor <component:artifact> --profile <profile>\n"
            "  report <kind> [component:artifact] [--project <project> ...] "
-           "[--json]\n"
+           "[--json|--markdown] [--category <name>] [--severity <name>]\n"
            "\ncheck profiles: format tidy tests coverage leaks naming style "
            "repo ci "
            "doxy sphinx java\n"

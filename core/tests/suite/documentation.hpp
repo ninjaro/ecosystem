@@ -17,6 +17,9 @@ void test_sphinx_theme_override();
 void test_sphinx_output_aliases();
 void test_sphinx_failure_recovery();
 void test_sphinx_native_pipeline();
+void test_native_asset_pages(const std::filesystem::path& project);
+void test_native_diagnostics(const std::filesystem::path& project);
+void test_native_benchmarks(const std::filesystem::path& project);
 
 void write_fake_sphinx(const std::filesystem::path& path);
 

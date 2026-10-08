@@ -156,6 +156,9 @@ void test_sphinx_native_pipeline() {
             && !fs::exists(directory / "html/_manifesto/showcase/missing.png"),
         "rebuilding must retire removed showcase output"
     );
+    test_native_asset_pages(project);
+    test_native_diagnostics(project);
+    test_native_benchmarks(project);
 }
 
 } // namespace ecosystem_test_support

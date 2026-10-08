@@ -1,4 +1,5 @@
 #include "cli/engels_command.hpp"
+#include "cli/engels_args.hpp"
 
 #include "workspace/read_commands.hpp"
 
@@ -221,15 +222,15 @@ int run_engels_command(
             return exit_code(command_error::invalid_request);
         }
         args_list report_args(args.begin() + 2, args.end());
-        const auto json_flags = std::erase(report_args, "--json");
-        if (json_flags > 1) {
-            emit_command_error(
-                err, command_error::invalid_request,
-                "--json may be specified only once"
-            );
+        bool json_output = false;
+        diagnostic_view view;
+        std::string view_error;
+        if (!engels_cli_support::parse_report_view(
+                &report_args, &json_output, &view, &view_error
+            )) {
+            emit_command_error(err, command_error::invalid_request, view_error);
             return exit_code(command_error::invalid_request);
         }
-        const bool json_output = json_flags == 1;
         if (workspace_mode) {
             workspace_scope scope;
             const command_error parse_status = parse_workspace_scope(
@@ -239,7 +240,7 @@ int run_engels_command(
                 return exit_code(parse_status);
             }
             return exit_code(run_workspace_report(
-                *workspace, args[1], scope, out, err, json_output
+                *workspace, args[1], scope, out, err, json_output, view
             ));
         }
         if (report_args.size() > 1U) {
@@ -264,7 +265,7 @@ int run_engels_command(
         }
         return exit_code(run_report(
             project_root, *current_manifest_report.value, args[1],
-            requested_artifact, out, err, json_output
+            requested_artifact, out, err, json_output, view
         ));
     }
 

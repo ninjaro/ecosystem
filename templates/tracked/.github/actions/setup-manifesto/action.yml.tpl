@@ -140,6 +140,8 @@ runs:
         if [ "${{ inputs.install-docs }}" = "true" ]; then
           packages+=(
             python3-venv
+            poppler-utils
+            ffmpeg
           )
         fi
         sudo apt-get update

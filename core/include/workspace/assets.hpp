@@ -26,6 +26,11 @@ bool put_asset_entry(
     const std::filesystem::path& root, const std::string& category,
     const asset_entry& entry, const std::string& before, std::string* error
 );
+/** Replace and append entries in one validated index update. */
+bool put_asset_entries(
+    const std::filesystem::path& root, const std::string& category,
+    const std::vector<asset_entry>& updates, std::string* error
+);
 /** Remove index ownership only; retain the media file. */
 bool remove_asset_entry(
     const std::filesystem::path& root, const std::string& category,

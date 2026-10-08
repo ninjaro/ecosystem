@@ -1,5 +1,6 @@
 #pragma once
 
+#include "analysis/diagnostic.hpp"
 #include "workspace/project.hpp"
 #include "workspace/workspace_scope.hpp"
 
@@ -45,12 +46,13 @@ command_error run_report(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::string& kind,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
-    std::ostream& err, bool json_output = false
+    std::ostream& err, bool json_output = false,
+    const diagnostic_view& view = {}
 );
 command_error run_workspace_report(
     const workspace_context& workspace, const std::string& kind,
     const workspace_scope& scope, std::ostream& out, std::ostream& err,
-    bool json_output = false
+    bool json_output = false, const diagnostic_view& view = {}
 );
 command_error parse_workspace_doctor_request(
     const workspace_context& workspace, const string_list& args,

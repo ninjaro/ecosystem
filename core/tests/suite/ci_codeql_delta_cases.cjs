@@ -29,7 +29,7 @@ test('non-code PR records repository-only CodeQL evidence', async t => {
   f.write('.ecosystem/doxygen/html/index.html', 'API');
   const presentation = path.resolve(__dirname, '../../../templates/tooling/sphinx_presentation.py.tpl');
   assert.throws(() => execFileSync('python3', ['-c',
-    'import pathlib,runpy,sys\nm=runpy.run_path(sys.argv[1])\nm["compose"](pathlib.Path(sys.argv[2]),sys.argv[3])',
+    'import pathlib,runpy,sys\nsys.dont_write_bytecode=True\nsys.path.insert(0,str(pathlib.Path(sys.argv[1]).parent))\nm=runpy.run_path(sys.argv[1])\nm["compose"](pathlib.Path(sys.argv[2]),sys.argv[3])',
     presentation, f.root, f.outputs.directory], {stdio: 'pipe'}), /Command failed/);
 });
 

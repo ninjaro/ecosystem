@@ -62,6 +62,7 @@ std::string marx_usage_text() {
            "  mutate add file-unit <component-id> <module-id> --kind <kind>\n"
            "  mutate set facade-entry <component:artifact>\n"
            "  build <profile> [component:artifact] [--project <project> ...]\n"
+           "  build tex [--project <project> ...] [--group <group> ...]\n"
            "  benchmark [component:artifact] [--project <project> ...] [-- "
            "<arg> ...]\n"
            "  run <profile> [component:artifact] [--project <project> ...] "

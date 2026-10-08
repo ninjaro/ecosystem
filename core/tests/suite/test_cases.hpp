@@ -2,12 +2,16 @@
 
 #include "../workspace/assets.hpp"
 #include "../workspace/release.hpp"
+#include "../workspace/tex.hpp"
 #include "ci.hpp"
 #include "documentation.hpp"
 
 #include <filesystem>
 
 namespace ecosystem_test_support {
+
+void test_diagnostic_views();
+void test_report_display_scope();
 
 void test_android_source_facade(const std::filesystem::path& ndk);
 

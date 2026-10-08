@@ -57,6 +57,7 @@
       "root": "core",
       "owns": [
         "cli/engels_args",
+        "cli/engels_report_args",
         "cli/engels_command",
         "cli/engels_cli"
       ],

@@ -1,6 +1,7 @@
 #include "workspace/read_commands.hpp"
 
 #include "command_internal.hpp"
+#include "workspace/tex.hpp"
 
 #include <optional>
 #include <sstream>
@@ -45,11 +46,12 @@ command_error run_doctor(
     }
 
     if (profile) {
+        const bool tex_profile = *profile == "tex";
         const bool build_profile
             = contains_string(known_build_profiles, *profile);
         const bool check_profile
             = contains_string(known_check_profiles, *profile);
-        if (!build_profile && !check_profile) {
+        if (!build_profile && !check_profile && !tex_profile) {
             print_error(
                 err, command_error::invalid_request,
                 "unknown profile: " + *profile
@@ -80,7 +82,7 @@ command_error run_doctor(
                 << "\n";
             return command_error::unsupported_by_manifest;
         }
-        if ((*profile == "java" || *profile == "sphinx")
+        if ((*profile == "java" || *profile == "sphinx" || tex_profile)
             && requested_artifact) {
             print_error(
                 err, command_error::invalid_request,
@@ -95,6 +97,20 @@ command_error run_doctor(
                 "sphinx"
             );
             return command_error::unsupported_by_manifest;
+        }
+        if (tex_profile) {
+            try {
+                if (tex_sources(project_root).empty()) {
+                    print_error(
+                        err, command_error::unsupported_by_manifest,
+                        "project has no root-level tex/*.tex documents"
+                    );
+                    return command_error::unsupported_by_manifest;
+                }
+            } catch (const std::exception& failure) {
+                print_error(err, command_error::task_failed, failure.what());
+                return command_error::task_failed;
+            }
         }
         if ((*profile == "java"
              || (*profile == "ci" && !requested_artifact
@@ -169,6 +185,9 @@ command_error run_doctor(
                "selected theme) and, for Markdown, "
                "myst_parser "
                "must be importable by sphinx-build\n";
+    if (profile == "tex")
+        out << "TeX environment: latexmk with pdflatex; root-level tex/*.tex "
+               "documents only\n";
     if (profile == "java")
         out << "Java environment: JDK/JNI development files and the selected "
                "Gradle runtime required\n";

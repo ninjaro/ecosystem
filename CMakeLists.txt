@@ -84,6 +84,46 @@ function(ecosystem_apply_defaults target_name)
         )
     endif ()
 endfunction()
+function(ecosystem_stage_assets target_name)
+    file(GENERATE
+            OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/manifesto_assets_${target_name}_$<CONFIG>.cmake"
+            CONTENT [==[if (NOT IS_DIRECTORY "${asset_source}" OR IS_SYMLINK "${asset_source}")
+    message(FATAL_ERROR "Invalid runtime asset source: ${asset_source}")
+endif ()
+if (IS_SYMLINK "${asset_destination}" OR
+        (EXISTS "${asset_destination}" AND NOT IS_DIRECTORY "${asset_destination}"))
+    message(FATAL_ERROR "Invalid runtime asset destination: ${asset_destination}")
+endif ()
+foreach (category IN ITEMS brand reports dataset dumps sets templates)
+    if (IS_SYMLINK "${asset_source}/${category}" OR IS_SYMLINK "${asset_destination}/${category}")
+        message(FATAL_ERROR "Runtime asset category uses a symlink: ${category}")
+    endif ()
+    if (EXISTS "${asset_source}/${category}")
+        if (NOT IS_DIRECTORY "${asset_source}/${category}")
+            message(FATAL_ERROR "Runtime asset category is not a directory: ${category}")
+        endif ()
+        file(COPY "${asset_source}/${category}" DESTINATION "${asset_destination}")
+    endif ()
+endforeach ()
+# Retire media staged by older facades without following a directory alias.
+if (IS_SYMLINK "${asset_destination}/showcase")
+    file(REMOVE "${asset_destination}/showcase")
+else ()
+    file(REMOVE_RECURSE "${asset_destination}/showcase")
+endif ()
+]==]
+    )
+    add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+            "-Dasset_source=${CMAKE_CURRENT_SOURCE_DIR}/assets"
+            "-Dasset_destination=$<TARGET_FILE_DIR:${target_name}>/assets"
+            -P "${CMAKE_CURRENT_BINARY_DIR}/manifesto_assets_${target_name}_$<CONFIG>.cmake"
+            VERBATIM
+    )
+endfunction()
+
+
 
 # Runtime data belongs to the tooling install, independently of project assets.
 file(RELATIVE_PATH MANIFESTO_INSTALL_TEMPLATE_PATH
@@ -100,6 +140,7 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/templates/"
 set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/clang.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/diagnostic.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/diagnostic_view.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/personal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/tidy.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/manifest.hpp
@@ -132,6 +173,7 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/source_dependencies.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/sync.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/template_text.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tex.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling/android.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling/build.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/tooling/process.hpp
@@ -144,6 +186,7 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/command_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/ci.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/documentation.hpp
@@ -151,10 +194,14 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_support.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/assets.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/release.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/tex.hpp
 )
 set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_markdown.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_terminal.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_view.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal_structure.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/tidy.cpp
@@ -178,7 +225,10 @@ set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/index.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/topology.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/update.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/write.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark/parse.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark/run.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark/svg.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/changes.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doctor.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doxygen.cpp
@@ -200,6 +250,9 @@ set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/source_dependencies.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/sync.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/template_text.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/build.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/inputs.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/publish.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/android.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/build.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/inventory.cpp
@@ -212,6 +265,9 @@ set(MANIFESTO_CORE_CORE_SOURCES
 set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_markdown.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_terminal.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_view.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal_structure.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/tidy.cpp
@@ -235,7 +291,10 @@ set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/index.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/topology.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/update.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/write.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark/parse.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark/run.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/benchmark/svg.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/changes.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doctor.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doxygen.cpp
@@ -257,6 +316,9 @@ set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/source_dependencies.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/sync.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/template_text.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/build.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/inputs.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/publish.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/android.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/build.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/inventory.cpp
@@ -287,11 +349,13 @@ set(MANIFESTO_ENGELS_CLI_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_command.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_report_args.cpp
 )
 set(MANIFESTO_ENGELS_CLI_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_command.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_report_args.cpp
 )
 set(MANIFESTO_ENGELS_ENGELS_HEADERS
 )
@@ -407,6 +471,8 @@ set_target_properties(engels__engels PROPERTIES OUTPUT_NAME engels)
 
 ecosystem_apply_defaults(engels__engels)
 
+ecosystem_stage_assets(engels__engels)
+
 
 add_library(marx__cli STATIC
     ${MANIFESTO_MARX_CLI_HEADERS}
@@ -448,6 +514,8 @@ target_link_libraries(marx__marx PRIVATE
 set_target_properties(marx__marx PROPERTIES OUTPUT_NAME marx)
 
 ecosystem_apply_defaults(marx__marx)
+
+ecosystem_stage_assets(marx__marx)
 
 
 # The visitor name is generated state; the selected target keeps its identity.

@@ -42,6 +42,8 @@ namespace {
             { "doxygen", "doxygen", { "doxy", "sphinx" } },
             { "dot", "Graphviz dot", { "doxy", "sphinx" }, { "-V" } },
             { "sphinx-build", "sphinx-build", { "sphinx" } },
+            { "latexmk", "latexmk", { "tex" }, { "-v" } },
+            { "pdflatex", "pdflatex", { "tex" } },
             { "llvm-cov", "llvm-cov", { "coverage" } },
             { "llvm-profdata", "llvm-profdata", { "coverage" } },
             { "java", "java", { "java" }, { "-version" } },

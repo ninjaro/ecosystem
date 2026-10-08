@@ -166,6 +166,21 @@ bool write_local_sphinx_conf(
             error_message
         ))
         return false;
+    for (const auto* name :
+         { "__init__.py", "inputs.py", "reports.py", "benchmarks.py",
+           "benchmark_data.py", "diagnostics.py", "diagnostics.js",
+           "diagnostics.css", "assets.py", "readme.py", "previews.py",
+           "carousel.css", "carousel.js" }) {
+        const auto relative = fs::path("sphinx_presentation") / name;
+        std::string module;
+        if (!render_template(
+                fs::path("tooling") / relative, {}, &module, error_message
+            )
+            || !write_text_file(
+                local_sphinx_dir(project_root) / relative, module, error_message
+            ))
+            return false;
+    }
     return write_text_file(
                local_sphinx_dir(project_root) / "manifesto_presentation.py",
                presentation, error_message

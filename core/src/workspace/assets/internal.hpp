@@ -24,6 +24,10 @@ std::vector<asset_entry> load_index(
     const std::filesystem::path& root, const std::string& category,
     bool check_files
 );
+void write_index(
+    const std::filesystem::path& root, const std::string& category,
+    const std::vector<asset_entry>& entries
+);
 void check_tree(const std::filesystem::path& root, bool indexes);
 void check_ignore(const std::filesystem::path& assets);
 void check_reports(const std::filesystem::path& assets);

@@ -93,8 +93,8 @@ diagnostic_report_result build_workspace_diagnostic_report(
 
 command_error write_diagnostic_report(
     const diagnostic_report_result& result, const fs::path& root,
-    const fs::path& path, const bool json_output, std::ostream& out,
-    std::ostream& err
+    const fs::path& path, const bool json_output, const diagnostic_view& view,
+    std::ostream& out, std::ostream& err
 ) {
     std::string error;
     if (!write_text_file(path, result.report.dump(2) + "\n", &error)) {
@@ -104,9 +104,10 @@ command_error write_diagnostic_report(
     if (json_output)
         out << result.report.dump(2) << "\n";
     else {
-        render_diagnostic_report(result.report, out);
-        out << "report: " << path.lexically_relative(root).generic_string()
-            << "\n";
+        render_diagnostic_report(result.report, out, view);
+        if (view.format == diagnostic_format::terminal)
+            out << "report: " << path.lexically_relative(root).generic_string()
+                << "\n";
     }
     return result.status;
 }
@@ -115,8 +116,19 @@ command_error run_report(
     const fs::path& project_root, const manifest& manifest_value,
     const std::string& kind,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
-    std::ostream& err, const bool json_output
+    std::ostream& err, const bool json_output, const diagnostic_view& view
 ) {
+    const bool display_options = view.category || view.severity
+        || view.format != diagnostic_format::terminal;
+    if ((display_options && kind != "cxx" && kind != "naming"
+         && kind != "style")
+        || (json_output && display_options)) {
+        print_error(
+            err, command_error::invalid_request,
+            "display options require a diagnostic terminal or Markdown report"
+        );
+        return command_error::invalid_request;
+    }
     if (!contains_string(known_report_kinds, kind)) {
         print_error(
             err, command_error::invalid_request,
@@ -183,19 +195,30 @@ command_error run_report(
     );
     return write_diagnostic_report(
         result, project_root, local_report_dir(project_root) / (kind + ".json"),
-        json_output, out, err
+        json_output, view, out, err
     );
 }
 
 command_error run_workspace_report(
     const workspace_context& workspace, const std::string& kind,
     const workspace_scope& scope, std::ostream& out, std::ostream& err,
-    const bool json_output
+    const bool json_output, const diagnostic_view& view
 ) {
     if (kind == "changes") {
         print_error(
             err, command_error::invalid_request,
             "changes report requires a project root and its event record"
+        );
+        return command_error::invalid_request;
+    }
+    const bool display_options = view.category || view.severity
+        || view.format != diagnostic_format::terminal;
+    if ((display_options && kind != "cxx" && kind != "naming"
+         && kind != "style")
+        || (json_output && display_options)) {
+        print_error(
+            err, command_error::invalid_request,
+            "display options require a diagnostic terminal or Markdown report"
         );
         return command_error::invalid_request;
     }
@@ -264,7 +287,7 @@ command_error run_workspace_report(
     return write_diagnostic_report(
         result, workspace.root,
         local_report_dir(workspace.root) / ("workspace_" + kind + ".json"),
-        json_output, out, err
+        json_output, view, out, err
     );
 }
 
@@ -276,21 +299,21 @@ command_error run_report(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::string& kind,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
-    std::ostream& err, const bool json_output
+    std::ostream& err, const bool json_output, const diagnostic_view& view
 ) {
     return command_support::run_report(
         project_root, manifest_value, kind, requested_artifact, out, err,
-        json_output
+        json_output, view
     );
 }
 
 command_error run_workspace_report(
     const workspace_context& workspace, const std::string& kind,
     const workspace_scope& scope, std::ostream& out, std::ostream& err,
-    const bool json_output
+    const bool json_output, const diagnostic_view& view
 ) {
     return command_support::run_workspace_report(
-        workspace, kind, scope, out, err, json_output
+        workspace, kind, scope, out, err, json_output, view
     );
 }
 
