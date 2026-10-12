@@ -267,12 +267,18 @@ void visit_artifact_closure(
     }
 }
 
-bool component_has_tests(const component& component_value) {
-    return !component_value.tests.empty();
+bool has_enabled_flag(const json& flags) {
+    for (const auto& [key, flag] : flags.items())
+        if (key != "gtest_main" && flag.is_boolean() && flag.get<bool>())
+            return true;
+    return false;
 }
 
-bool component_has_benchmarks(const component& component_value) {
-    return !component_value.benchmarks.empty();
+bool component_has_runnable_artifact(const component& value) {
+    return std::any_of(value.artifacts.begin(), value.artifacts.end(),
+        [](const artifact& output) {
+            return output.kind == "exe" || output.kind == "qt_app";
+        });
 }
 
 std::string analysis_source_category_for_id(const std::string& value) {
@@ -488,9 +494,9 @@ validate_manifest_paths(const manifest& value, const fs::path& project_root) {
         trees.push_back(fs::path(owner.root) / "tests");
         trees.push_back(fs::path(owner.root) / "benchmarks");
     }
-    if (!value.android_package_source_dir.empty()) {
-        trees.emplace_back(value.android_package_source_dir);
-    }
+    if (value.android.is_object() && value.android.contains("icon")
+        && value.android.at("icon").is_string())
+        paths.emplace_back(value.android.at("icon").get<std::string>());
     if (value.install_assets) {
         trees.emplace_back("assets");
     }
@@ -547,6 +553,12 @@ validate_manifest_paths(const manifest& value, const fs::path& project_root) {
                 + error.message()
             );
         }
+    }
+    if (value.android.contains("icon")) {
+        const auto icon = value.android.at("icon").get<std::string>();
+        std::error_code icon_error;
+        if (!fs::is_regular_file(base / icon, icon_error))
+            errors.push_back("manifest.android.icon file is missing or unreadable: " + icon);
     }
     return errors;
 }
@@ -722,7 +734,12 @@ std::vector<fs::path> component_runtime_only_files(
     const fs::path& project_root, const component& value
 ) {
     if (value.ownership) {
-        return component_source_only_files(project_root, value);
+        auto files = component_source_only_files(project_root, value);
+        if (component_is_test_only(value) || component_is_benchmark_only(value)) {
+            append_unique_paths(&files, component_test_sources(project_root, value));
+            append_unique_paths(&files, component_benchmark_sources(project_root, value));
+        }
+        return files;
     }
 
     std::vector<fs::path> files;
@@ -864,13 +881,25 @@ bool component_is_benchmark_only(const component& value) {
 
 std::optional<std::string>
 component_generated_test_target(const component& value) {
-    if (value.tests.empty() || component_is_test_only(value)) {
+    if (!has_enabled_flag(value.tests) || component_is_test_only(value)) {
         return std::nullopt;
     }
     if (value.ownership && !value.artifacts.empty())
         return cmake_target_name({ value.id, value.artifacts.front().id })
             + "__tests";
     return cmake_target_name({ value.id, "tests" });
+}
+
+bool component_has_tests(const component& value) {
+    if (component_is_test_only(value))
+        return component_has_runnable_artifact(value);
+    return component_generated_test_target(value).has_value()
+        && (!value.ownership || !value.ownership->tests.empty());
+}
+
+bool component_has_benchmarks(const component& value) {
+    return component_is_benchmark_only(value)
+        && component_has_runnable_artifact(value);
 }
 
 std::optional<fs::path> artifact_output_path(
@@ -1081,7 +1110,8 @@ std::vector<artifact_ref> benchmark_artifact_refs(const manifest& value) {
             continue;
         }
         for (const artifact& artifact_value : component_value.artifacts) {
-            refs.push_back(artifact_ref { component_value.id, artifact_value.id });
+            if (artifact_value.kind == "exe" || artifact_value.kind == "qt_app")
+                refs.push_back(artifact_ref { component_value.id, artifact_value.id });
         }
     }
     return refs;

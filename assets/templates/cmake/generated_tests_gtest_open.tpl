@@ -1,0 +1,1 @@
+    if (GTest_FOUND)

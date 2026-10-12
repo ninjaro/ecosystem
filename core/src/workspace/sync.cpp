@@ -225,10 +225,11 @@ namespace sync_support {
     }
 
     std::vector<std::string> component_link_targets(
-        const component& component_value, const artifact& artifact_value
+        const component& component_value, const artifact& artifact_value,
+        const package_dependency_scope scope
     ) {
         std::vector<std::string> targets
-            = component_package_link_targets(component_value);
+            = component_package_link_targets(component_value, scope);
         std::set<std::string> seen;
         for (const std::string& target : targets) {
             seen.insert(target);
@@ -244,6 +245,16 @@ namespace sync_support {
         }
 
         return targets;
+    }
+
+    package_dependency_scope artifact_package_scope(
+        const component& owner, const artifact& output
+    ) {
+        if (is_runnable_kind(output.kind) && component_is_test_only(owner))
+            return package_dependency_scope::tests;
+        if (is_runnable_kind(output.kind) && component_is_benchmark_only(owner))
+            return package_dependency_scope::benchmarks;
+        return package_dependency_scope::production;
     }
 
     bool project_has_assets_dir(const fs::path& project_root) {
@@ -828,24 +839,31 @@ namespace sync_support {
         );
     }
 
+    std::string cmake_bracket(const std::string& text);
+
     std::string render_qt_android_package_block(
-        const std::string& target_name, const std::string& android_package_name,
-        const std::string& android_package_source_dir,
+        const std::string& target_name, const manifest& value,
+        const std::string& output_name,
         const std::string& source_root_expression, const std::string& indent
     ) {
-        const std::string android_package_source_block
-            = android_package_source_dir.empty() ? std::string()
-                                                 : "    set_property(TARGET "
-                + target_name + " PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR \""
-                + source_root_expression + "/" + android_package_source_dir
-                + "\")";
+        json config = value.android;
+        config["application_id"] = value.android_application_id.empty()
+            ? "org.example." + value.id
+            : value.android_application_id;
+        config["version_name"]
+            = value.version.empty() ? "0.1.0" : value.version;
+        if (!config.contains("name"))
+            config["name"] = output_name;
+        if (!config.contains("version_code"))
+            config["version_code"] = 1;
+        if (!config.contains("min_sdk"))
+            config["min_sdk"] = 28;
         return render_indented_sync_template(
             "cmake/artifact/qt_android_package.tpl",
             {
                 { "target_name", target_name },
-                { "android_package_name", android_package_name },
-                { "android_package_source_block",
-                  android_package_source_block },
+                { "source_root_expression", source_root_expression },
+                { "android_config", cmake_bracket(config.dump()) },
             },
             indent
         );
@@ -956,6 +974,27 @@ namespace sync_support {
             },
             indent
         );
+    }
+
+    std::string render_component_feature_definitions(
+        const component& owner, const std::string& target_name,
+        const std::string& link_scope, const std::string& project_prefix,
+        const std::string& indent
+    ) {
+        std::string block;
+        if (component_has_stack_key(owner, "opencv")) {
+            block += render_opencv_compile_definitions_block(
+                         target_name, link_scope, project_prefix, indent
+                     )
+                + "\n";
+        }
+        if (component_has_stack_key(owner, "kde")) {
+            block += render_kde_compile_definitions_line(
+                         target_name, link_scope, indent
+                     )
+                + "\n";
+        }
+        return block;
     }
 
     std::string render_qt_finalize_line(
@@ -1089,6 +1128,7 @@ namespace sync_support {
         const std::string& sources_var, const std::string& test_var_expression,
         const std::vector<std::string>& include_dir_expressions,
         const std::vector<std::string>& link_targets,
+        const std::string& feature_definitions_block,
         const std::string& source_root_expression,
         const std::string& runtime_definition_block,
         const std::vector<std::string>& runtime_dependency_targets,
@@ -1140,6 +1180,7 @@ namespace sync_support {
                 { "include_dirs_block",
                   newline_terminated_lines(indented_include_dirs) },
                 { "link_block", link_block },
+                { "feature_definitions_block", feature_definitions_block },
                 { "source_root_expression", source_root_expression },
                 { "runtime_definition_block", runtime_definition_block },
                 { "runtime_dependencies_block", runtime_dependencies_block },
@@ -1465,16 +1506,34 @@ namespace sync_support {
     }
 
     manifest package_manifest(
-        const manifest& value, const std::set<std::string>& keys, bool installed
+        const manifest& value, const std::set<std::string>& keys, bool installed,
+        const package_dependency_scope scope = package_dependency_scope::all
     ) {
         auto result = value;
         result.components.clear();
         for (const auto* owner : selected_components(value, keys)) {
             if (installed && source_dependency_for(*owner))
                 continue;
+            if (scope == package_dependency_scope::production
+                && (component_is_test_only(*owner)
+                    || component_is_benchmark_only(*owner)))
+                continue;
+            if (scope == package_dependency_scope::tests
+                && !component_has_tests(*owner))
+                continue;
+            if (scope == package_dependency_scope::benchmarks
+                && !component_has_benchmarks(*owner))
+                continue;
             result.components.push_back(*owner);
-            // Preserve every requirement used by component_link_targets,
-            // including support targets contributed by tests/benchmarks.
+            auto& requirements = result.components.back();
+            if (installed || (scope != package_dependency_scope::tests
+                              && !(scope == package_dependency_scope::all
+                                   && component_is_test_only(*owner))))
+                requirements.tests = json::object();
+            if (installed || (scope != package_dependency_scope::benchmarks
+                              && !(scope == package_dependency_scope::all
+                                   && component_is_benchmark_only(*owner))))
+                requirements.benchmarks = json::object();
         }
         return result;
     }
@@ -1501,7 +1560,10 @@ namespace sync_support {
             = selected_components(value, selected_artifact_keys);
         const auto export_keys = exported_library_keys(value);
         const dependency_summary dependencies = summarize_dependencies(
-            package_manifest(value, selected_artifact_keys, false), std::nullopt
+            package_manifest(value, selected_artifact_keys, false,
+                developer_surface ? package_dependency_scope::production
+                                  : package_dependency_scope::all),
+            std::nullopt
         );
 
         package_surface_options package_options;
@@ -1510,11 +1572,39 @@ namespace sync_support {
         package_options.qt_automation = true;
         package_options.enable_testing
             = developer_surface && has_tests_enabled(value);
+        std::string package_surface = render_package_surface(dependencies, package_options);
+        if (developer_surface) {
+            auto check_options = package_options;
+            check_options.enable_testing = false;
+            for (const auto scope : { package_dependency_scope::tests,
+                                      package_dependency_scope::benchmarks }) {
+                const auto check_dependencies = summarize_dependencies(
+                    package_manifest(value, selected_artifact_keys, false, scope),
+                    std::nullopt, scope
+                );
+                const auto check_packages = render_package_surface(check_dependencies, check_options);
+                if (!check_packages.empty())
+                    package_surface += render_required_sync_template(
+                        "cmake/package_surface/if_block.tpl",
+                        { { "condition", scope == package_dependency_scope::tests
+                                ? "ECOSYSTEM_BUILD_TESTS" : "ECOSYSTEM_BUILD_BENCHMARKS" },
+                          { "body", check_packages } }
+                    ) + "\n";
+            }
+        }
         const std::string developer_options_block = developer_surface
             ? render_required_sync_template("cmake/developer_options.tpl", {})
             : std::string();
         const std::string apply_defaults_block
             = render_required_sync_template("cmake/apply_defaults.tpl", {});
+        const std::string assets_inventory_functions = has_assets_dir
+            ? render_required_sync_template(
+                  "cmake/assets_inventory.tpl",
+                  { { "runtime_categories", runtime_categories },
+                    { "runtime_cache_pattern",
+                      cmake_bracket(runtime_asset_cache_pattern()) } }
+              )
+            : std::string();
         const std::string assets_install_block
             = has_assets_dir && value.install_assets
             ? render_required_sync_template(
@@ -1551,8 +1641,12 @@ namespace sync_support {
                       { "assets_stage_script",
                         render_required_sync_template(
                             "cmake/assets_stage.tpl",
-                            { { "runtime_categories", runtime_categories } }
+                            { { "runtime_categories", runtime_categories },
+                              { "assets_inventory_functions",
+                                assets_inventory_functions } }
                         ) },
+                      { "assets_inventory_functions",
+                        assets_inventory_functions },
                       { "source_root_expression", source_root_expression },
                       { "project_id", value.id },
                       { "assets_embed_function_block",
@@ -1579,12 +1673,31 @@ namespace sync_support {
                   value.version.empty() ? "0.1.0" : value.version },
                 { "developer_options_block", developer_options_block },
                 { "cpp_standard", std::to_string(value.cpp_standard) },
-                { "package_surface",
-                  render_package_surface(dependencies, package_options) },
+                { "package_surface", package_surface },
                 { "apply_defaults_block", apply_defaults_block },
                 { "assets_block", assets_block },
             }
         );
+
+        const bool has_android_app = std::any_of(
+            components.begin(), components.end(), [](const component* owner) {
+                return component_has_stack_key(*owner, "android")
+                    && std::any_of(
+                           owner->artifacts.begin(), owner->artifacts.end(),
+                           [](const artifact& item) {
+                               return item.kind == "qt_app";
+                           }
+                    );
+            }
+        );
+        if (has_android_app)
+            stream << render_required_sync_template(
+                "cmake/android_package_function.tpl",
+                { { "android_package_script",
+                    cmake_bracket(render_required_sync_template(
+                        "android/generate_package.py.tpl", {}
+                    )) } }
+            );
 
         if (value.id == "manifesto") {
             const auto runtime_ref
@@ -1698,7 +1811,8 @@ namespace sync_support {
                     value, *component_value, *artifact_value
                 );
                 const std::vector<std::string> link_targets
-                    = component_link_targets(*component_value, *artifact_value);
+                    = component_link_targets(*component_value, *artifact_value,
+                        artifact_package_scope(*component_value, *artifact_value));
                 const std::string link_scope
                     = link_scope_for_artifact(*artifact_value);
                 const std::vector<std::string> header_lines
@@ -1797,17 +1911,10 @@ namespace sync_support {
                     ) << "\n";
                 }
 
-                if (component_has_stack_key(*component_value, "opencv")) {
-                    stream << render_opencv_compile_definitions_block(
-                        target_name, link_scope, project_prefix, indent
-                    ) << "\n";
-                }
-
-                if (component_has_stack_key(*component_value, "kde")) {
-                    stream << render_kde_compile_definitions_line(
-                        target_name, link_scope, indent
-                    ) << "\n";
-                }
+                stream << render_component_feature_definitions(
+                    *component_value, target_name, link_scope, project_prefix,
+                    indent
+                );
 
                 if (artifact_value->kind != "interface_lib") {
                     stream << render_output_name_line(
@@ -1826,11 +1933,7 @@ namespace sync_support {
                 if (artifact_value->kind == "qt_app") {
                     if (component_has_stack_key(*component_value, "android")) {
                         stream << render_qt_android_package_block(
-                            target_name,
-                            value.android_application_id.empty()
-                                ? "org.example." + value.id
-                                : value.android_application_id,
-                            value.android_package_source_dir,
+                            target_name, value, output_name,
                             source_root_expression, indent
                         ) << "\n";
                     }
@@ -2054,6 +2157,8 @@ namespace sync_support {
 
         if (developer_surface) {
             for (const component* component_value : components) {
+                if (!component_has_tests(*component_value))
+                    continue;
                 const auto test_target
                     = component_generated_test_target(*component_value);
                 if (!test_target.has_value()) {
@@ -2071,7 +2176,8 @@ namespace sync_support {
                     = component_value->artifacts.empty()
                     ? std::vector<std::string>()
                     : component_link_targets(
-                          *component_value, component_value->artifacts.front()
+                          *component_value, component_value->artifacts.front(),
+                          package_dependency_scope::tests
                       );
                 std::vector<std::string> include_dir_expressions;
                 for (const fs::path& include_dir :
@@ -2130,6 +2236,18 @@ namespace sync_support {
                             + "\n";
                     }
                 }
+                std::string feature_definitions_block
+                    = render_component_feature_definitions(
+                        *component_value, *test_target, "PRIVATE",
+                        project_prefix, "        "
+                    );
+                if (!value.version.empty()) {
+                    feature_definitions_block
+                        += render_project_version_definition(
+                               *test_target, "        "
+                           )
+                        + "\n";
+                }
                 stream << render_generated_tests_block(
                     test_var,
                     component_value->ownership
@@ -2143,8 +2261,9 @@ namespace sync_support {
                     *test_target, "${" + prefix + "_HEADERS}",
                     "${" + prefix + "_SOURCES}", "${" + test_var + "}",
                     include_dir_expressions, link_targets,
-                    source_root_expression, runtime_definition_block,
-                    runtime_dependency_targets, has_assets_dir,
+                    feature_definitions_block, source_root_expression,
+                    runtime_definition_block, runtime_dependency_targets,
+                    has_assets_dir,
                     json_flag_enabled(component_value->tests, "gtest"),
                     component_value->id,
                     component_value->ownership
@@ -2178,8 +2297,17 @@ std::string generate_developer_cmakelists(
     return generate_surface_cmakelists(value, project_root, true);
 }
 
+std::vector<fs::path> ignored_local_surface_paths() {
+    return { ".clang-format", ".clang-tidy" };
+}
+
 std::string generate_gitignore() {
-    return render_required_text_template("tracked/.gitignore.tpl", {});
+    std::string local_rules;
+    for (const auto& path : ignored_local_surface_paths()) {
+        local_rules += "/" + path.generic_string() + "\n";
+    }
+    return render_required_text_template("tracked/.gitignore.tpl",
+        { { "ignored_local_surface_rules", local_rules } });
 }
 
 std::vector<tracked_surface_file> generate_tracked_surface_files(
@@ -2301,7 +2429,12 @@ tracked_surface_drift(const fs::path& project_root, const manifest& value) {
     string_list drift;
     const std::vector<tracked_surface_file> files
         = generate_tracked_surface_files(value, project_root, &drift);
+    const auto local_paths = ignored_local_surface_paths();
     for (const tracked_surface_file& file_value : files) {
+        if (std::find(local_paths.begin(), local_paths.end(), file_value.relative_path)
+            != local_paths.end()) {
+            continue;
+        }
         std::string error_message;
         const fs::path path = project_root / file_value.relative_path;
         const std::string current_contents

@@ -15,5 +15,6 @@ void test_release_runtime_recovery();
 void test_release_tooling_bundle();
 void test_release_tooling_errors();
 void test_release_asset_intent();
+void test_release_cache_inventory();
 
 } // namespace ecosystem_test_support

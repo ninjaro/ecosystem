@@ -1,0 +1,41 @@
+# Generated local developer artifacts. Managed by `ecos sync`.
+*.d
+.idea/
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.so
+*.dylib
+*.dll
+*.mod
+*.smod
+*.lai
+*.la
+*.a
+*.lib
+*.exe
+*.out
+*.app
+*.qm
+.ecosystem/
+# Optional generated project-root configuration; never repository inputs.
+{{ignored_local_surface_rules}}# Reserved transient resource-cache directories (also excluded from payloads).
+**/.cache/
+**/.*_cache/
+/manifesto.local.json
+build*/
+cmake-build*/
+cov/
+doc/cov/
+.gradle/
+.ci-logs/
+bench/
+svgs/
+*.sh
+Doxyfile
+compile_commands.json
+CMakeLists.txt.user
+CMakeLists.txt.user.*

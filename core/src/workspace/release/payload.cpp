@@ -7,6 +7,30 @@
 #include <fstream>
 
 namespace ecosystem::release_detail {
+namespace {
+
+    bool copy_runtime_files(
+        const fs::path& project_root, const std::vector<std::string>& categories,
+        const fs::path& source_base, const fs::path& destination,
+        std::string* error_message
+    ) {
+        try {
+            const auto base = fs::absolute(source_base).lexically_normal();
+            for (const auto& file : runtime_asset_files(project_root, categories)) {
+                const auto output = destination / file.lexically_relative(base);
+                fs::create_directories(output.parent_path());
+                // Materialize safe source aliases, rather than shipping links
+                // which still depend on a source-directory layout.
+                fs::copy_file(file, output, fs::copy_options::overwrite_existing);
+            }
+            return true;
+        } catch (const std::exception& error) {
+            *error_message = error.what();
+            return false;
+        }
+    }
+
+} // namespace
 
 bool ensure_clean_directory(const fs::path& path, std::string* error_message) {
     std::error_code error;
@@ -146,20 +170,9 @@ bool stage_payload(
     if ((resolved.artifact_value->kind == "exe"
          || resolved.artifact_value->kind == "qt_app")
         && install_assets && project_has_assets_dir(project_root)) {
-        for (const auto& category : runtime_asset_categories()) {
-            const auto source = project_root / "assets" / category;
-            if (!fs::exists(source))
-                continue;
-            if (!fs::is_directory(source) || fs::is_symlink(source)) {
-                *error_message
-                    = "invalid runtime asset category: " + source.string();
-                return false;
-            }
-            if (!copy_directory_tree(
-                    source, install_dir / "assets" / category, error_message
-                ))
-                return false;
-        }
+        if (!copy_runtime_files(project_root, runtime_asset_categories(),
+                project_root / "assets", install_dir / "assets", error_message))
+            return false;
     }
 
     payload_sources->emplace(destination, built_artifact_path);
@@ -211,7 +224,7 @@ bool stage_tooling_templates(
         }
     }
 
-    const auto source = project_root / "templates";
+    const auto source = project_root / "assets/templates";
     if (!fs::is_directory(source) || fs::is_symlink(source)) {
         *error_message
             = "tooling package requires its source template bundle at "
@@ -219,7 +232,15 @@ bool stage_tooling_templates(
         return false;
     }
     bool has_files = false;
-    for (const auto& entry : fs::recursive_directory_iterator(source)) {
+    const std::regex cache_pattern(runtime_asset_cache_pattern());
+    auto iterator = fs::recursive_directory_iterator(source);
+    for (; iterator != fs::recursive_directory_iterator(); ++iterator) {
+        const auto& entry = *iterator;
+        if (entry.is_directory()
+            && std::regex_search(entry.path().filename().generic_string(), cache_pattern)) {
+            iterator.disable_recursion_pending();
+            continue;
+        }
         if (entry.is_symlink()
             || (!entry.is_directory() && !entry.is_regular_file())) {
             *error_message = "unsupported tooling template entry: "
@@ -234,9 +255,11 @@ bool stage_tooling_templates(
     }
     // Ship the built project's data, independently of execution-time template
     // overrides and install_assets. Hidden tracked/ directories are included.
-    return copy_directory_tree(
-        source, stage_root / "usr/share/manifesto/templates", error_message
-    );
+    const auto destination = stage_root / "usr/share/manifesto/templates";
+    if (!ensure_clean_directory(destination, error_message))
+        return false;
+    return copy_runtime_files(project_root, { "templates" }, source,
+        destination, error_message);
 }
 
 } // namespace ecosystem::release_detail

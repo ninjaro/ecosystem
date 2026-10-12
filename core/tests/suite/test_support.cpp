@@ -1273,7 +1273,10 @@ ecosystem::string_list workspace_conformance_errors(const fs::path& root) {
         );
         for (const auto& error : render_errors)
             errors.push_back(label + ": " + error);
+        const auto local_paths = ecosystem::ignored_local_surface_paths();
         for (const auto& file : files) {
+            if (std::find(local_paths.begin(), local_paths.end(), file.relative_path) != local_paths.end())
+                continue;
             const auto path = project.root / file.relative_path;
             try {
                 if (read_text(path) != file.contents)

@@ -20,6 +20,13 @@ std::vector<asset_entry> read_asset_index(
 );
 std::vector<std::string> validate_assets(const std::filesystem::path& root);
 std::vector<std::string> runtime_asset_categories();
+/** Reserved directory policy shared by runtime CMake and package inventories. */
+std::string runtime_asset_cache_pattern();
+/** Sorted logical paths; safe internal links are retained, escapes/cycles throw. */
+std::vector<std::filesystem::path> runtime_asset_files(
+    const std::filesystem::path& root,
+    const std::vector<std::string>& categories = runtime_asset_categories()
+);
 /** Replace an ID in place, or insert it before another ID (append by default).
  */
 bool put_asset_entry(

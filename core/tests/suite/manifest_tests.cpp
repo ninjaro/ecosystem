@@ -645,7 +645,7 @@ void test_owned_test_targets_are_independent() {
 
 void test_owned_scope_discovery_and_build() {
     require_true(fs::equivalent(ecosystem::locate_template_path({"cmake/generated_tests_block.tpl"}),
-        fs::path(ECOS_TEST_SOURCE_DIR) / "templates/cmake/generated_tests_block.tpl"),
+        fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates/cmake/generated_tests_block.tpl"),
         "default templates must come from the generator's own version");
     temp_dir root;
     write_text(root.path() / "include/math.hpp", "int answer();\n");
@@ -844,14 +844,14 @@ void test_owned_paths_reject_symlink_escapes() {
     for (const std::string relative :
          { "src", "src/main.cpp", "include", "tests/external.cpp",
            "tests/nested", "benchmarks/external.cpp", "assets/data",
-           "android/res", ".ecosystem" }) {
+           "assets/brand/logo.svg", ".ecosystem" }) {
         temp_dir root;
         const fs::path project = root.path() / "project";
         const fs::path outside = root.path() / "project-other";
         fs::create_directories(outside);
         auto value = sample_manifest();
         value.install_assets = true;
-        value.android_package_source_dir = "android";
+        value.android["icon"] = "assets/brand/logo.svg";
         std::string error;
         require_true(
             ecosystem::save_manifest(project / "manifest.json", value, &error),

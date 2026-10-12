@@ -159,7 +159,7 @@ void test_cli_check_leaks_runs_sanitized_tests() {
     // explicitly.
     scoped_env templates(
         "MANIFESTO_TEMPLATE_ROOT",
-        (fs::path(ECOS_TEST_SOURCE_DIR) / "templates").string()
+        (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates").string()
     );
     const cli_result result
         = run_cli_with_binary(copied_engels, root.path(), "check leaks");

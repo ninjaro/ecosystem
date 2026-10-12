@@ -1,0 +1,20 @@
+[data-diagnostic-report] dd code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+[data-diagnostic-report] details {
+  margin-block: 0.75rem;
+}
+[data-diagnostic-group] {
+  border-block-start: 1px solid currentColor;
+  margin-block-start: 1rem;
+}
+.diagnostic-filters:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.diagnostic-error {
+  border-inline-start: 0.25rem solid currentColor;
+  padding-inline-start: 0.75rem;
+}

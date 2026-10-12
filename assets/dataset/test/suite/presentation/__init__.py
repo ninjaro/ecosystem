@@ -1,0 +1,1 @@
+"""Focused presentation fixture groups."""

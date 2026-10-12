@@ -8,7 +8,7 @@ void test_native_asset_pages(const fs::path& project) {
     const auto media = ecosystem::capture_command_result(
         { "python3",
           (fs::path(ECOS_TEST_SOURCE_DIR)
-           / "core/tests/suite/presentation/media.py")
+           / "assets/dataset/test/suite/presentation/media.py")
               .string(),
           (project / "assets/showcase").string() },
         project

@@ -19,9 +19,13 @@ void test_package_surface_includes_qttest_component() {
         generated_cmake, "find_package(Qt6 6.0 CONFIG REQUIRED COMPONENTS",
         "generated facade must include the shared Qt package block"
     );
-    require_contains(
+    require_not_contains(
         generated_cmake, "        Test\n",
-        "generated facade must include the derived Qt Test component"
+        "production facade must not discover a test-only Qt component"
+    );
+    require_contains(
+        ecosystem::generate_developer_cmakelists(manifest_value, root.path()),
+        "        Test\n", "test-enabled developer surface must find Qt Test"
     );
 }
 
@@ -30,7 +34,10 @@ void test_component_package_link_targets_include_qttest_target() {
     const ecosystem::component& component_value
         = manifest_value.components.front();
     const std::vector<std::string> targets
-        = ecosystem::component_package_link_targets(component_value);
+        = ecosystem::component_package_link_targets(component_value, ecosystem::package_dependency_scope::tests);
+    const auto production = ecosystem::component_package_link_targets(component_value);
+    require_true(std::find(production.begin(), production.end(), "Qt6::Test") == production.end(),
+        "default production link scope must exclude test-only QtTest");
 
     require_true(
         std::find(targets.begin(), targets.end(), "Qt6::Core") != targets.end(),
@@ -129,7 +136,7 @@ void test_component_package_link_targets_follow_descriptor_rules() {
 
     const std::vector<std::string> test_targets
         = ecosystem::component_package_link_targets(
-            manifest_value.components[3]
+            manifest_value.components[3], ecosystem::package_dependency_scope::tests
         );
     require_true(
         std::find(test_targets.begin(), test_targets.end(), "GTest::gtest_main")
@@ -140,7 +147,7 @@ void test_component_package_link_targets_follow_descriptor_rules() {
 
     const std::vector<std::string> benchmark_targets
         = ecosystem::component_package_link_targets(
-            manifest_value.components[4]
+            manifest_value.components[4], ecosystem::package_dependency_scope::benchmarks
         );
     require_true(
         std::find(

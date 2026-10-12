@@ -20,9 +20,8 @@ namespace manifest_support {
     const std::regex android_application_id_pattern(
         "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$"
     );
-    const std::regex android_package_source_dir_pattern(
-        "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
-    );
+    const std::regex
+        relative_path_pattern("^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$");
     const std::regex project_version_pattern(
         "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
     );
@@ -120,8 +119,7 @@ namespace manifest_support {
         if (text == ".") {
             return allow_root;
         }
-        if (text.empty()
-            || !std::regex_match(text, android_package_source_dir_pattern)) {
+        if (text.empty() || !std::regex_match(text, relative_path_pattern)) {
             return false;
         }
         const fs::path path(text);
@@ -254,7 +252,7 @@ namespace manifest_support {
             root,
             { "id", "description", "version", "cpp_standard", "facade",
               "artifacts", "install_artifacts", "install_assets",
-              "android_application_id", "android_package_source_dir" },
+              "android_application_id", "android" },
             "manifest", errors
         );
         manifest value;
@@ -274,10 +272,8 @@ namespace manifest_support {
             value.android_application_id = require_string(
                 root, "android_application_id", "manifest", errors
             );
-        if (root.contains("android_package_source_dir"))
-            value.android_package_source_dir = require_string(
-                root, "android_package_source_dir", "manifest", errors
-            );
+        if (root.contains("android"))
+            value.android = require_object(root, "android", "manifest", errors);
         if (root.contains("install_assets")) {
             if (!root.at("install_assets").is_boolean())
                 errors->push_back("manifest.install_assets must be a boolean");
@@ -676,21 +672,158 @@ string_list validate_manifest(const manifest& value) {
             "manifest.android_application_id must be a reverse-DNS identifier"
         );
     }
-    if (!value.android_package_source_dir.empty()) {
-        const fs::path package_source(value.android_package_source_dir);
-        const std::string normalized
-            = package_source.lexically_normal().generic_string();
-        if (package_source.is_absolute() || normalized == "."
-            || normalized == ".." || normalized.rfind("../", 0U) == 0U
-            || normalized != value.android_package_source_dir
-            || !std::regex_match(
-                value.android_package_source_dir,
-                android_package_source_dir_pattern
-            )) {
+    if (!value.android.is_object()) {
+        errors.push_back("manifest.android must be an object");
+    } else {
+        check_fields(
+            value.android,
+            { "name", "version_code", "min_sdk", "target_sdk", "permissions",
+              "excluded_permissions", "features", "allow_backup",
+              "full_backup_content", "full_backup_only", "supports_rtl", "icon",
+              "icon_export_id", "round_icon", "activity_config_changes" },
+            "manifest.android", &errors
+        );
+        for (const std::string field : { "name", "icon", "icon_export_id" })
+            if (value.android.contains(field))
+                require_string(
+                    value.android, field, "manifest.android", &errors
+                );
+        if (value.android.contains("name")
+            && value.android.at("name").is_string()) {
+            const auto name = value.android.at("name").get<std::string>();
+            if (std::any_of(name.begin(), name.end(), [](unsigned char ch) {
+                    return ch < 32;
+                }))
+                errors.push_back(
+                    "manifest.android.name must not contain control characters"
+                );
+        }
+        for (const std::string field :
+             { "version_code", "min_sdk", "target_sdk" }) {
+            if (!value.android.contains(field))
+                continue;
+            const auto& number = value.android.at(field);
+            if (!number.is_number_integer() || number < 1
+                || number > (field == "version_code" ? 2100000000 : 1000))
+                errors.push_back(
+                    "manifest.android." + field
+                    + " must be a positive Android integer"
+                );
+        }
+        if (value.android.contains("min_sdk")
+            && value.android.contains("target_sdk")
+            && value.android.at("min_sdk").is_number_integer()
+            && value.android.at("target_sdk").is_number_integer()
+            && value.android.at("target_sdk") < value.android.at("min_sdk"))
+            errors.push_back("manifest.android.target_sdk must be >= min_sdk");
+        for (const std::string field :
+             { "allow_backup", "full_backup_content", "full_backup_only",
+               "supports_rtl", "round_icon" })
+            if (value.android.contains(field)
+                && !value.android.at(field).is_boolean())
+                errors.push_back(
+                    "manifest.android." + field + " must be a boolean"
+                );
+        std::set<std::string> permissions;
+        for (const std::string field : { "permissions", "excluded_permissions",
+                                         "activity_config_changes" }) {
+            if (!value.android.contains(field))
+                continue;
+            const auto& items = value.android.at(field);
+            if (!items.is_array()) {
+                errors.push_back(
+                    "manifest.android." + field + " must be an array"
+                );
+                continue;
+            }
+            std::set<std::string> seen;
+            for (const auto& entry : items) {
+                if (!entry.is_string()) {
+                    errors.push_back(
+                        "manifest.android." + field + " entries must be strings"
+                    );
+                    continue;
+                }
+                const auto item = entry.get<std::string>();
+                // Qt's configChanges tokens also contain upper-case letters.
+                const bool valid = field == "activity_config_changes"
+                    ? std::regex_match(
+                          item, std::regex("^[A-Za-z][A-Za-z0-9]*$")
+                      )
+                    : std::regex_match(item, android_application_id_pattern);
+                if (!valid || !seen.insert(item).second)
+                    errors.push_back(
+                        "manifest.android." + field
+                        + " contains an invalid or duplicate name"
+                    );
+                if (field == "permissions")
+                    permissions.insert(item);
+                if (field == "excluded_permissions"
+                    && permissions.contains(item))
+                    errors.push_back(
+                        "manifest.android permission is both included "
+                        "and excluded: "
+                        + item
+                    );
+            }
+        }
+        if (value.android.contains("features")) {
+            const auto& features = value.android.at("features");
+            if (!features.is_array()) {
+                errors.push_back("manifest.android.features must be an array");
+            } else {
+                std::set<std::string> names;
+                for (const auto& feature : features) {
+                    if (!feature.is_object()) {
+                        errors.push_back(
+                            "manifest.android.features entries must be objects"
+                        );
+                        continue;
+                    }
+                    check_fields(
+                        feature, { "name", "required" },
+                        "manifest.android.features", &errors
+                    );
+                    const auto name = require_string(
+                        feature, "name", "manifest.android.features", &errors
+                    );
+                    if (!feature.contains("name") || feature.at("name") != name
+                        || !std::regex_match(
+                            name, android_application_id_pattern
+                        )
+                        || !names.insert(name).second)
+                        errors.push_back(
+                            "manifest.android.features contains an invalid "
+                            "or duplicate name"
+                        );
+                    if (!feature.contains("required")
+                        || !feature.at("required").is_boolean())
+                        errors.push_back(
+                            "manifest.android.features.required must be a "
+                            "boolean"
+                        );
+                }
+            }
+        }
+        if (value.android.value("round_icon", json(false)) == true
+            && !value.android.contains("icon"))
             errors.push_back(
-                "manifest.android_package_source_dir must be a safe, "
-                "non-root project-relative directory"
+                "manifest.android.round_icon requires icon metadata"
             );
+        if (value.android.contains("icon_export_id")
+            && !value.android.contains("icon"))
+            errors.push_back(
+                "manifest.android.icon_export_id requires icon metadata"
+            );
+        if (value.android.contains("icon")
+            && value.android.at("icon").is_string()) {
+            const auto path = value.android.at("icon").get<std::string>();
+            if (!safe_owned_path(path) || !path.starts_with("assets/brand/")
+                || fs::path(path).extension() != ".svg")
+                errors.push_back(
+                    "manifest.android.icon must name a safe assets/brand/*.svg "
+                    "file"
+                );
         }
     }
     if (value.components.empty()) {
@@ -1314,8 +1447,8 @@ json to_json(const manifest& value) {
         root["install_artifacts"] = value.install_artifacts;
     if (!value.android_application_id.empty())
         root["android_application_id"] = value.android_application_id;
-    if (!value.android_package_source_dir.empty())
-        root["android_package_source_dir"] = value.android_package_source_dir;
+    if (!value.android.empty())
+        root["android"] = value.android;
     if (value.install_assets)
         root["install_assets"] = true;
     root["artifacts"] = json::array();

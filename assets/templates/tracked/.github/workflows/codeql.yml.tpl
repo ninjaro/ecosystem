@@ -1,0 +1,325 @@
+name: CodeQL
+
+# Share event selection with Checks; no path filter because manifests can own
+# C++ sources under arbitrary directories. Default pushes reuse only verified
+# matching PR evidence; scheduled scans always establish a fresh baseline.
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    outputs:
+      changes: ${{ steps.selection.outputs.changes }}
+      scope: ${{ steps.selection.outputs.scope }}
+      verified: ${{ steps.selection.outputs.verified }}
+      source: ${{ steps.selection.outputs.source }}
+    steps:
+      - uses: {{checkout_action}}
+        with:
+          fetch-depth: 0
+      - id: selection
+        uses: ./.github/actions/select-manifesto-ci
+        with:
+          kind: codeql
+
+      - name: Upload change resolution
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-changes-{{project_id}}-codeql
+          path: ${{ steps.selection.outputs.changes-file }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Upload reused verification reports
+        if: ${{ steps.selection.outputs.scope == 'reuse' }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-reports-{{project_id}}-codeql
+          path: ${{ steps.selection.outputs.reports }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+  analyze:
+    needs: select
+    if: ${{ needs.select.outputs.scope == 'full' || needs.select.outputs.scope == 'security' || needs.select.outputs.scope == 'reuse' }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: {{manifesto_build_parallelism}}
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['cpp']
+
+    steps:
+      - uses: {{checkout_action}}
+        with:
+          fetch-depth: ${{ needs.select.outputs.scope != 'reuse' && '0' || '1' }}
+
+      - name: Resolve checked-out changes
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
+        uses: {{github_script_action}}
+        with:
+          script: |
+            require('./.github/actions/select-manifesto-ci/changes.cjs').collect({context, core});
+
+      - name: Setup manifesto tool
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
+        id: manifesto
+        uses: {{manifesto_setup_action}}
+        with:
+          bootstrap: {{manifesto_bootstrap}}
+          source-path: {{manifesto_source_path}}
+          manifesto-repository: {{manifesto_repository}}
+          manifesto-ref: {{manifesto_ref}}
+          build-parallelism: {{manifesto_build_parallelism}}
+
+      - name: Classify checked-out changes
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
+        id: classification
+        uses: {{github_script_action}}
+        env:
+          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+        with:
+          script: |
+            require('./.github/actions/select-manifesto-ci/changes.cjs').classify({core, binary: process.env.ENGELS_BINARY});
+
+      - name: Upload change classification
+        if: ${{ steps.classification.outcome == 'success' }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-classification-{{project_id}}-codeql
+          path: |
+            .ecosystem/github/changes.json
+            .ecosystem/github/classification.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Verify generated tracked surfaces
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
+        id: repository
+        uses: ./.github/actions/run-manifesto-stage
+        with:
+          stage-id: 01-tracked-surface
+          stage-label: Tracked surface verification
+          shell-command: |
+            "${{ steps.manifesto.outputs.engels-binary }}" check repo
+
+      - uses: github/codeql-action/init@{{codeql_action_ref}}
+        id: codeql_init
+        if: ${{ steps.repository.outputs.status == 'passed' && steps.classification.outputs.codeql == 'full' }}
+        continue-on-error: true
+        with:
+          languages: {{github_matrix_language}}
+          build-mode: manual
+
+      - name: Build project through ecosystem
+        id: codeql_build
+        if: ${{ steps.codeql_init.outcome == 'success' }}
+        uses: ./.github/actions/run-manifesto-stage
+        with:
+          stage-id: 02-codeql-build
+          stage-label: CodeQL build
+          shell-command: |
+            "${{ steps.manifesto.outputs.marx-binary }}" build debug
+
+      - name: Run CodeQL analysis
+        id: codeql_analyze
+        if: ${{ steps.codeql_init.outcome == 'success' && steps.codeql_build.outputs.status == 'passed' }}
+        continue-on-error: true
+        uses: github/codeql-action/analyze@{{codeql_action_ref}}
+
+      - name: Summarize CodeQL analysis
+        if: ${{ always() && needs.select.outputs.scope != 'reuse' }}
+        env:
+          CODEQL_SCOPE: ${{ steps.classification.outputs.codeql }}
+          CODEQL_INIT_STATUS: ${{ steps.codeql_init.outcome }}
+          CODEQL_BUILD_STATUS: ${{ steps.codeql_build.outputs.status || 'skipped' }}
+          CODEQL_ANALYZE_STATUS: ${{ steps.codeql_analyze.outcome || 'skipped' }}
+        shell: bash
+        run: |
+          report_root=".ecosystem/github/reports/03-codeql-analysis"
+          mkdir -p "$report_root"
+          status="passed"
+          if [ "$CODEQL_SCOPE" = repository ]; then
+            status="not-required"
+          elif [ "$CODEQL_INIT_STATUS" = "failure" ] || [ "$CODEQL_BUILD_STATUS" = "failed" ] || [ "$CODEQL_ANALYZE_STATUS" = "failure" ]; then
+            status="failed"
+          elif [ "$CODEQL_INIT_STATUS" = "skipped" ] || [ "$CODEQL_BUILD_STATUS" = "skipped" ] || [ "$CODEQL_ANALYZE_STATUS" = "skipped" ]; then
+            status="skipped"
+          fi
+          {
+            printf '## CodeQL analysis\n\n'
+            printf -- '- status: `%s`\n' "$status"
+            printf -- '- execution: `%s`\n' "$CODEQL_SCOPE"
+            printf -- '- init: `%s`\n' "$CODEQL_INIT_STATUS"
+            printf -- '- build: `%s`\n' "$CODEQL_BUILD_STATUS"
+            printf -- '- analyze: `%s`\n' "$CODEQL_ANALYZE_STATUS"
+          } > "$report_root/summary.md"
+          cat "$report_root/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload CodeQL reports
+        if: ${{ always() && needs.select.outputs.scope != 'reuse' }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-reports-{{project_id}}-codeql
+          path: .ecosystem/github/reports
+          include-hidden-files: true
+          if-no-files-found: warn
+
+      - name: Enforce CodeQL result
+        if: ${{ always() }}
+        env:
+          REUSE_VERIFIED: ${{ needs.select.outputs.verified }}
+          REUSE_SOURCE: ${{ needs.select.outputs.source }}
+          CHECK_SCOPE: ${{ needs.select.outputs.scope }}
+          REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
+          REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
+          EVENT_NAME: ${{ github.event_name }}
+          CODEQL_BUILD_OUTCOME: ${{ steps.codeql_build.outcome }}
+          REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
+          CODEQL_SCOPE: ${{ steps.classification.outputs.codeql }}
+          CODEQL_INIT_STATUS: ${{ steps.codeql_init.outcome }}
+          CODEQL_BUILD_STATUS: ${{ steps.codeql_build.outputs.status }}
+          CODEQL_ANALYZE_STATUS: ${{ steps.codeql_analyze.outcome }}
+        shell: bash
+        run: |
+          if [ "$CHECK_SCOPE" = reuse ]; then
+            if [ "$REUSE_VERIFIED" != true ] || [ -z "$REUSE_SOURCE" ]; then
+              echo '::error::Verification reuse has no validated source.'
+              exit 1
+            fi
+            printf 'Reused verification:\n\n```json\n%s\n```\n' "$REUSE_SOURCE" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$REPOSITORY_OUTCOME" != success ] || [ "$REPOSITORY_STATUS" != passed ] || [ "$REPOSITORY_EXIT_CODE" != 0 ]; then
+            echo '::error::Repository verification failed or did not complete.'
+            exit 1
+          fi
+          if [ "$CODEQL_SCOPE" = repository ]; then
+            if [ "$CHECK_SCOPE" != full ] || [ "$EVENT_NAME" != pull_request ] || [ "$CODEQL_INIT_STATUS" != skipped ] || [ "$CODEQL_BUILD_OUTCOME" != skipped ] || [ -n "$CODEQL_BUILD_STATUS" ] || [ "$CODEQL_ANALYZE_STATUS" != skipped ]; then
+              echo '::error::Repository-only CodeQL requires a selected PR delta and skipped native analysis.'
+              exit 1
+            fi
+            printf 'CodeQL analysis is not required by the validated PR delta; repository checks passed.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$CODEQL_SCOPE" != full ] || [ "$CODEQL_INIT_STATUS" != success ] || [ "$CODEQL_BUILD_STATUS" != passed ] || [ "$CODEQL_ANALYZE_STATUS" != success ]; then
+            echo '::error::CodeQL verification failed or did not complete.'
+            exit 1
+          fi
+
+      - name: Record reusable verification
+        if: ${{ needs.select.outputs.scope == 'full' && steps.classification.outputs.codeql == 'full' }}
+        id: evidence
+        uses: {{github_script_action}}
+        env:
+          EVIDENCE_KIND: codeql
+          VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}
+          TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
+          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
+          REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
+          REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
+          CODEQL_BUILD_OUTCOME: ${{ steps.codeql_build.outcome }}
+          CODEQL_BUILD_STATUS: ${{ steps.codeql_build.outputs.status }}
+          CODEQL_BUILD_EXIT_CODE: ${{ steps.codeql_build.outputs.exit-code }}
+          CODEQL_INIT_STATUS: ${{ steps.codeql_init.outcome }}
+          CODEQL_ANALYZE_STATUS: ${{ steps.codeql_analyze.outcome }}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').record({github, context, core});
+
+      - name: Record delta verification
+        if: ${{ needs.select.outputs.scope == 'full' && steps.classification.outputs.codeql == 'repository' }}
+        id: delta
+        uses: {{github_script_action}}
+        env:
+          EVIDENCE_KIND: codeql
+          VERIFICATION_SCOPE: delta
+          TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
+          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
+          REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
+          REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
+          CODEQL_BUILD_OUTCOME: ${{ steps.codeql_build.outcome }}
+          CODEQL_BUILD_STATUS: ${{ steps.codeql_build.outputs.status }}
+          CODEQL_BUILD_EXIT_CODE: ${{ steps.codeql_build.outputs.exit-code }}
+          CODEQL_INIT_STATUS: ${{ steps.codeql_init.outcome }}
+          CODEQL_ANALYZE_STATUS: ${{ steps.codeql_analyze.outcome }}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').record({github, context, core});
+
+      - name: Upload verification evidence
+        if: ${{ steps.evidence.outputs.name != '' }}
+        uses: {{upload_artifact_action}}
+        with:
+          name: ${{ steps.evidence.outputs.name }}
+          path: ${{ steps.evidence.outputs.directory }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload delta evidence
+        if: ${{ steps.delta.outputs.name != '' }}
+        uses: {{upload_artifact_action}}
+        with:
+          name: ${{ steps.delta.outputs.name }}
+          path: ${{ steps.delta.outputs.directory }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    runs-on: ubuntu-24.04
+    needs: analyze
+    if: ${{ always() && needs.analyze.result != 'skipped' }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: {{checkout_action}}
+
+      - name: Download CodeQL report artifacts
+        continue-on-error: true
+        uses: {{download_artifact_action}}
+        with:
+          pattern: ci-reports-{{project_id}}-codeql
+          path: .ecosystem/github/reports
+          merge-multiple: true
+
+      - name: Publish CodeQL report
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: ./.github/actions/publish-manifesto-report
+        with:
+          project-id: {{project_id}}
+          report-key: codeql
+          report-title: CodeQL
+          report-directory: .ecosystem/github/reports

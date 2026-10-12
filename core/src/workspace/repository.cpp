@@ -1,7 +1,9 @@
 #include "workspace/repository.hpp"
+#include "workspace/sync.hpp"
 
 #include "workspace/tooling.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -113,6 +115,7 @@ std::optional<std::vector<fs::path>> tracked_git_files(const fs::path& project_r
         project_root.lexically_normal().lexically_relative(fs::path(top_level).lexically_normal())
     );
     std::vector<fs::path> files;
+    const auto local_paths = ignored_local_surface_paths();
     std::stringstream stream(listing);
     std::string line;
     while (std::getline(stream, line)) {
@@ -135,7 +138,8 @@ std::optional<std::vector<fs::path>> tracked_git_files(const fs::path& project_r
         if (!relative.empty()) {
             const fs::path candidate = project_root / relative;
             std::error_code error;
-            if (fs::exists(candidate, error) && !error) {
+            if ((fs::exists(candidate, error) && !error)
+                || std::find(local_paths.begin(), local_paths.end(), fs::path(relative)) != local_paths.end()) {
                 files.emplace_back(relative);
             }
         }
@@ -265,7 +269,14 @@ string_list forbidden_repository_entries(const fs::path& project_root) {
 
     string_list issues;
     std::set<std::string> seen;
+    const auto local_paths = ignored_local_surface_paths();
     for (const fs::path& relative_path : files) {
+        if (tracked_files.has_value()
+            && std::find(local_paths.begin(), local_paths.end(), relative_path)
+                != local_paths.end()) {
+            append_issue(&issues, &seen, relative_path.generic_string()
+                + ": ignored local generated configuration must not be tracked");
+        }
         collect_directory_issues(relative_path, &issues, &seen);
         if (path_has_directory_segment(relative_path, "scripts")
             || path_has_directory_segment(relative_path, ".ecosystem")

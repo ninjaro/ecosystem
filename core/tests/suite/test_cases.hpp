@@ -37,6 +37,11 @@ void test_cli_benchmark_accepts_generic_programs_and_preserves_results();
 void test_cli_benchmark_builds_release_benchmarks_and_writes_reports();
 
 // Build.
+void test_owned_check_artifacts_compile_and_execute_all_sources();
+void test_framework_dependencies_are_scoped_and_relocatable();
+void test_optional_support_targets_are_reentrant();
+void test_automatic_tests_preserve_optional_features();
+void test_check_capabilities_require_enabled_runnable_artifacts();
 void test_installed_libraries_are_relocatable();
 void test_install_artifacts_build_and_install_independent_executables();
 void test_visitor_facade_tracks_selected_artifact();
@@ -97,6 +102,8 @@ void test_cli_workspace_check_repo_rejects_gitlink_project_scripts();
 
 // Generation.
 void test_sync_matches_tracked_surfaces();
+void test_ignored_local_surfaces_respect_repository_policy();
+void test_ignored_local_rules_match_git();
 void test_tracked_facade_limits_surface_to_entry_artifact_closure();
 void test_developer_surface_materializes_full_build_graph();
 void test_forbidden_repository_entries_report_legacy_scaffolding();

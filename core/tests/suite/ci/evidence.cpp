@@ -40,7 +40,8 @@ void test_ci_evidence() {
         const auto destination = root.path() / adapter;
         const auto result = ecosystem::capture_command_result(
             { "node",
-              (fs::path(ECOS_TEST_SOURCE_DIR) / "core/tests/suite" / fixture)
+              (fs::path(ECOS_TEST_SOURCE_DIR)
+               / "assets/dataset/test/suite" / fixture)
                   .string(),
               destination.string(), engels_binary_path().string(),
               workflow_path.string(), codeql_path.string() },

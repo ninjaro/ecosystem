@@ -16,5 +16,8 @@ void test_asset_controller_aliases();
 void test_asset_controller_cli();
 void test_asset_runtime_surface();
 void test_asset_resource_inputs();
+void test_asset_cache_policy();
+void test_asset_inventory_paths();
+void test_asset_tooling_install_policy();
 
 } // namespace ecosystem_test_support

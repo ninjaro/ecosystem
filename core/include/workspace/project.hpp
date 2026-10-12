@@ -88,6 +88,8 @@ std::vector<std::filesystem::path> component_benchmark_sources(
 );
 bool component_is_test_only(const component& value);
 bool component_is_benchmark_only(const component& value);
+bool component_has_tests(const component& value);
+bool component_has_benchmarks(const component& value);
 std::optional<std::string>
 component_generated_test_target(const component& value);
 std::optional<std::filesystem::path> artifact_output_path(

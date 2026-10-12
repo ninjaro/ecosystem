@@ -41,11 +41,13 @@ void test_release_isolated_install(const fs::path& cache) {
         test_cli_build_dir() / "CMakeCache.txt",
         tooling_build / "CMakeCache.txt"
     );
+    fs::create_directories(tooling_source / "assets");
     fs::copy(
-        fs::path(ECOS_TEST_SOURCE_DIR) / "templates",
-        tooling_source / "templates", fs::copy_options::recursive
+        fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates",
+        tooling_source / "assets/templates", fs::copy_options::recursive
     );
-    const auto surface = tooling_source / "templates/cmake/surface_prefix.tpl";
+    const auto surface
+        = tooling_source / "assets/templates/cmake/surface_prefix.tpl";
     write_text(
         surface, "# isolated package template marker\n" + read_text(surface)
     );

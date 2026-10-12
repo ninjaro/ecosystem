@@ -7,7 +7,7 @@ inputs:
     required: false
     default: repository
   source-path:
-    description: Relative directory containing the tooling CMakeLists.txt, manifest.json and templates.
+    description: Relative directory containing the tooling CMakeLists.txt, manifest.json and assets/templates.
     required: false
     default: '.'
   manifesto-repository:
@@ -189,8 +189,8 @@ runs:
           "$checkout_root/"*) ;;
           *) echo '::error::Tooling source-path resolves outside its checkout.'; exit 1 ;;
         esac
-        if [ ! -f "$source_root/CMakeLists.txt" ] || [ ! -f "$source_root/manifest.json" ] || [ ! -d "$source_root/templates" ]; then
-          echo '::error::Tooling source-path must contain CMakeLists.txt, manifest.json and templates.'
+        if [ ! -f "$source_root/CMakeLists.txt" ] || [ ! -f "$source_root/manifest.json" ] || [ ! -d "$source_root/assets/templates" ]; then
+          echo '::error::Tooling source-path must contain CMakeLists.txt, manifest.json and assets/templates.'
           exit 1
         fi
         cmake -S "$source_root" -B "$BUILD_ROOT" -DCMAKE_BUILD_TYPE=Debug -DECOSYSTEM_BUILD_TESTS=OFF

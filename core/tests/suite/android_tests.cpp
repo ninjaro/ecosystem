@@ -1,126 +1,131 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
 void test_android_application_id_is_manifest_owned() {
     temp_dir root;
-    ecosystem::manifest manifest_value = sample_manifest();
-    manifest_value.version = "2.3.4";
-    manifest_value.android_application_id = "org.ninjaro.sample";
-    manifest_value.android_package_source_dir = "android";
-    manifest_value.components.front().stack["android"]
-        = json::array({ "qt_android" });
-    manifest_value.components.front().artifacts.front().kind = "qt_app";
-
-    const std::string generated_cmake
-        = ecosystem::generate_cmakelists(manifest_value, root.path());
+    ecosystem::manifest value = sample_manifest();
+    value.version = "2.3.4";
+    value.android_application_id = "org.example.sample";
+    value.android
+        = { { "name", "Sample & application" },
+            { "version_code", 234 },
+            { "min_sdk", 28 },
+            { "target_sdk", 35 },
+            { "allow_backup", false },
+            { "icon", "assets/brand/logo.svg" },
+            { "permissions", json::array({ "android.permission.CAMERA" }) },
+            { "excluded_permissions",
+              json::array({ "android.permission.RECORD_AUDIO" }) },
+            { "features",
+              json::array(
+                  { { { "name", "android.hardware.camera.any" },
+                      { "required", false } } }
+              ) } };
+    value.components.front().stack["android"] = json::array({ "qt_android" });
+    value.components.front().artifacts.front().kind = "qt_app";
+    write_text(root.path() / "assets/brand/logo.svg", "<svg/>\n");
+    const auto tracked = ecosystem::generate_cmakelists(value, root.path());
+    const auto developer
+        = ecosystem::generate_developer_cmakelists(value, root.path());
+    for (const auto& generated : { tracked, developer }) {
+        require_contains(
+            generated, "\"application_id\":\"org.example.sample\"",
+            "Android ID must come from the manifest"
+        );
+        require_contains(
+            generated, "\"version_name\":\"2.3.4\"",
+            "Android version must come from the project version"
+        );
+        require_contains(
+            generated, "\"version_code\":234", "version code must survive"
+        );
+        require_contains(
+            generated,
+            "${CMAKE_CURRENT_BINARY_DIR}/ecosystem/android/${target}",
+            "package customization must be build-directory state"
+        );
+        require_contains(
+            generated,
+            "QT_ANDROID_PACKAGE_SOURCE_DIR \"${package_root}/package\"",
+            "Qt must receive the generated overlay"
+        );
+        require_contains(
+            generated, "qt_policy(SET QTP0002 NEW)",
+            "Qt path policy must remain"
+        );
+        require_not_contains(
+            generated, "app/android", "authored overlays must not be used"
+        );
+    }
     require_contains(
-        generated_cmake, "QT_ANDROID_PACKAGE_NAME org.ninjaro.sample",
-        "Android package identity must come from manifest metadata"
+        tracked, "\"${CMAKE_CURRENT_SOURCE_DIR}\"", "tracked project root"
     );
     require_contains(
-        generated_cmake,
-        "if (COMMAND qt_policy)\n"
-        "        qt_policy(SET QTP0002 NEW)",
-        "Android package properties must opt into safe Qt path JSON handling "
-        "when the Qt policy API is available"
+        developer, "\"${ECOSYSTEM_PROJECT_ROOT}\"", "developer project root"
     );
-    require_contains(
-        generated_cmake, "QT_ANDROID_VERSION_NAME \"${PROJECT_VERSION}\"",
-        "Android version name must come from manifest-owned project version"
-    );
-    require_contains(
-        generated_cmake, "QT_ANDROID_MIN_SDK_VERSION 28",
-        "Android Qt targets must declare the Qt-supported minimum SDK"
-    );
-    require_contains(
-        generated_cmake,
-        "QT_ANDROID_PACKAGE_SOURCE_DIR "
-        "\"${CMAKE_CURRENT_SOURCE_DIR}/android\"",
-        "tracked facade must resolve Android package sources from the "
-        "project root"
-    );
-    require_contains(
-        generated_cmake, "project(sample VERSION 2.3.4",
-        "project version must come from manifest metadata"
-    );
-    require_contains(
-        generated_cmake, "ECOSYSTEM_PROJECT_VERSION=\"${PROJECT_VERSION}\"",
-        "targets must receive the manifest-owned project version"
-    );
-
-    const std::string developer_cmake
-        = ecosystem::generate_developer_cmakelists(manifest_value, root.path());
-    require_contains(
-        developer_cmake,
-        "QT_ANDROID_PACKAGE_SOURCE_DIR "
-        "\"${ECOSYSTEM_PROJECT_ROOT}/android\"",
-        "developer surface must resolve Android package sources from the "
-        "project root"
-    );
-
-    const ecosystem::json serialized = ecosystem::to_json(manifest_value);
     require_true(
-        serialized.at("android_package_source_dir") == "android",
-        "Android package source directory must survive serialization"
+        tracked == ecosystem::generate_cmakelists(value, root.path()),
+        "generation must be reproducible"
     );
-
-    std::string save_error;
+    std::string error;
     require_true(
-        ecosystem::save_manifest(
-            root.path() / "manifest.json", manifest_value, &save_error
-        ),
-        "Android package metadata manifest must serialize"
+        ecosystem::save_manifest(root.path() / "manifest.json", value, &error),
+        error
     );
-    const ecosystem::manifest_report loaded
-        = ecosystem::load_manifest(root.path() / "manifest.json");
+    auto loaded = ecosystem::load_manifest(root.path() / "manifest.json");
     require_true(
-        loaded.errors.empty() && loaded.value.has_value()
-            && loaded.value->android_package_source_dir == "android",
-        "Android package source directory must survive a manifest round trip"
+        loaded.errors.empty() && loaded.value
+            && loaded.value->android == value.android,
+        "Android metadata must round-trip"
     );
-
-    manifest_value.android_package_source_dir = "../outside";
-    const ecosystem::string_list errors
-        = ecosystem::validate_manifest(manifest_value);
+    for (const auto& invalid : std::vector<json> {
+             { { "icon", "../outside.svg" } },
+             { { "icon", "app/logo.svg" } },
+             { { "icon", "assets/brand/logo.png" } },
+             { { "allow_backup", "false" } },
+             { { "name", "invalid\nlabel" } },
+             { { "round_icon", true } },
+             { { "icon_export_id", "missing_icon" } },
+             { { "version_code", 0 } },
+             { { "min_sdk", 35 }, { "target_sdk", 28 } },
+             { { "features",
+                 json::array({ { { "name", "android.hardware.camera" } } }) } },
+             { { "permissions", json::array({ "bad;injection" }) } },
+             { { "permissions",
+                 json::array({ " android.permission.CAMERA " }) } },
+             { { "permissions",
+                 json::array(
+                     { "android.permission.CAMERA",
+                       "android.permission.CAMERA" }
+                 ) } },
+             { { "permissions", json::array({ "android.permission.CAMERA" }) },
+               { "excluded_permissions",
+                 json::array({ "android.permission.CAMERA" }) } },
+             { { "unknown", true } } }) {
+        value.android = invalid;
+        require_true(
+            !ecosystem::validate_manifest(value).empty(),
+            "invalid Android metadata must be rejected: " + invalid.dump()
+        );
+    }
+    auto obsolete = ecosystem::to_json(*loaded.value);
+    obsolete["android_package_source_dir"] = "app/android";
+    write_text(root.path() / "manifest.json", obsolete.dump());
     require_true(
-        std::find_if(
-            errors.begin(), errors.end(),
-            [](const std::string& error) {
-                return error.find("android_package_source_dir")
-                    != std::string::npos;
-            }
-        ) != errors.end(),
-        "Android package source directory must not escape the project root"
+        !ecosystem::load_manifest(root.path() / "manifest.json").errors.empty(),
+        "obsolete source overlays must not remain an accepted manifest field"
     );
-
-    manifest_value.android_package_source_dir = ".";
-    const ecosystem::string_list root_errors
-        = ecosystem::validate_manifest(manifest_value);
     require_true(
-        std::find_if(
-            root_errors.begin(), root_errors.end(),
-            [](const std::string& error) {
-                return error.find("android_package_source_dir")
-                    != std::string::npos;
-            }
-        ) != root_errors.end(),
-        "Android package source directory must not copy the project root"
-    );
-
-    manifest_value.android_package_source_dir = "android;unsafe";
-    const ecosystem::string_list unsafe_errors
-        = ecosystem::validate_manifest(manifest_value);
-    require_true(
-        std::find_if(
-            unsafe_errors.begin(), unsafe_errors.end(),
-            [](const std::string& error) {
-                return error.find("android_package_source_dir")
-                    != std::string::npos;
-            }
-        ) != unsafe_errors.end(),
-        "Android package source directory must be safe for CMake interpolation"
+        ecosystem::run_command(
+            { "python3", "-B",
+              (fs::path(ECOS_TEST_SOURCE_DIR)
+               / "assets/dataset/test/suite/android_package_cases.py")
+                  .string() },
+            root.path()
+        ) == 0,
+        "independent Android package regressions must pass"
     );
 }
 

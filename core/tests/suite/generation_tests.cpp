@@ -1,7 +1,51 @@
 #include "test_support.hpp"
 #include "test_cases.hpp"
+#include <algorithm>
 
 namespace ecosystem_test_support {
+
+void test_check_capabilities_require_enabled_runnable_artifacts() {
+    temp_dir root;
+    json authored = {
+        { "id", "disabled_checks" }, { "description", "Disabled check ownership" },
+        { "facade", "core:lib" },
+        { "artifacts", json::array({
+            { { "id", "core:lib" }, { "kind", "static_lib" },
+              { "owns", { "answer", "tests", "benchmarks" } },
+              { "tests", { { "gtest", false } } },
+              { "benchmarks", { { "google_benchmark", true } } } }
+        }) }
+    };
+    write_text(root.path() / "manifest.json", authored.dump(2));
+    write_text(root.path() / "include/answer.hpp", "#pragma once\nint answer();\n");
+    write_text(root.path() / "src/answer.cpp", "int answer() { return 42; }\n");
+    write_text(root.path() / "tests/disabled.cpp", "#error disabled tests\n");
+    write_text(root.path() / "benchmarks/disabled.cpp", "#error not a runnable benchmark\n");
+    for (const auto& flags : { json::object(), json { { "gtest", false } },
+                              json { { "gtest_main", true } } }) {
+        authored["artifacts"][0]["tests"] = flags;
+        write_text(root.path() / "manifest.json", authored.dump(2));
+        auto loaded = ecosystem::load_manifest(root.path() / "manifest.json");
+        require_true(loaded.errors.empty(), join_lines(loaded.errors));
+        require_true(!ecosystem::has_tests_enabled(*loaded.value), "owned but disabled tests must not establish capability");
+        require_true(!ecosystem::has_benchmarks_enabled(*loaded.value), "framework metadata alone must not fabricate a benchmark executable");
+        require_true(ecosystem::benchmark_artifact_refs(*loaded.value).empty(), "nonrunnable components must not become benchmark selections");
+        const auto generated = ecosystem::generate_developer_cmakelists(*loaded.value, root.path());
+        require_not_contains(generated, "enable_testing()", "disabled tests must not enable CTest");
+        require_not_contains(generated, "add_test(", "disabled tests must not register CTest entries");
+        require_not_contains(generated, "GTest", "disabled frameworks must not be discovered or linked");
+        require_not_contains(generated, "find_package(benchmark", "nonrunnable benchmark metadata must not affect production");
+    }
+    authored["artifacts"][0]["owns"] = { "answer" };
+    authored["artifacts"][0]["tests"] = { { "gtest", true } };
+    write_text(root.path() / "manifest.json", authored.dump(2));
+    const auto unowned = ecosystem::load_manifest(root.path() / "manifest.json");
+    require_true(unowned.errors.empty(), join_lines(unowned.errors));
+    require_true(!ecosystem::has_tests_enabled(*unowned.value), "unowned files cannot supply runnable test capability");
+    const auto generated = ecosystem::generate_developer_cmakelists(*unowned.value, root.path());
+    require_not_contains(generated, "add_test(", "an empty owned test inventory must not emit a runnable test");
+    require_not_contains(generated, "find_package(GTest", "unowned tests must not trigger dependency discovery");
+}
 
 void test_sync_matches_tracked_surfaces() {
     const ecosystem::manifest_report report = ecosystem::load_manifest(
@@ -22,13 +66,110 @@ void test_sync_matches_tracked_surfaces() {
         "tracked surface generation must succeed for self-hosting"
     );
 
+    const auto local_paths = ecosystem::ignored_local_surface_paths();
     for (const ecosystem::tracked_surface_file& file_value : generated_files) {
+        if (std::find(local_paths.begin(), local_paths.end(), file_value.relative_path)
+            != local_paths.end()) {
+            continue;
+        }
         require_true(
             read_text(fs::path(ECOS_TEST_SOURCE_DIR) / file_value.relative_path)
                 == file_value.contents,
             "generated tracked surface must match tracked file: "
                 + file_value.relative_path.generic_string()
         );
+    }
+}
+
+void test_ignored_local_surfaces_respect_repository_policy() {
+    temp_dir root;
+    write_sample_build_project(root.path(), "sample");
+    require_sync_success(root.path(), "local configuration fixture must sync");
+    const auto loaded = ecosystem::load_manifest(root.path() / "manifest.json");
+    require_true(loaded.value.has_value() && loaded.errors.empty(), "fixture manifest must load");
+    const auto paths = ecosystem::ignored_local_surface_paths();
+    require_true(paths.size() == 2U, "canonical local configuration policy must cover both Clang files");
+    for (const auto& path : paths) {
+        require_true(fs::is_regular_file(root.path() / path), "sync must retain local generation capability");
+    }
+    for (const unsigned present_mask : { 0U, 1U, 2U, 3U }) {
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            fs::remove(root.path() / paths[i]);
+            if ((present_mask & (1U << i)) != 0U) {
+                write_text(root.path() / paths[i], "# locally selected configuration\n");
+            }
+        }
+        require_true(ecosystem::tracked_surface_drift(root.path(), *loaded.value).empty(),
+            "absent/partial/edited ignored configurations must not be tracked drift");
+        for (const auto& command : { "doctor repo", "check repo" }) {
+            const auto result = run_cli(root.path(), command);
+            require_true(result.exit_code == 0, std::string(command) + " must accept optional configurations: " + result.output);
+            for (std::size_t i = 0; i < paths.size(); ++i) {
+                require_true(fs::exists(root.path() / paths[i]) == ((present_mask & (1U << i)) != 0U),
+                    "read-only checks must not create local configuration");
+            }
+        }
+    }
+    const auto required = root.path() / ".github/workflows/tests.yml";
+    const auto contents = read_text(required);
+    fs::remove(required);
+    require_contains(join_lines(ecosystem::tracked_surface_drift(root.path(), *loaded.value)),
+        ".github/workflows/tests.yml is missing", "required CI surfaces must remain mandatory");
+    require_true(run_cli(root.path(), "doctor repo").exit_code == 2, "doctor must fail for missing required CI");
+    require_true(run_cli(root.path(), "check repo").exit_code == 5, "repository check must fail for missing required CI");
+    write_text(required, contents);
+    const auto ignore = root.path() / ".gitignore";
+    const auto ignore_contents = read_text(ignore);
+    write_text(ignore, "# missing canonical local ignore rules\n");
+    require_contains(join_lines(ecosystem::tracked_surface_drift(root.path(), *loaded.value)),
+        ".gitignore is out of sync", "unignored generated configuration must not relax required ignore policy");
+    write_text(ignore, ignore_contents);
+    const auto obsolete = root.path() / ".github/actions/setup-ecosystem/action.yml";
+    write_text(obsolete, "obsolete generated action\n");
+    require_contains(join_lines(ecosystem::tracked_surface_drift(root.path(), *loaded.value)),
+        "setup-ecosystem/action.yml is obsolete", "unexpected unignored generated surfaces must remain errors");
+    fs::remove(obsolete);
+
+    // Exercise the tracked-file branch without creating or mutating a Git index.
+    temp_dir fake_tools;
+    write_executable_script(fake_tools.path() / "git",
+        "#!/bin/sh\ncase \"$1\" in\n"
+        "rev-parse) if [ \"$2\" = --show-toplevel ]; then printf '%s\\n' \"$POLICY_TEST_ROOT\"; fi ;;\n"
+        "ls-files) printf '.clang-format\\n.clang-tidy\\n' ;;\nesac\n");
+    for (const auto& path : paths) write_text(root.path() / path, "# local\n");
+    scoped_env project_env("POLICY_TEST_ROOT", root.path().string());
+    scoped_env path_env("PATH", fake_tools.path().string() + ":" + current_path_env());
+    for (const bool present : { true, false }) {
+        if (!present) for (const auto& path : paths) fs::remove(root.path() / path);
+        const auto issues = join_lines(ecosystem::forbidden_repository_entries(root.path()));
+        for (const auto& path : paths) {
+            require_contains(issues, path.generic_string() + ": ignored local generated configuration must not be tracked",
+                "repository check must reject tracked local configurations even when absent");
+        }
+    }
+}
+
+void test_ignored_local_rules_match_git() {
+    const auto git = ecosystem::find_command_path("git");
+    if (git.empty()) return;
+    const auto metadata = ecosystem::capture_command_result(
+        { git, "--no-optional-locks", "rev-parse", "--absolute-git-dir" }, fs::path(ECOS_TEST_SOURCE_DIR));
+    if (metadata.exit_code != 0) return; // Git is not required in a source distribution.
+    std::string git_dir = metadata.output;
+    while (!git_dir.empty() && (git_dir.back() == '\n' || git_dir.back() == '\r')) git_dir.pop_back();
+    temp_dir root;
+    write_text(root.path() / ".gitignore", ecosystem::generate_gitignore());
+    for (const auto& path : { ".clang-format", ".clang-tidy", "core/.clang-format", "core/.clang-tidy",
+                             "core/source.cpp", "core/source.hpp", ".ecosystem/local.json", "build-debug/output.o",
+                             "assets/sets/.card_set_cache/file.svg" }) {
+        write_text(root.path() / path, "fixture\n");
+        const auto result = ecosystem::capture_command_result(
+            { git, "--no-optional-locks", "check-ignore", "--no-index", "--verbose", path }, root.path(),
+            { { "GIT_DIR", git_dir }, { "GIT_WORK_TREE", root.path().string() }, { "GIT_OPTIONAL_LOCKS", "0" } });
+        const std::string name(path);
+        const bool ignored = name == ".clang-format" || name == ".clang-tidy" || name.starts_with(".ecosystem/")
+            || name.starts_with("build-debug/") || name.find(".card_set_cache/") != std::string::npos;
+        require_true(result.exit_code == (ignored ? 0 : 1), "actual Git ignore decision must match policy: " + name + result.output);
     }
 }
 
@@ -829,7 +970,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
     require_contains(
         shared_workflow_template.generic_string(),
-        "/templates/tracked/.github/workflows/tests.yml.tpl",
+        "/assets/templates/tracked/.github/workflows/tests.yml.tpl",
         "template loader must prefer the executable-owned workflow "
         "template when it is available"
     );
@@ -844,7 +985,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
     require_contains(
         shared_action_template.generic_string(),
-        "/templates/tracked/.github/actions/setup-manifesto/action.yml.tpl",
+        "/assets/templates/tracked/.github/actions/setup-manifesto/action.yml.tpl",
         "template loader must prefer the executable-owned GitHub action "
         "template when it is available"
     );
@@ -858,7 +999,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
     require_contains(
         shared_doxygen_template.generic_string(),
-        "/templates/tooling/Doxyfile.tpl",
+        "/assets/templates/tooling/Doxyfile.tpl",
         "template loader must prefer the executable-owned Doxygen template"
     );
 
@@ -896,7 +1037,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
     require_true(
         shared_cmake_template.lexically_normal()
-            == (fs::path(ECOS_TEST_SOURCE_DIR) / "templates/cmake"
+            == (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates/cmake"
                 / "surface_prefix.tpl")
                    .lexically_normal(),
         "template loader must prefer the executable-owned CMake template "
@@ -934,7 +1075,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
     require_true(
         shared_release_template.lexically_normal()
-            == (fs::path(ECOS_TEST_SOURCE_DIR) / "templates/release"
+            == (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates/release"
                 / "debian_control.tpl")
                    .lexically_normal(),
         "template loader must prefer the executable-owned release "
@@ -976,7 +1117,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
     require_true(
         shared_benchmark_template.lexically_normal()
-            == (fs::path(ECOS_TEST_SOURCE_DIR) / "templates/benchmark"
+            == (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates/benchmark"
                 / "plot.svg.tpl")
                    .lexically_normal(),
         "template loader must prefer the executable-owned benchmark "
@@ -1026,7 +1167,7 @@ void test_template_loader_renders_repo_owned_templates() {
     require_true(
         shared_package_surface_template.lexically_normal()
             == (fs::path(ECOS_TEST_SOURCE_DIR)
-                / "templates/cmake/package_surface/add_interface_library.tpl")
+                / "assets/templates/cmake/package_surface/add_interface_library.tpl")
                    .lexically_normal(),
         "template loader must prefer the executable-owned package-surface "
         "template when it is available"
@@ -1063,7 +1204,7 @@ void test_template_loader_renders_repo_owned_templates() {
     require_true(
         shared_sync_surface_template.lexically_normal()
             == (fs::path(ECOS_TEST_SOURCE_DIR)
-                / "templates/cmake/generated_tests_block.tpl")
+                / "assets/templates/cmake/generated_tests_block.tpl")
                    .lexically_normal(),
         "template loader must prefer the executable-owned sync CMake "
         "template when it is available"
@@ -1115,7 +1256,7 @@ void test_template_loader_renders_repo_owned_templates() {
     require_true(
         shared_artifact_template.lexically_normal()
             == (fs::path(ECOS_TEST_SOURCE_DIR)
-                / "templates/cmake/artifact/library.tpl")
+                / "assets/templates/cmake/artifact/library.tpl")
                    .lexically_normal(),
         "template loader must prefer the executable-owned artifact CMake "
         "template when it is available"
@@ -1154,7 +1295,7 @@ void test_template_loader_renders_repo_owned_templates() {
     require_true(
         shared_component_template.lexically_normal()
             == (fs::path(ECOS_TEST_SOURCE_DIR)
-                / "templates/cmake/component/tests_guard_open.tpl")
+                / "assets/templates/cmake/component/tests_guard_open.tpl")
                    .lexically_normal(),
         "template loader must prefer the executable-owned component CMake "
         "template when it is available"

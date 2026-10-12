@@ -123,7 +123,7 @@ void test_ci_bootstrap_layouts() {
         "add_executable(marx actor.c)\nadd_executable(engels actor.c)\n"
     );
     write_text(source / "manifest.json", "{}\n");
-    write_text(source / "templates/version.txt", "runtime data\n");
+    write_text(source / "assets/templates/version.txt", "runtime data\n");
     write_text(
         source / "actor.c",
         "#include <stdio.h>\nint main(void) { puts(\"old-revision\"); return "
@@ -225,7 +225,7 @@ void test_ci_bootstrap_layouts() {
                 "selected revision"
             );
         }
-        fs::remove_all(clone_root / "nested/tool source/templates");
+        fs::remove_all(clone_root / "nested/tool source/assets/templates");
         result = ecosystem::capture_command_result(
             { "bash", "-e", "-o", "pipefail", build_script.string() }, project,
             build_env
@@ -235,7 +235,7 @@ void test_ci_bootstrap_layouts() {
             "incompatible source revisions without runtime templates must fail"
         );
         write_text(
-            clone_root / "nested/tool source/templates/version.txt",
+            clone_root / "nested/tool source/assets/templates/version.txt",
             "runtime data\n"
         );
         write_text(

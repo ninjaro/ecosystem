@@ -68,7 +68,7 @@ struct manifest {
     std::string version;
     int cpp_standard = 20;
     std::string android_application_id;
-    std::string android_package_source_dir;
+    json android = json::object();
     bool install_assets = false;
     std::string facade_entry_artifact;
     string_list install_artifacts;

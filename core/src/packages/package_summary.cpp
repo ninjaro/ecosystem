@@ -137,11 +137,20 @@ void apply_summary_rule(
 }
 
 void summarize_component_dependencies(
-    dependency_summary* summary, const component& component_value
+    dependency_summary* summary, const component& component_value,
+    const package_dependency_scope scope
 ) {
     for (const package_descriptor& descriptor : registered_packages()) {
         dependency_entry& entry = dependency_entry_for_id(*summary, descriptor.dependency);
         for (const package_summary_rule& rule : descriptor.summary_rules) {
+            if (rule.source == package_summary_source::component_tests_flag
+                && scope != package_dependency_scope::all
+                && scope != package_dependency_scope::tests)
+                continue;
+            if (rule.source == package_summary_source::component_benchmarks_flag
+                && scope != package_dependency_scope::all
+                && scope != package_dependency_scope::benchmarks)
+                continue;
             apply_summary_rule(&entry, component_value, rule);
         }
     }
@@ -179,7 +188,8 @@ void append_descriptor_link_targets(
 using namespace package_summary_support;
 
 dependency_summary summarize_dependencies(
-    const manifest& manifest_value, const std::optional<artifact_ref>& requested_artifact
+    const manifest& manifest_value, const std::optional<artifact_ref>& requested_artifact,
+    const package_dependency_scope scope
 ) {
     dependency_summary summary;
 
@@ -188,7 +198,7 @@ dependency_summary summarize_dependencies(
             continue;
         }
 
-        summarize_component_dependencies(&summary, *component_value);
+        summarize_component_dependencies(&summary, *component_value, scope);
     }
 
     return summary;
@@ -198,9 +208,11 @@ bool dependency_summary_has_entries(const dependency_summary& dependencies) {
     return has_enabled_packages(dependencies);
 }
 
-std::vector<std::string> component_package_link_targets(const component& component_value) {
+std::vector<std::string> component_package_link_targets(
+    const component& component_value, const package_dependency_scope scope
+) {
     dependency_summary dependencies;
-    summarize_component_dependencies(&dependencies, component_value);
+    summarize_component_dependencies(&dependencies, component_value, scope);
 
     std::vector<std::string> targets;
     std::set<std::string> seen;
@@ -211,6 +223,11 @@ std::vector<std::string> component_package_link_targets(const component& compone
         }
         append_descriptor_link_targets(&targets, &seen, dependencies, *descriptor);
     }
+
+    // An authored main can opt out of the framework's default entry point.
+    if (dependencies.gtest.enabled
+        && component_value.tests.value("gtest_main", json(true)) != false)
+        push_unique_target(&targets, &seen, "GTest::gtest_main");
 
     return targets;
 }

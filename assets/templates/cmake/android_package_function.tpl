@@ -1,0 +1,61 @@
+if (ECOSYSTEM_PROFILE_ANDROID)
+    # This helper is embedded so tracked CMake remains independent of installed Marx.
+    function(ecosystem_android_package target source_root config)
+        if (CMAKE_CURRENT_BINARY_DIR STREQUAL source_root)
+            message(FATAL_ERROR "Android packaging requires a separate build directory")
+        endif ()
+        find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+        set(package_root "${CMAKE_CURRENT_BINARY_DIR}/ecosystem/android/${target}")
+        file(MAKE_DIRECTORY "${package_root}")
+        file(WRITE "${package_root}/config.json" "${config}")
+        file(WRITE "${package_root}/generate_package.py" {{android_package_script}})
+        get_filename_component(qt_android_root "${Qt6_DIR}/../../.." ABSOLUTE)
+        set(qt_manifest "${qt_android_root}/src/android/templates/AndroidManifest.xml")
+        if (NOT EXISTS "${qt_manifest}")
+            message(FATAL_ERROR "Qt Android manifest template is missing: ${qt_manifest}")
+        endif ()
+        string(JSON icon ERROR_VARIABLE no_icon GET "${config}" icon)
+        set(converter_args)
+        if (NOT no_icon)
+            find_program(ECOSYSTEM_ANDROID_SVG_CONVERTER NAMES rsvg-convert)
+            if (NOT ECOSYSTEM_ANDROID_SVG_CONVERTER)
+                message(FATAL_ERROR "Android SVG launcher generation requires rsvg-convert (librsvg); install it or set ECOSYSTEM_ANDROID_SVG_CONVERTER")
+            endif ()
+            list(APPEND converter_args --svg-converter "${ECOSYSTEM_ANDROID_SVG_CONVERTER}")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source_root}/${icon}")
+            set_property(TARGET ${target} PROPERTY QT_ANDROID_APP_ICON "@mipmap/ic_launcher")
+        endif ()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${qt_manifest}")
+        execute_process(
+            COMMAND "${Python3_EXECUTABLE}" "${package_root}/generate_package.py"
+                --qt-template "${qt_manifest}" --config "${package_root}/config.json"
+                --source-root "${source_root}" --output "${package_root}/package"
+                ${converter_args}
+            RESULT_VARIABLE package_result ERROR_VARIABLE package_error
+        )
+        if (NOT package_result EQUAL 0)
+            message(FATAL_ERROR "${package_error}")
+        endif ()
+        foreach (mapping "application_id|PACKAGE_NAME" "name|APP_NAME"
+                         "version_code|VERSION_CODE" "version_name|VERSION_NAME"
+                         "min_sdk|MIN_SDK_VERSION" "target_sdk|TARGET_SDK_VERSION")
+            string(REPLACE "|" ";" parts "${mapping}")
+            list(GET parts 0 field)
+            list(GET parts 1 property)
+            string(JSON value ERROR_VARIABLE missing GET "${config}" "${field}")
+            if (NOT missing)
+                if (field STREQUAL "name")
+                    # androiddeployqt inserts this value directly into XML attributes.
+                    string(REPLACE "&" "&amp;" value "${value}")
+                    string(REPLACE "\"" "&quot;" value "${value}")
+                    string(REPLACE "'" "&apos;" value "${value}")
+                    string(REPLACE "<" "&lt;" value "${value}")
+                    string(REPLACE ">" "&gt;" value "${value}")
+                endif ()
+                set_property(TARGET ${target} PROPERTY "QT_ANDROID_${property}" "${value}")
+            endif ()
+        endforeach ()
+        set_property(TARGET ${target} PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR "${package_root}/package")
+    endfunction()
+endif ()
+

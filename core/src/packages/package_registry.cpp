@@ -299,7 +299,7 @@ const std::vector<package_descriptor>& package_descriptors() {
             {
                 {
                     package_link_target_source::fixed,
-                    "GTest::gtest_main",
+                    "GTest::gtest",
                 },
             },
             {

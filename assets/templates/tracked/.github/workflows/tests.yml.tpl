@@ -1,0 +1,261 @@
+name: Checks
+
+# Policy and artifact selection belong to the same local command developers run.
+# No path filter: a manifest may own sources under any project directory.
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  select:
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    outputs:
+      changes: ${{ steps.selection.outputs.changes }}
+      scope: ${{ steps.selection.outputs.scope }}
+      verified: ${{ steps.selection.outputs.verified }}
+      source: ${{ steps.selection.outputs.source }}
+    steps:
+      - uses: {{checkout_action}}
+        with:
+          fetch-depth: 0
+      - id: selection
+        uses: ./.github/actions/select-manifesto-ci
+        with:
+          kind: checks
+
+      - name: Upload change resolution
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-changes-{{project_id}}-checks
+          path: ${{ steps.selection.outputs.changes-file }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Upload reused verification reports
+        if: ${{ steps.selection.outputs.scope == 'reuse' }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-reports-{{project_id}}-checks
+          path: ${{ steps.selection.outputs.reports }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+  checks:
+    permissions:
+      contents: read
+      actions: read
+    needs: select
+    if: ${{ needs.select.outputs.scope == 'cheap' || needs.select.outputs.scope == 'full' || needs.select.outputs.scope == 'reuse' }}
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: {{manifesto_build_parallelism}}
+    steps:
+      - uses: {{checkout_action}}
+        with:
+          fetch-depth: ${{ needs.select.outputs.scope != 'reuse' && '0' || '1' }}
+
+      # Resolve against this job's checkout; selection artifacts are diagnostic.
+      - name: Resolve checked-out changes
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
+        uses: {{github_script_action}}
+        with:
+          script: |
+            require('./.github/actions/select-manifesto-ci/changes.cjs').collect({context, core});
+
+      - name: Setup manifesto tool
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
+        id: manifesto
+        uses: {{manifesto_setup_action}}
+        with:
+          bootstrap: {{manifesto_bootstrap}}
+          source-path: {{manifesto_source_path}}
+          manifesto-repository: {{manifesto_repository}}
+          manifesto-ref: {{manifesto_ref}}
+          build-parallelism: {{manifesto_build_parallelism}}
+          install-project-deps: ${{ needs.select.outputs.scope == 'full' }}
+
+      - name: Classify checked-out changes
+        if: ${{ needs.select.outputs.scope == 'full' }}
+        id: classification
+        uses: {{github_script_action}}
+        env:
+          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+        with:
+          script: |
+            require('./.github/actions/select-manifesto-ci/changes.cjs').classify({core, binary: process.env.ENGELS_BINARY});
+
+      - name: Upload change classification
+        if: ${{ steps.classification.outcome == 'success' }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-classification-{{project_id}}-checks
+          path: |
+            .ecosystem/github/changes.json
+            .ecosystem/github/classification.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Run required local checks
+        if: ${{ needs.select.outputs.scope != 'reuse' }}
+        id: required
+        env:
+          CHECK_SCOPE: ${{ needs.select.outputs.scope }}
+        uses: ./.github/actions/run-manifesto-stage
+        with:
+          stage-id: 01-required-checks
+          stage-label: Required local checks
+          shell-command: |
+            case "$CHECK_SCOPE" in
+              cheap)
+                "${{ steps.manifesto.outputs.engels-binary }}" check repo
+                "${{ steps.manifesto.outputs.engels-binary }}" check format --changes
+                ;;
+              full)
+                "${{ steps.manifesto.outputs.marx-binary }}" build debug
+                "${{ steps.manifesto.outputs.engels-binary }}" check ci
+                ;;
+              *) echo '::error::Missing or invalid verification scope.'; exit 1 ;;
+            esac
+          skipped-exit-codes: ''
+
+      - name: Run full verification coverage
+        if: ${{ needs.select.outputs.scope == 'full' && steps.required.outputs.status == 'passed' }}
+        id: coverage
+        uses: ./.github/actions/run-manifesto-stage
+        with:
+          stage-id: 02-coverage-check
+          stage-label: Coverage check
+          shell-command: |
+            "${{ steps.manifesto.outputs.engels-binary }}" check coverage
+          skipped-exit-codes: 3
+
+      - name: Upload check reports
+        if: ${{ always() && needs.select.outputs.scope != 'reuse' }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-reports-{{project_id}}-checks
+          path: |
+            .ecosystem/github/reports
+            .ecosystem/github/changes.json
+            .ecosystem/reports
+          include-hidden-files: true
+          if-no-files-found: warn
+
+      - name: Enforce required result
+        if: ${{ always() }}
+        env:
+          REUSE_VERIFIED: ${{ needs.select.outputs.verified }}
+          REUSE_SOURCE: ${{ needs.select.outputs.source }}
+          CHECK_SCOPE: ${{ needs.select.outputs.scope }}
+          CHECK_OUTCOME: ${{ steps.required.outcome }}
+          CHECK_STATUS: ${{ steps.required.outputs.status }}
+          CHECK_EXIT_CODE: ${{ steps.required.outputs.exit-code }}
+          COVERAGE_OUTCOME: ${{ steps.coverage.outcome }}
+          COVERAGE_STATUS: ${{ steps.coverage.outputs.status }}
+          COVERAGE_EXIT_CODE: ${{ steps.coverage.outputs.exit-code }}
+        shell: bash
+        run: |
+          if [ "$CHECK_SCOPE" = reuse ]; then
+            if [ "$REUSE_VERIFIED" != true ] || [ -z "$REUSE_SOURCE" ]; then
+              echo '::error::Verification reuse has no validated source.'
+              exit 1
+            fi
+            printf 'Reused verification:\n\n```json\n%s\n```\n' "$REUSE_SOURCE" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$CHECK_SCOPE" != cheap ] && [ "$CHECK_SCOPE" != full ]; then
+            echo '::error::Missing or invalid verification scope.'
+            exit 1
+          fi
+          if [ "$CHECK_OUTCOME" != success ] || [ "$CHECK_STATUS" != passed ] || [ "$CHECK_EXIT_CODE" != 0 ] || [ ! -s .ecosystem/github/reports/01-required-checks/summary.md ] || [ ! -f .ecosystem/github/reports/01-required-checks/output.log ]; then
+            echo '::error::Required local checks failed or did not produce a complete result. See the stage report and setup logs.'
+            exit 1
+          fi
+          if [ "$CHECK_SCOPE" = full ]; then
+            if [ "$COVERAGE_OUTCOME" != success ] || [ ! -s .ecosystem/github/reports/02-coverage-check/summary.md ] || [ ! -f .ecosystem/github/reports/02-coverage-check/output.log ]; then
+              echo '::error::Coverage verification did not produce a complete result.'
+              exit 1
+            fi
+            if [ "$COVERAGE_STATUS" = passed ] && [ "$COVERAGE_EXIT_CODE" = 0 ] && [ -s .ecosystem/reports/coverage.json ]; then
+              exit 0
+            fi
+            if [ "$COVERAGE_STATUS" = skipped ] && [ "$COVERAGE_EXIT_CODE" = 3 ]; then
+              exit 0
+            fi
+            echo '::error::Coverage verification failed. Only unsupported coverage (exit 3) may skip.'
+            exit 1
+          fi
+
+      - name: Record reusable verification
+        if: ${{ needs.select.outputs.scope == 'full' }}
+        id: evidence
+        uses: {{github_script_action}}
+        env:
+          EVIDENCE_KIND: checks
+          VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}
+          TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
+          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          CHECK_OUTCOME: ${{ steps.required.outcome }}
+          CHECK_STATUS: ${{ steps.required.outputs.status }}
+          CHECK_EXIT_CODE: ${{ steps.required.outputs.exit-code }}
+          COVERAGE_OUTCOME: ${{ steps.coverage.outcome }}
+          COVERAGE_STATUS: ${{ steps.coverage.outputs.status }}
+          COVERAGE_EXIT_CODE: ${{ steps.coverage.outputs.exit-code }}
+        with:
+          script: |
+            await require('./.github/actions/select-manifesto-ci/evidence.cjs').record({github, context, core});
+
+      - name: Upload verification evidence
+        if: ${{ steps.evidence.outputs.name != '' }}
+        uses: {{upload_artifact_action}}
+        with:
+          name: ${{ steps.evidence.outputs.name }}
+          path: ${{ steps.evidence.outputs.directory }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    runs-on: ubuntu-24.04
+    needs: checks
+    if: ${{ always() && needs.checks.result != 'skipped' }}
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: {{checkout_action}}
+
+      - name: Download check report artifacts
+        continue-on-error: true
+        uses: {{download_artifact_action}}
+        with:
+          pattern: ci-reports-{{project_id}}-checks
+          path: .ecosystem
+          merge-multiple: true
+
+      - name: Publish check report
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: ./.github/actions/publish-manifesto-report
+        with:
+          project-id: {{project_id}}
+          report-key: checks
+          report-title: Checks
+          report-directory: .ecosystem/github/reports

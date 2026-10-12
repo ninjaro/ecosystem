@@ -185,6 +185,20 @@ namespace package_surface_render_support {
         );
     }
 
+    std::string render_deduplicate_support_properties(
+        const std::string& target_name, const std::string& indent,
+        std::string* error_message
+    ) {
+        // Scoped discovery can add requirements to an existing support target.
+        // Retain their union, including later profile components, without
+        // accumulating the same usage requirements on every discovery pass.
+        return render_package_surface_template(
+            "cmake/package_surface/deduplicate_interface_properties.tpl",
+            { { "target_name", target_name }, { "indent", indent } },
+            error_message
+        );
+    }
+
     std::string render_static_support_target_body(
         const package_surface_target_rule& target, const std::string& indent,
         std::string* error_message
@@ -199,6 +213,9 @@ namespace package_surface_render_support {
         if (error_message != nullptr && !error_message->empty()) {
             return {};
         }
+        body += render_deduplicate_support_properties(
+            std::string(target.name), indent, error_message
+        );
         return body;
     }
 
@@ -439,6 +456,10 @@ namespace package_surface_render_support {
             if (error_message != nullptr && !error_message->empty()) {
                 return {};
             }
+            body += render_deduplicate_support_properties(
+                std::string(rule.profile_rule.support_target_name), "    ",
+                error_message
+            );
         }
 
         stream += render_if_block(

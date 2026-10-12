@@ -52,7 +52,7 @@ void test_sphinx_presentation_contract() {
     const auto result = ecosystem::capture_command_result(
         { "python3",
           (fs::path(ECOS_TEST_SOURCE_DIR)
-           / "core/tests/suite/presentation_cases.py")
+           / "assets/dataset/test/suite/presentation_cases.py")
               .string(),
           (ecosystem::local_sphinx_dir(root.path())
            / "manifesto_presentation.py")

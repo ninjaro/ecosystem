@@ -30,6 +30,10 @@ std::string generate_developer_cmakelists(
     const manifest& value, const std::filesystem::path& project_root = "."
 );
 std::string generate_gitignore();
+// Canonical generated configurations which may exist locally, but are ignored
+// and are never required tracked surfaces. Paths are relative to the project.
+std::vector<std::filesystem::path> ignored_local_surface_paths();
+// The generation inventory also retains these optional local configurations.
 std::vector<tracked_surface_file> generate_tracked_surface_files(
     const manifest& value, const std::filesystem::path& project_root = ".",
     string_list* errors = nullptr

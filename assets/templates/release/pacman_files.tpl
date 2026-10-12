@@ -1,0 +1,3 @@
+%FILES%
+{{files_block}}
+

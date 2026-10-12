@@ -99,7 +99,7 @@ fs::path source_template_root() {
                .parent_path()
                .parent_path()
                .parent_path()
-        / "templates";
+        / "assets/templates";
 #endif
 }
 

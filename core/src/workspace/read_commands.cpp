@@ -704,6 +704,8 @@ namespace command_support {
         std::vector<test_target> targets;
 
         for (const component& component_value : manifest_value.components) {
+            if (!component_has_tests(component_value))
+                continue;
             if (requested_artifact.has_value()
                 && component_value.id != requested_artifact->component_id) {
                 continue;

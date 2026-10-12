@@ -217,7 +217,7 @@ namespace {
             return "manifest";
         if (beneath(".github", path))
             return "workflow";
-        if (beneath("templates", path) || name == "CMakeLists.txt"
+        if (beneath("assets/templates", path) || name == "CMakeLists.txt"
             || path.extension() == ".cmake" || name.ends_with(".cmake.in")
             || name == "CMakePresets.json" || name == "CMakeUserPresets.json"
             || name == ".clang-format" || name == ".clang-tidy"
@@ -345,11 +345,7 @@ json change_report(const fs::path& root, const manifest& value) {
                 // runnable targets, including when install_assets is false.
                 full = true;
                 presentation = true;
-            } else if (
-                (!value.android_package_source_dir.empty()
-                 && beneath(value.android_package_source_dir, path))
-                || beneath("java", path)
-            ) {
+            } else if (beneath("java", path)) {
                 kind = "platform-input";
                 full = true;
             } else if (!owners.empty()) {
