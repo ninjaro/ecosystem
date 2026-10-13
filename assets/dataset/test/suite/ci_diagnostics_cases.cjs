@@ -119,3 +119,40 @@ test('legitimate excluded job is diagnosed; failed selection never becomes an ex
   assert.equal((await diagnostics.collect(args)).status, 'not-applicable');
   assert.equal((await diagnostics.collect({...args, selectionResult: 'failure'})).status, 'failed');
 });
+test('a strict enforcement failure retains the composite command cause and blocked analysis', async t => {
+  const f = fixture(t); const log = '.ecosystem/github/reports/01-tracked-surface/output.log';
+  f.write(log, 'forbidden repository entries:\n  .clang-format: ignored local generated configuration must not be tracked\n'
+    + '  .clang-tidy: ignored local generated configuration must not be tracked\nerror[task_failed]: repository policy\n');
+  await diagnostics.snapshot({core: f.core, root: f.root, kind: 'codeql', scope: 'full', selectionResult: 'success', steps: {
+    changes: {outcome: 'success'}, manifesto: {outcome: 'success'}, classification: {outcome: 'success'},
+    repository: {outcome: 'success', outputs: {status: 'failed', 'exit-code': '5', 'log-path': log, reason: 'Command failed (exit 5).'}},
+    codeql_init: {outcome: 'skipped'}, codeql_build: {outcome: 'skipped'}, codeql_analyze: {outcome: 'skipped'}}});
+  const github = {rest: {actions: {listJobsForWorkflowRun() {}, async downloadJobLogsForWorkflowRun() {
+    return {data: '##[error]Execution diagnosis is failed.\n'};}}}, async paginate() {return [{id: 42, name: 'analyze (cpp)', conclusion: 'failure', steps: [
+      {name: 'Verify generated tracked surfaces', number: 7, conclusion: 'success'},
+      {name: 'Run CodeQL analysis', number: 10, conclusion: 'skipped'},
+      {name: 'Enforce CodeQL result', number: 14, conclusion: 'failure'}]}];}};
+  const record = await diagnostics.collect({github, context, core: f.core, root: f.root, kind: 'codeql', scope: 'full', workflowResult: 'failure', selectionResult: 'success'});
+  assert.equal(record.status, 'failed'); assert.match(record.reason, /\.clang-format: ignored local generated configuration/);
+  assert.match(record.reason, /\.clang-tidy: ignored local generated configuration/);
+  assert.equal(record.stages[0].category, 'unmet-prerequisite'); assert.match(record.stages[0].reason, /codeql_build/);
+  assert.match(record.stages[1].reason, /Command failed \(exit 5\)/);
+});
+test('bootstrap diagnosis selects the failed command and preserves multiline CMake context', async t => {
+  const f = fixture(t); const directory = '.ecosystem/github/reports/00-toolchain';
+  f.write(`${directory}/steps.tsv`, 'paths\t0\nnative-dependencies\t0\njson\t0\nbuild\t2\n');
+  f.write(`${directory}/build.log`, 'CMake Error at manifesto_assets_engels.cmake:153 (configure_file):\n'
+    + '  Fail to copy destinationfile: No such file or directory\n\n');
+  const record = await diagnostics.snapshot({core: f.core, root: f.root, kind: 'checks', scope: 'full', selectionResult: 'success',
+    steps: {changes: {outcome: 'success'}, manifesto: {outcome: 'failure'}}});
+  assert.equal(record.status, 'failed'); assert.match(record.reason, /Fail to copy destinationfile/);
+  assert.equal(record.stages[1].log_path, `${directory}/build.log`);
+  for (const stage of record.stages.slice(2)) assert.equal(stage.category, 'unmet-prerequisite');
+});
+test('hosted-only multiline errors keep the failing CMake operation and diagnostic', async t => {
+  const f = fixture(t); const github = {rest: {actions: {listJobsForWorkflowRun() {}, async downloadJobLogsForWorkflowRun() {
+    return {data: 'CMake Error at assets.cmake:153 (configure_file):\n  Fail to copy destinationfile: No such file or directory\n\n'};}}},
+    async paginate() {return [{id: 42, name: 'checks', conclusion: 'failure', steps: [{name: 'Setup manifesto tool', number: 4, conclusion: 'failure'}]}];}};
+  const record = await diagnostics.collect({github, context, core: f.core, root: f.root, kind: 'checks', scope: 'full', workflowResult: 'failure', selectionResult: 'success'});
+  assert.equal(record.status, 'failed'); assert.match(record.logs.join('\n'), /Fail to copy destinationfile/);
+});

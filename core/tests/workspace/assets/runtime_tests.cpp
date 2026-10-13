@@ -4,6 +4,7 @@
 #include "workspace/template_text.hpp"
 
 #include <algorithm>
+#include <future>
 
 namespace ecosystem_test_support {
 
@@ -111,6 +112,47 @@ void test_asset_runtime_surface() {
             project
         );
         require_true(standalone.exit_code == 0, standalone.output);
+        // Multiple application/test executables may share TARGET_FILE_DIR.
+        // Exercise their actual post-build scripts concurrently, including
+        // cache retirement and byte-for-byte completeness of the payload.
+        for (int index = 0; index < 100; ++index)
+            write_text(
+                project / "assets/sets" / (std::to_string(index) + ".dat"),
+                std::string(65536, static_cast<char>('a' + index % 26))
+            );
+        const auto shared = root.path() / "shared-assets";
+        write_text(shared / "sets/.cache/retired.dat", "obsolete cache");
+        write_text(shared / "showcase/retired.dat", "obsolete showcase");
+        std::vector<std::future<ecosystem::captured_command>> parallel;
+        for (int index = 0; index < 8; ++index)
+            parallel.push_back(std::async(std::launch::async, [&] {
+                return ecosystem::capture_command_result(
+                    { "cmake",
+                      "-Dasset_source=" + (project / "assets").string(),
+                      "-Dasset_destination=" + shared.string(), "-P",
+                      stage.string() },
+                    project
+                );
+            }));
+        for (auto& result : parallel) {
+            const auto completed = result.get();
+            require_true(completed.exit_code == 0, completed.output);
+        }
+        for (int index = 0; index < 100; ++index) {
+            const auto relative = "sets/" + std::to_string(index) + ".dat";
+            require_true(
+                read_text(shared / relative)
+                    == read_text(project / "assets" / relative),
+                "parallel staging must preserve every complete runtime file"
+            );
+        }
+        require_true(
+            !fs::exists(shared / "sets/.cache")
+                && !fs::exists(shared / "showcase")
+                && !fs::exists(shared / "assets.lock"),
+            "parallel staging must retire caches without adding payload "
+            "metadata"
+        );
         const auto alias = root.path() / "aliased-assets";
         fs::create_directory_symlink(root.path() / "retained", alias);
         const auto result = ecosystem::capture_command_result(

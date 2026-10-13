@@ -8,6 +8,16 @@ if (IS_SYMLINK "${asset_destination}" OR
         (EXISTS "${asset_destination}" AND NOT IS_DIRECTORY "${asset_destination}"))
     message(FATAL_ERROR "Invalid runtime asset destination: ${asset_destination}")
 endif ()
+# Executables beside one another share this output. configure_file replaces
+# destination files, so parallel post-build scripts must not copy or prune the
+# same tree concurrently. The process lock is destination-local and
+# lives beside the payload, not inside it; unrelated destinations stay parallel.
+get_filename_component(asset_destination "${asset_destination}" ABSOLUTE)
+set(asset_lock "${asset_destination}.lock")
+if (IS_SYMLINK "${asset_lock}" OR IS_DIRECTORY "${asset_lock}")
+    message(FATAL_ERROR "Invalid runtime asset staging lock: ${asset_lock}")
+endif ()
+file(LOCK "${asset_lock}" GUARD PROCESS)
 foreach (category IN ITEMS {{runtime_categories}})
     if (IS_SYMLINK "${asset_source}/${category}" OR IS_SYMLINK "${asset_destination}/${category}")
         message(FATAL_ERROR "Runtime asset category uses a symlink: ${category}")

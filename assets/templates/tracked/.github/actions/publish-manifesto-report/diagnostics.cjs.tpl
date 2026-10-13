@@ -26,6 +26,30 @@ function save(directory, record) {
   fs.writeFileSync(path.join(directory, 'summary.md'), text);
   return text;
 }
+function diagnosticExcerpt(text) {
+  const lines = text.split('\n'); const selected = new Set();
+  for (let index = 0; index < lines.length; index++) {
+    if (!/error:\s|error\[|##\[error\]|::error::|CMake Error|Unknown arguments|FAILED:|forbidden repository entries:/i.test(lines[index])) continue;
+    // Keep multiline CMake/compiler details, rather than just their headline.
+    for (let next = index; next < Math.min(index + 5, lines.length); next++) selected.add(next);
+  }
+  return [...selected].sort((a, b) => a - b).map(index => lines[index]).slice(-24).join('\n').trim()
+    || lines.slice(-12).join('\n').trim();
+}
+function failureLog(root, id, output) {
+  let file = output['log-path'];
+  if (id === 'manifesto') {
+    const directory = '.ecosystem/github/reports/00-toolchain';
+    const steps = path.join(root, directory, 'steps.tsv');
+    const failed = fs.existsSync(steps) && fs.readFileSync(steps, 'utf8').split('\n')
+      .map(line => line.split('\t')).find(([name, code]) => /^[a-z-]+$/.test(name) && /^\d+$/.test(code || '') && code !== '0');
+    if (failed) file = `${directory}/${failed[0]}.log`;
+  }
+  if (!file) return null;
+  const absolute = path.resolve(root, file); const relative = path.relative(root, absolute);
+  if (relative.startsWith('..' + path.sep) || path.isAbsolute(relative) || !fs.existsSync(absolute)) return null;
+  return {file: relative, excerpt: diagnosticExcerpt(fs.readFileSync(absolute, 'utf8'))};
+}
 async function snapshot({core, kind, scope, selectionResult, steps, root = process.cwd()}) {
   const definition = kind === 'checks'
     ? [['changes', 'Change resolution', []], ['manifesto', 'Tooling setup', ['changes']],
@@ -68,6 +92,13 @@ async function snapshot({core, kind, scope, selectionResult, steps, root = proce
       Object.assign(row, {status: 'blocked', category: 'unmet-prerequisite', reason: `Requires ${blocked}, which did not pass.`});
     } else {
       Object.assign(row, {status: 'blocked', category: 'missing-result', reason: `${name} was required but has no completed result.`});
+    }
+    if (row.status === 'failed') {
+      const diagnostic = failureLog(root, id, output);
+      if (diagnostic) {
+        row.log_path = diagnostic.file; row.diagnostic = diagnostic.excerpt;
+        if (diagnostic.excerpt) row.reason += `\n${diagnostic.excerpt}`;
+      }
     }
     stages.push(row);
   }
@@ -127,7 +158,11 @@ async function collect({github, context, core, kind, scope, workflowResult, sele
       const firstFailure = (job.steps || []).find(step => step.conclusion === 'failure');
       if (firstFailure) {
         status = 'failed';
-        reason = `${job.name} failed at ${firstFailure.name} (#${firstFailure.number}); dependent stages did not establish verification.`;
+        const cause = localRecord?.stages?.find(row => row.status === 'failed');
+        if (!cause) reason = `${job.name} failed at ${firstFailure.name} (#${firstFailure.number}); dependent stages did not establish verification.`;
+        // A composite stage may return success to permit uploads, then the
+        // strict enforcement step fails. Retain the original command failure.
+        else logs.push(`Hosted ${job.name}: ${firstFailure.name} (#${firstFailure.number}) enforces the recorded failure in ${cause.name}.`);
       }
       for (const step of job.steps || []) {
         if (!['failure', 'skipped', 'cancelled'].includes(step.conclusion)) continue;
@@ -160,7 +195,7 @@ async function collect({github, context, core, kind, scope, workflowResult, sele
           category: blocked ? 'unmet-prerequisite' : native?.category || (step.conclusion === 'failure' ? 'actual-failure'
             : step.conclusion === 'cancelled' ? 'unavailable-environment' : unexplained ? 'unresolved-condition' : 'not-applicable'),
           reason: blocked ? `Blocked by failed step ${firstFailure.name} (#${firstFailure.number}).`
-            : step.conclusion === 'failure' ? `Hosted step failed; ${job.html_url || context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId}`
+            : step.conclusion === 'failure' ? `${native?.reason || localRecord?.stages?.find(row => row.status === 'failed')?.reason || 'Hosted step failed'}; ${job.html_url || context.serverUrl + '/' + context.repo.owner + '/' + context.repo.repo + '/actions/runs/' + context.runId}`
             : native?.reason || excludedReason || `Condition did not admit this step (outcome ${step.conclusion}, scope ${scope || 'missing'}); inspect its workflow condition and preceding step outcomes.`});
       }
       if (job.conclusion !== 'failure' && job.conclusion !== 'cancelled') continue;
@@ -176,8 +211,8 @@ async function collect({github, context, core, kind, scope, workflowResult, sele
         if (typeof content !== 'string' || !content.trim()) throw new Error('Job log is unavailable');
         const log = path.join(directory, 'hosted-logs', `${job.id}.log`);
         fs.mkdirSync(path.dirname(log), {recursive: true}); fs.writeFileSync(log, content);
-        const excerpt = content.split('\n').filter(line => /error:\s|##\[error\]|CMake Error|Unknown arguments|FAILED:/i.test(line)).slice(-12);
-        logs.push(`Hosted job ${job.id}: \`${path.relative(root, log)}\`\n\n\`\`\`text\n${excerpt.join('\n')}\n\`\`\``);
+        const excerpt = diagnosticExcerpt(content);
+        logs.push(`Hosted job ${job.id}: \`${path.relative(root, log)}\`\n\n\`\`\`text\n${excerpt}\n\`\`\``);
       } catch (error) { logs.push(`Hosted log for job ${job.id} unavailable: ${error.message}; use the job's GitHub log.`); }
     }
   } catch (error) { logs.push(`Hosted job inventory unavailable: ${error.message}. Local stage logs and upstream results remain authoritative.`); }
