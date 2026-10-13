@@ -119,6 +119,15 @@ function successful(env, prefix, optional = false) {
   'Incomplete native result: ' + prefix);
   return status;
 }
+function requireCleanCheckout(root) {
+  const untracked = git(root, 'ls-files', '--others', '--exclude-standard', '-z');
+  requireValue(!untracked, 'Untracked authored inputs after verification: '
+    + JSON.stringify(untracked.split('\0').filter(Boolean)));
+  const modified = git(root, 'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD');
+  requireValue(!modified, 'Modified authored inputs after verification: '
+    + JSON.stringify(modified.split('\0').filter(Boolean)));
+  git(root, 'diff', '--quiet', '--ignore-submodules=none', 'HEAD');
+}
 // This version only attests whole-project verification. A changed-file or
 // presentation-only result needs its own contract before it can authorize reuse.
 function fullVerification(kind, tree, manifest) {
@@ -170,8 +179,7 @@ async function presentation({context, core, root = process.cwd(), env = process.
   const coverage = successful(env, 'COVERAGE', true);
   const tested = git(root, 'rev-parse', 'HEAD');
   requireValue(tested === context.sha, 'Checkout is not the event revision');
-  git(root, 'diff', '--quiet', '--ignore-submodules=none', 'HEAD');
-  requireValue(!git(root, 'ls-files', '--others', '--exclude-standard'), 'Untracked authored inputs after verification');
+  requireCleanCheckout(root);
   const attempt = Number(env.GITHUB_RUN_ATTEMPT);
   requireValue(Number.isSafeInteger(attempt) && attempt > 0, 'Missing Pages attempt');
   const receipt = {schema: 1, kind: 'pages',
@@ -197,8 +205,7 @@ async function record({github, context, core, root = process.cwd(), env = proces
   catch (error) { core.notice('No reusable receipt: ' + error.message); return; }
   const tested = git(root, 'rev-parse', 'HEAD');
   requireValue(tested === context.sha, 'Checkout is not the event revision');
-  git(root, 'diff', '--quiet', '--ignore-submodules=none', 'HEAD');
-  requireValue(!git(root, 'ls-files', '--others', '--exclude-standard'), 'Untracked authored inputs after verification');
+  requireCleanCheckout(root);
   const tooling = git(env.TOOL_SOURCE_ROOT, 'rev-parse', 'HEAD');
   requireValue(tooling === (config.tooling.bootstrap === 'checkout' ? tested : config.tooling.revision),
     'Tooling checkout differs from the selected immutable revision');

@@ -121,10 +121,10 @@ function resolve({context, root = process.cwd()}) {
   }
 }
 
-function writeReport(root, name, value) {
+function writeReport(root, name, value, parts = ['.ecosystem', 'github']) {
   // Never follow a checkout-controlled symlink or overwrite an authored file.
   let directory = root;
-  for (const part of ['.ecosystem', 'github']) {
+  for (const part of parts) {
     directory = path.join(directory, part);
     try { fs.mkdirSync(directory); }
     catch (error) { if (error.code !== 'EEXIST') throw error; }
@@ -167,6 +167,16 @@ function inspect({root = process.cwd(), binary}) {
 function classify({core, root = process.cwd(), binary}) {
   const result = inspect({root, binary});
   const report = writeReport(root, 'classification.json', result);
+  // Preserve native classification unchanged, but expose the dirty paths rather
+  // than leaving conservative fallback/receipt failures without a diagnosis.
+  const command = ['status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'];
+  const status = git(root, ...command).toString('utf8');
+  const checkout = writeReport(root, 'result.json', {command: ['git', ...command],
+    status: status ? 'dirty' : 'clean', porcelain: status}, ['.ecosystem', 'github', 'reports', '00-checkout']);
+  const directory = path.dirname(checkout);
+  fs.writeFileSync(path.join(directory, 'summary.md'), '## Checkout status at classification\n\n'
+    + (status ? 'Dirty checkout; full fallback remains required.\n\n```text\n' + status + '```\n' : 'Clean checkout.\n'), {flag: 'wx'});
+  core.info(status ? 'Checkout status:\n' + status : 'Checkout is clean.');
   core.setOutput('classification-file', report);
   core.setOutput('codeql', result.execution.codeql);
   core.info(`Change classification: ${result.classification} (${result.reason}).`);

@@ -13,18 +13,24 @@ void test_workspace_conformance_reports_all_projects() {
         workspace_conformance_errors(root.path()).empty(),
         "fresh isolated workspace must conform"
     );
+    write_text(root.path() / "beta/.clang-format", "stale\n");
+    require_true(
+        workspace_conformance_errors(root.path()).empty(),
+        "optional ignored local configuration must not be a required surface"
+    );
     write_text(root.path() / "broken/manifest.json", "{ invalid JSON\n");
     write_text(root.path() / "alpha/CMakeLists.txt", "stale\n");
-    write_text(root.path() / "beta/.clang-format", "stale\n");
+    write_text(root.path() / "beta/.github/workflows/tests.yml", "stale\n");
     const auto errors = join_lines(workspace_conformance_errors(root.path()));
-    for (const auto* issue :
-         { "broken", "alpha/CMakeLists.txt", "beta/.clang-format" })
+    for (const auto* issue : { "broken", "alpha/CMakeLists.txt",
+                               "beta/.github/workflows/tests.yml" })
         require_contains(
             errors, issue,
             "conformance must report every broken project and surface"
         );
     require_true(
-        read_text(root.path() / "alpha/CMakeLists.txt") == "stale\n",
+        read_text(root.path() / "alpha/CMakeLists.txt") == "stale\n"
+            && read_text(root.path() / "beta/.clang-format") == "stale\n",
         "conformance must be read-only"
     );
 }

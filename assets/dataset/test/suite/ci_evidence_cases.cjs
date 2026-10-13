@@ -135,10 +135,20 @@ for (const [kind, env] of [
 test('dirty and untracked authored inputs cannot receive a receipt', async t => {
   const f = fixture(t);
   f.write('src/main.cpp', 'changed after tests');
-  await assert.rejects(f.record(), /git/);
+  await assert.rejects(f.record(), /Modified authored inputs.*src\/main\.cpp/);
   f.git('restore', 'src/main.cpp');
   f.write('src/untested.cpp', 'new input');
-  await assert.rejects(f.record(), /Untracked/);
+  await assert.rejects(f.record(), /Untracked authored inputs.*src\/untested\.cpp/);
+});
+
+test('installer logs outside ignored state block a receipt with their exact path', async t => {
+  const f = fixture(t);
+  f.write('aqtinstall.log', 'installer output');
+  await assert.rejects(f.record('codeql'), /Untracked authored inputs.*aqtinstall\.log/);
+  fs.unlinkSync(path.join(f.root, 'aqtinstall.log'));
+  f.write('.ecosystem/github/reports/00-toolchain/aqtinstall.log', 'installer output');
+  const receipt = await f.record('codeql');
+  assert.equal(receipt.kind, 'codeql');
 });
 
 test('mutable tooling references cannot receive reusable receipts', async t => {

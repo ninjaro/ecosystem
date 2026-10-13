@@ -193,6 +193,29 @@ void test_ci_bootstrap_layouts() {
             const auto split = line.find('=');
             values[line.substr(0, split)] = line.substr(split + 1);
         }
+        require_contains(
+            action, "LOG_CFG: ${{ steps.paths.outputs.aqt-log-config }}",
+            "the installer must use the ignored logging configuration"
+        );
+        const auto logging = ecosystem::capture_command_result(
+            { "python3", "-c",
+              "import logging.config, os; "
+              "logging.config.fileConfig(os.environ['LOG_CFG']); "
+              "logging.getLogger('aqt').info('bootstrap log probe')" },
+            project, { { "LOG_CFG", values.at("aqt-log-config") } }
+        );
+        require_true(logging.exit_code == 0, logging.output);
+        require_true(
+            !fs::exists(project / "aqtinstall.log"),
+            "Qt installer logging must not dirty the checkout root"
+        );
+        require_contains(
+            read_text(
+                project
+                / ".ecosystem/github/reports/00-toolchain/aqtinstall.log"
+            ),
+            "bootstrap log probe", "installer diagnostics must be retained"
+        );
         const auto build_script = project / "build.sh";
         write_text(build_script, build);
         const auto build_env

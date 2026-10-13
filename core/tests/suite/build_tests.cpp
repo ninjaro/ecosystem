@@ -755,8 +755,8 @@ void test_installed_libraries_are_relocatable() {
             consumer / "CMakeLists.txt", R"(cmake_minimum_required(VERSION 3.20)
 project(consumer VERSION 9.8.7 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
-find_package(portable 1.2 CONFIG REQUIRED)
-find_package(portable 1.2 CONFIG REQUIRED)
+find_package(portable 1.2.3 EXACT CONFIG REQUIRED)
+find_package(portable 1.2.3 EXACT CONFIG REQUIRED)
 add_executable(consumer main.cpp)
 target_compile_definitions(consumer PRIVATE ECOSYSTEM_PROJECT_VERSION="${PROJECT_VERSION}")
 target_link_libraries(consumer PRIVATE portable::core__lib)
@@ -780,6 +780,34 @@ target_link_libraries(consumer PRIVATE portable::core__lib)
         run({ "cmake", "--build", (root.path() / "consumer-build").string(),
               "--parallel", "2" });
         run({ (root.path() / "consumer-build/consumer").string() });
+        // Current-version-only exports must reject partial/older/newer
+        // requests, while the real relocated package and its public
+        // dependencies work.
+        for (const auto* version : { "1.2", "1.2.2", "2.0.0" }) {
+            const auto incompatible = root.path() / version;
+            write_text(
+                incompatible / "CMakeLists.txt",
+                "cmake_minimum_required(VERSION 3.20)\n"
+                "project(incompatible LANGUAGES CXX)\n"
+                "find_package(portable "
+                    + std::string(version) + " CONFIG REQUIRED)\n"
+            );
+            const auto rejected = ecosystem::capture_command_result(
+                { "cmake", "-S", incompatible.string(), "-B",
+                  (incompatible / "build").string(),
+                  "-Dportable_DIR="
+                      + (relocated / "lib64/cmake/portable").string() },
+                root.path()
+            );
+            require_true(
+                rejected.exit_code != 0,
+                "a noncurrent package request must be rejected"
+            );
+            require_contains(
+                rejected.output, "version: 1.2.3",
+                "rejection must identify the available current package"
+            );
+        }
     }
 
     temp_dir root;

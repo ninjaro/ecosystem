@@ -59,6 +59,9 @@ for (const [kind, file] of [['checks', process.argv[4]], ['codeql', process.argv
       const expected = ['source', 'header'].includes(scenario) ? 'affected'
         : ['docs', 'pull-request'].includes(scenario) ? 'presentation' : scenario === 'empty' ? 'none' : 'full';
       assert.equal(report.classification, expected, report.reason);
+      const checkout = JSON.parse(fs.readFileSync(path.join(f.root, '.ecosystem/github/reports/00-checkout/result.json')));
+      assert.equal(checkout.status, scenario === 'dirty' ? 'dirty' : 'clean');
+      if (scenario === 'dirty') assert.match(checkout.porcelain, /docs\/guide.md/);
       assert.equal(outputs.codeql, scenario === 'pull-request' ? 'repository' : 'full');
       assert.deepEqual(report, f.readReport(), 'snapshot must be the native policy without adapter reinterpretation');
       assert.deepEqual(JSON.parse(fs.readFileSync(outputs['changes-file'])), JSON.parse(outputs.changes));

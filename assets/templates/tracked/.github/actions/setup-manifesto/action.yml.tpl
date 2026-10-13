@@ -97,6 +97,42 @@ runs:
         echo "manifesto-build-root=$build_root" >> "$GITHUB_OUTPUT"
         echo "marx-binary=$build_root/marx" >> "$GITHUB_OUTPUT"
         echo "engels-binary=$build_root/engels" >> "$GITHUB_OUTPUT"
+        # aqt commands (including version/cache lookup) otherwise create a log
+        # in the checkout, invalidating strict change/evidence provenance.
+        python3 - "$report_root" <<'PY'
+        import pathlib, sys
+        root = pathlib.Path(sys.argv[1])
+        (root / "aqt-logging.ini").write_text("""[loggers]
+        keys=root,aqt
+        [logger_root]
+        level=NOTSET
+        handlers=console
+        [logger_aqt]
+        level=DEBUG
+        handlers=console,file
+        propagate=0
+        qualname=aqt
+        [handlers]
+        keys=console,file
+        [handler_console]
+        class=StreamHandler
+        level=INFO
+        formatter=brief
+        args=(sys.stderr,)
+        [handler_file]
+        class=FileHandler
+        level=DEBUG
+        formatter=verbose
+        args=""" + repr((str(root / "aqtinstall.log"), "a")) + """
+        [formatters]
+        keys=brief,verbose
+        [formatter_brief]
+        format=%(levelname)-8s: %(message)s
+        [formatter_verbose]
+        format=%(asctime)s - %(name)s - %(levelname)s - %(module)s %(thread)d %(message)s
+        """)
+        PY
+        echo "aqt-log-config=$report_root/aqt-logging.ini" >> "$GITHUB_OUTPUT"
 
     - name: Checkout manifesto tool
       if: ${{ inputs.bootstrap == 'repository' }}
@@ -110,6 +146,8 @@ runs:
     - name: Install Qt 6
       if: ${{ inputs.install-project-deps == 'true' }}
       uses: {{install_qt_action}}
+      env:
+        LOG_CFG: ${{ steps.paths.outputs.aqt-log-config }}
       with:
         version: '6.8.*'
         target: 'desktop'

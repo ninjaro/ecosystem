@@ -156,3 +156,31 @@ test('hosted-only multiline errors keep the failing CMake operation and diagnost
   const record = await diagnostics.collect({github, context, core: f.core, root: f.root, kind: 'checks', scope: 'full', workflowResult: 'failure', selectionResult: 'success'});
   assert.equal(record.status, 'failed'); assert.match(record.logs.join('\n'), /Fail to copy destinationfile/);
 });
+test('failed authored groups outrank expected negative probe errors and retain actual counts', async t => {
+  const f = fixture(t); const log = '.ecosystem/github/reports/01-required-checks/output.log';
+  const text = '100% tests passed, 0 tests failed out of 4\n'
+    + '[ok] negative_fixture\nCMake Error: expected rejection\n'
+    + '[failed] installed_libraries_are_relocatable: incompatible version\n'
+    + '[failed] workspace_conformance_reports_all_projects: stale expectation\n'
+    + '0% tests passed, 1 tests failed out of 1\nerror[task_failed]: tests failed\n';
+  f.write(log, text);f.write('.ecosystem/build/debug/Testing/Temporary/LastTest.log', text);
+  const result = await diagnostics.snapshot({core: f.core, root: f.root, kind: 'checks', scope: 'full', selectionResult: 'success', steps: {
+    changes: {outcome: 'success'}, manifesto: {outcome: 'success'}, classification: {outcome: 'success'},
+    required: {outcome: 'success', outputs: {status: 'failed', 'exit-code': '5', 'log-path': log}}}});
+  assert.equal(result.status, 'failed'); assert.match(result.reason, /installed_libraries_are_relocatable/);
+  assert.match(result.reason, /workspace_conformance_reports_all_projects/); assert.doesNotMatch(result.reason, /expected rejection/);
+  assert.equal(result.test_counts[0].scope, 'earlier invocation/probe'); assert.equal(result.test_counts[1].scope, 'final invocation');
+  assert.equal(result.test_counts[1].failed_runners, 1);
+  assert.deepEqual(result.test_counts[2], {source: 'debug/Testing/Temporary/LastTest.log', framework: 'MANIFESTO self-tests', passed_group_reports: 1, failed_group_reports: 2});
+});
+test('successful CodeQL analysis cannot hide a failed receipt or its actual diagnostic', async t => {
+  const f = fixture(t);
+  await diagnostics.snapshot({core: f.core, root: f.root, kind: 'codeql', scope: 'full', selectionResult: 'success', steps:
+    Object.fromEntries(['changes', 'manifesto', 'classification', 'repository', 'codeql_init', 'codeql_build', 'codeql_analyze'].map(id => [id, {outcome: 'success'}]))});
+  const github = {rest: {actions: {listJobsForWorkflowRun() {}, async downloadJobLogsForWorkflowRun() {
+    return {data: '\u001b[36;1m echo "::error::not executed"\u001b[0m\nError: Untracked authored inputs after verification: ["unexpected.cpp"]\n'};}}},
+    async paginate() {return [{id: 42, name: 'analyze (cpp)', conclusion: 'failure', steps: [{name: 'Record reusable verification', number: 15, conclusion: 'failure'}]}];}};
+  const record = await diagnostics.collect({github, context, core: f.core, root: f.root, kind: 'codeql', scope: 'full', workflowResult: 'failure', selectionResult: 'success'});
+  assert.equal(record.status, 'failed'); assert.match(record.reason, /unexpected.cpp/); assert.doesNotMatch(record.reason, /not executed/);
+  assert.match(record.stages[0].reason, /Untracked authored inputs/);
+});

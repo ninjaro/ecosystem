@@ -28,6 +28,10 @@ function save(directory, record) {
 }
 function diagnosticExcerpt(text) {
   const lines = text.split('\n'); const selected = new Set();
+  // Authored regression failures are authoritative. Expected negative fixtures
+  // can print CMake/libclang errors even while their own test group passes.
+  const failures = lines.filter(line => /(?:^|\s)\[failed\] /i.test(line));
+  if (failures.length) return failures.slice(0, 24).join('\n');
   for (let index = 0; index < lines.length; index++) {
     if (!/error:\s|error\[|##\[error\]|::error::|CMake Error|Unknown arguments|FAILED:|forbidden repository entries:/i.test(lines[index])) continue;
     // Keep multiline CMake/compiler details, rather than just their headline.
@@ -103,6 +107,7 @@ async function snapshot({core, kind, scope, selectionResult, steps, root = proce
     stages.push(row);
   }
   const testCounts = [];
+  const detailCounts = [];
   for (const file of files(path.join(root, '.ecosystem/github/reports'), f => path.basename(f) === 'output.log')) {
     const text = fs.readFileSync(file, 'utf8');
     for (const match of text.matchAll(/(\d+)% tests passed, (\d+) tests failed out of (\d+)/g))
@@ -116,6 +121,9 @@ async function snapshot({core, kind, scope, selectionResult, steps, root = proce
     fs.mkdirSync(path.dirname(destination), {recursive: true}); fs.copyFileSync(file, destination);
     logs.push(`Test detail: \`${path.relative(root, destination)}\``);
     const text = fs.readFileSync(file, 'utf8');
+    const passed = [...text.matchAll(/^\[ok\] /gm)].length;
+    const failed = [...text.matchAll(/^\[failed\] /gm)].length;
+    if (passed || failed) detailCounts.push({source: relative, framework: 'MANIFESTO self-tests', passed_group_reports: passed, failed_group_reports: failed});
     for (const match of text.matchAll(/Totals: (\d+) passed, (\d+) failed, (\d+) skipped/g))
       testCounts.push({source: relative, framework: 'QtTest', passed: Number(match[1]), failed: Number(match[2]), skipped: Number(match[3])});
     for (const match of text.matchAll(/\[\s*PASSED\s*\]\s*(\d+) tests?/g))
@@ -126,6 +134,11 @@ async function snapshot({core, kind, scope, selectionResult, steps, root = proce
       testCounts.push({source: relative, framework: 'GoogleTest', skipped: Number(match[1])});
   }
   const bad = stages.find(row => ['failed', 'blocked'].includes(row.status));
+  // The final nested CTest summary is the top-level outcome; keep prior probe
+  // summaries labelled so they cannot be read as successful project acceptance.
+  for (let index = 0; index < testCounts.length; index++) if (testCounts[index].framework === 'CTest')
+    testCounts[index].scope = index === testCounts.findLastIndex(row => row.framework === 'CTest' && row.source === testCounts[index].source) ? 'final invocation' : 'earlier invocation/probe';
+  testCounts.push(...detailCounts);
   const record = {title: kind === 'checks' ? 'Checks execution' : 'CodeQL execution', scope,
     status: bad ? 'failed' : 'passed', reason: bad ? bad.reason : 'All selected stages completed.', stages,
     test_counts: testCounts.length ? testCounts : {status: 'not-observed', reason: 'No completed test count was recorded; do not infer zero tests or passing tests.'}, logs};
@@ -211,7 +224,13 @@ async function collect({github, context, core, kind, scope, workflowResult, sele
         if (typeof content !== 'string' || !content.trim()) throw new Error('Job log is unavailable');
         const log = path.join(directory, 'hosted-logs', `${job.id}.log`);
         fs.mkdirSync(path.dirname(log), {recursive: true}); fs.writeFileSync(log, content);
-        const excerpt = diagnosticExcerpt(content);
+        const excerpt = diagnosticExcerpt(content.split('\n')
+          .filter(line => !line.includes('\u001b[36;1m')).join('\n'));
+        if (firstFailure && !localRecord?.stages?.some(row => row.status === 'failed')) {
+          reason = `${job.name} failed at ${firstFailure.name} (#${firstFailure.number}):\n${excerpt}`;
+          const failed = stages.find(row => row.name === `${job.name}: ${firstFailure.name}`);
+          if (failed) failed.reason = reason;
+        }
         logs.push(`Hosted job ${job.id}: \`${path.relative(root, log)}\`\n\n\`\`\`text\n${excerpt}\n\`\`\``);
       } catch (error) { logs.push(`Hosted log for job ${job.id} unavailable: ${error.message}; use the job's GitHub log.`); }
     }
