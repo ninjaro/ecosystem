@@ -23,9 +23,9 @@
 #include <chrono>
 #include <fcntl.h>
 #include <filesystem>
-#include <map>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <regex>
 #include <set>
@@ -117,7 +117,8 @@ namespace command_support {
         std::map<fs::path, std::vector<fs::path>> configured_files;
         const auto root = fs::absolute(project_root).lexically_normal();
         for (const auto& file : files) {
-            auto directory = fs::absolute(file).lexically_normal().parent_path();
+            auto directory
+                = fs::absolute(file).lexically_normal().parent_path();
             fs::path configuration;
             while (true) {
                 for (const auto* name : { ".clang-format", "_clang-format" }) {
@@ -132,17 +133,21 @@ namespace command_support {
                 directory = directory.parent_path();
             }
             if (configuration.empty())
-                configuration = locate_template_path({ "tooling/clang-format.tpl" });
+                configuration
+                    = locate_template_path({ "tooling/clang-format.tpl" });
             if (configuration.empty()) {
-                print_error(err, command_error::task_failed,
-                    "canonical clang-format configuration is unavailable");
+                print_error(
+                    err, command_error::task_failed,
+                    "canonical clang-format configuration is unavailable"
+                );
                 return command_error::task_failed;
             }
             configured_files[configuration].push_back(file);
         }
         bool failed = false;
         for (const auto& [configuration, selected_files] : configured_files) {
-            std::vector<std::string> args { tool.path, apply ? "-i" : "--dry-run" };
+            std::vector<std::string> args { tool.path,
+                                            apply ? "-i" : "--dry-run" };
             if (!apply)
                 args.push_back("--Werror");
             args.push_back("-style=file:" + configuration.string());
@@ -756,17 +761,15 @@ namespace command_support {
                     }
                     const artifact_ref ref { component_value.id,
                                              artifact_value.id };
-                    targets.push_back(
-                        {
-                            cmake_target_name(ref),
-                            component_value.ownership
-                                ? cmake_target_name(ref)
-                                : component_value.id + "_" + artifact_value.id,
-                            artifact_output_name(
-                                manifest_value, component_value, artifact_value
-                            ),
-                        }
-                    );
+                    targets.push_back({
+                        cmake_target_name(ref),
+                        component_value.ownership
+                            ? cmake_target_name(ref)
+                            : component_value.id + "_" + artifact_value.id,
+                        artifact_output_name(
+                            manifest_value, component_value, artifact_value
+                        ),
+                    });
                 }
                 continue;
             }
@@ -778,12 +781,11 @@ namespace command_support {
                     && component_value.artifacts.front().id
                         != requested_artifact->artifact_id))
                 continue;
-            targets.push_back(
-                { *target,
-                  component_value.ownership ? *target
-                                            : component_value.id + "_tests",
-                  *target }
-            );
+            targets.push_back({ *target,
+                                component_value.ownership
+                                    ? *target
+                                    : component_value.id + "_tests",
+                                *target });
         }
 
         return targets;
@@ -1221,12 +1223,10 @@ namespace command_support {
         }
 
         void pause() const {
-            std::this_thread::sleep_until(
-                std::min(
-                    expires_at,
-                    std::chrono::steady_clock::now() + std::chrono::seconds(1)
-                )
-            );
+            std::this_thread::sleep_until(std::min(
+                expires_at,
+                std::chrono::steady_clock::now() + std::chrono::seconds(1)
+            ));
         }
     };
 
@@ -1365,14 +1365,12 @@ namespace command_support {
             return std::nullopt;
         }
 
-        const std::string badging = capture_command(
-            {
-                environment.aapt_bin,
-                "dump",
-                "badging",
-                apk_path.string(),
-            }
-        );
+        const std::string badging = capture_command({
+            environment.aapt_bin,
+            "dump",
+            "badging",
+            apk_path.string(),
+        });
         const std::string prefix = "package: name='";
         const std::size_t start = badging.find(prefix);
         if (start == std::string::npos) {
@@ -1397,10 +1395,9 @@ namespace command_support {
         }
 
         while (std::chrono::steady_clock::now() < boot.expires_at) {
-            const auto result = boot.capture(
-                { adb_path, "-s", serial, "shell", "getprop",
-                  "sys.boot_completed" }
-            );
+            const auto result
+                = boot.capture({ adb_path, "-s", serial, "shell", "getprop",
+                                 "sys.boot_completed" });
             if (result.exit_code != 0)
                 return false;
             if (trim_copy(result.output) == "1") {

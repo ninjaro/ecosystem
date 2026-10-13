@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -602,7 +602,8 @@ void test_cli_workspace_sync_supports_multi_project_filter() {
     );
 }
 
-void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection() {
+void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection(
+) {
     temp_dir root;
     write_sample_workspace_project(root.path(), "alpha");
     write_sample_workspace_project(root.path(), "beta");

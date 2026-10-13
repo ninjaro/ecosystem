@@ -28,6 +28,7 @@ jobs:
     outputs:
       changes: ${{ steps.selection.outputs.changes }}
       scope: ${{ steps.selection.outputs.scope }}
+      reason: ${{ steps.selection.outputs.reason }}
       verified: ${{ steps.selection.outputs.verified }}
       source: ${{ steps.selection.outputs.source }}
     steps:
@@ -40,6 +41,7 @@ jobs:
           kind: codeql
 
       - name: Upload change resolution
+        if: ${{ always() }}
         continue-on-error: true
         uses: {{upload_artifact_action}}
         with:
@@ -79,6 +81,7 @@ jobs:
           fetch-depth: ${{ needs.select.outputs.scope != 'reuse' && '0' || '1' }}
 
       - name: Resolve checked-out changes
+        id: changes
         if: ${{ needs.select.outputs.scope != 'reuse' }}
         uses: {{github_script_action}}
         with:
@@ -155,6 +158,9 @@ jobs:
       - name: Summarize CodeQL analysis
         if: ${{ always() && needs.select.outputs.scope != 'reuse' }}
         env:
+          TOOLCHAIN_STATUS: ${{ steps.manifesto.outcome }}
+          CLASSIFICATION_STATUS: ${{ steps.classification.outcome }}
+          REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
           CODEQL_SCOPE: ${{ steps.classification.outputs.codeql }}
           CODEQL_INIT_STATUS: ${{ steps.codeql_init.outcome }}
           CODEQL_BUILD_STATUS: ${{ steps.codeql_build.outputs.status || 'skipped' }}
@@ -164,22 +170,54 @@ jobs:
           report_root=".ecosystem/github/reports/03-codeql-analysis"
           mkdir -p "$report_root"
           status="passed"
-          if [ "$CODEQL_SCOPE" = repository ]; then
+          reason="Native init, build and analysis completed successfully."
+          if [ "$TOOLCHAIN_STATUS" != success ]; then
+            status="blocked"
+            reason="Tooling setup did not succeed ($TOOLCHAIN_STATUS); see 00-toolchain logs."
+          elif [ "$CLASSIFICATION_STATUS" != success ]; then
+            status="blocked"
+            reason="Native change classification did not succeed ($CLASSIFICATION_STATUS)."
+          elif [ "$REPOSITORY_STATUS" != passed ]; then
+            status="blocked"
+            reason="Repository prerequisite did not pass ($REPOSITORY_STATUS)."
+          elif [ "$CODEQL_SCOPE" = repository ]; then
             status="not-required"
+            reason="Validated PR delta requires repository checks only."
           elif [ "$CODEQL_INIT_STATUS" = "failure" ] || [ "$CODEQL_BUILD_STATUS" = "failed" ] || [ "$CODEQL_ANALYZE_STATUS" = "failure" ]; then
             status="failed"
+            reason="Native CodeQL operation failed; see build and hosted action logs."
           elif [ "$CODEQL_INIT_STATUS" = "skipped" ] || [ "$CODEQL_BUILD_STATUS" = "skipped" ] || [ "$CODEQL_ANALYZE_STATUS" = "skipped" ]; then
-            status="skipped"
+            status="blocked"
+            reason="Required native CodeQL operation was not executed; see upstream stage outcomes."
+          elif [ "$CODEQL_SCOPE" != full ] || [ "$CODEQL_INIT_STATUS" != success ] || [ "$CODEQL_BUILD_STATUS" != passed ] || [ "$CODEQL_ANALYZE_STATUS" != success ]; then
+            status="blocked"
+            reason="Incomplete CodeQL outputs cannot establish verification."
           fi
           {
             printf '## CodeQL analysis\n\n'
             printf -- '- status: `%s`\n' "$status"
+            printf -- '- reason: %s\n' "$reason"
             printf -- '- execution: `%s`\n' "$CODEQL_SCOPE"
             printf -- '- init: `%s`\n' "$CODEQL_INIT_STATUS"
             printf -- '- build: `%s`\n' "$CODEQL_BUILD_STATUS"
             printf -- '- analyze: `%s`\n' "$CODEQL_ANALYZE_STATUS"
           } > "$report_root/summary.md"
           cat "$report_root/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record execution diagnosis
+        id: diagnostics
+        if: ${{ always() && needs.select.outputs.scope != 'reuse' }}
+        uses: {{github_script_action}}
+        env:
+          DIAGNOSTIC_KIND: codeql
+          DIAGNOSTIC_SCOPE: ${{ needs.select.outputs.scope }}
+          DIAGNOSTIC_SELECTION: ${{ needs.select.result }}
+          DIAGNOSTIC_STEPS: ${{ toJSON(steps) }}
+        with:
+          script: |
+            await require('./.github/actions/publish-manifesto-report/diagnostics.cjs').snapshot({core,
+              kind: process.env.DIAGNOSTIC_KIND, scope: process.env.DIAGNOSTIC_SCOPE,
+              selectionResult: process.env.DIAGNOSTIC_SELECTION, steps: JSON.parse(process.env.DIAGNOSTIC_STEPS)});
 
       - name: Upload CodeQL reports
         if: ${{ always() && needs.select.outputs.scope != 'reuse' }}
@@ -194,6 +232,8 @@ jobs:
       - name: Enforce CodeQL result
         if: ${{ always() }}
         env:
+          DIAGNOSTIC_OUTCOME: ${{ steps.diagnostics.outcome }}
+          DIAGNOSTIC_STATUS: ${{ steps.diagnostics.outputs.status }}
           REUSE_VERIFIED: ${{ needs.select.outputs.verified }}
           REUSE_SOURCE: ${{ needs.select.outputs.source }}
           CHECK_SCOPE: ${{ needs.select.outputs.scope }}
@@ -201,6 +241,7 @@ jobs:
           REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
           EVENT_NAME: ${{ github.event_name }}
           CODEQL_BUILD_OUTCOME: ${{ steps.codeql_build.outcome }}
+          CODEQL_BUILD_EXIT_CODE: ${{ steps.codeql_build.outputs.exit-code }}
           REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
           CODEQL_SCOPE: ${{ steps.classification.outputs.codeql }}
           CODEQL_INIT_STATUS: ${{ steps.codeql_init.outcome }}
@@ -216,6 +257,14 @@ jobs:
             printf 'Reused verification:\n\n```json\n%s\n```\n' "$REUSE_SOURCE" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          if [ "$DIAGNOSTIC_OUTCOME" != success ] || [ "$DIAGNOSTIC_STATUS" != passed ] || [ ! -s .ecosystem/github/reports/00-workflow/result.json ]; then
+            echo '::error::Execution diagnosis failed or reports an incomplete required stage.'
+            exit 1
+          fi
+          if [ "$CHECK_SCOPE" != full ] && [ "$CHECK_SCOPE" != security ]; then
+            echo '::error::Missing or invalid CodeQL verification scope.'
+            exit 1
+          fi
           if [ "$REPOSITORY_OUTCOME" != success ] || [ "$REPOSITORY_STATUS" != passed ] || [ "$REPOSITORY_EXIT_CODE" != 0 ]; then
             echo '::error::Repository verification failed or did not complete.'
             exit 1
@@ -228,10 +277,22 @@ jobs:
             printf 'CodeQL analysis is not required by the validated PR delta; repository checks passed.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [ "$CODEQL_SCOPE" != full ] || [ "$CODEQL_INIT_STATUS" != success ] || [ "$CODEQL_BUILD_STATUS" != passed ] || [ "$CODEQL_ANALYZE_STATUS" != success ]; then
+          if [ "$CODEQL_SCOPE" != full ] || [ "$CODEQL_INIT_STATUS" != success ] || [ "$CODEQL_BUILD_OUTCOME" != success ] || [ "$CODEQL_BUILD_STATUS" != passed ] || [ "$CODEQL_BUILD_EXIT_CODE" != 0 ] || [ "$CODEQL_ANALYZE_STATUS" != success ]; then
             echo '::error::CodeQL verification failed or did not complete.'
             exit 1
           fi
+          for stage in 01-tracked-surface 02-codeql-build 03-codeql-analysis; do
+            if [ ! -s ".ecosystem/github/reports/$stage/summary.md" ]; then
+              echo "::error::Missing CodeQL stage report: $stage."
+              exit 1
+            fi
+          done
+          for stage in 01-tracked-surface 02-codeql-build; do
+            if [ ! -f ".ecosystem/github/reports/$stage/output.log" ]; then
+              echo "::error::Missing CodeQL stage log: $stage."
+              exit 1
+            fi
+          done
 
       - name: Record reusable verification
         if: ${{ needs.select.outputs.scope == 'full' && steps.classification.outputs.codeql == 'full' }}
@@ -297,10 +358,11 @@ jobs:
 
   report:
     runs-on: ubuntu-24.04
-    needs: analyze
-    if: ${{ always() && needs.analyze.result != 'skipped' }}
+    needs: [select, analyze]
+    if: ${{ always() }}
     permissions:
       contents: read
+      actions: read
       issues: write
       pull-requests: write
     steps:
@@ -315,6 +377,7 @@ jobs:
           merge-multiple: true
 
       - name: Publish CodeQL report
+        id: published
         if: ${{ always() }}
         continue-on-error: true
         uses: ./.github/actions/publish-manifesto-report
@@ -323,3 +386,28 @@ jobs:
           report-key: codeql
           report-title: CodeQL
           report-directory: .ecosystem/github/reports
+          workflow-result: ${{ needs.analyze.result }}
+          selection-result: ${{ needs.select.result }}
+          scope: ${{ needs.select.outputs.scope }}
+          selection-reason: ${{ needs.select.outputs.reason }}
+
+      - name: Upload diagnosed reports
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: {{upload_artifact_action}}
+        with:
+          name: ci-diagnosis-{{project_id}}-codeql
+          path: .ecosystem/github/reports
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Enforce report completeness
+        if: ${{ always() }}
+        env:
+          REPORT_OUTCOME: ${{ steps.published.outcome }}
+          HAS_FAILURES: ${{ steps.published.outputs.has-failures }}
+        run: |
+          if [ "$REPORT_OUTCOME" != success ] || [ "$HAS_FAILURES" != false ]; then
+            echo '::error::Verification failed, was blocked, or has incomplete reports. See the execution diagnosis.'
+            exit 1
+          fi

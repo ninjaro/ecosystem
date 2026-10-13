@@ -65,4 +65,4 @@ cxx_analysis_report analyze_project_sources(
 
 json to_json(const cxx_analysis_report& value);
 
-}  // namespace ecosystem
+} // namespace ecosystem

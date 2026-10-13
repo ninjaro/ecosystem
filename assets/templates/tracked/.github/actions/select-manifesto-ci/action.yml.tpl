@@ -16,6 +16,9 @@ outputs:
   scope:
     description: cheap, full, security, reuse, or skip.
     value: ${{ steps.evidence.outputs.scope }}
+  reason:
+    description: Event, source-change promotion, or verified-reuse reason for the selected scope.
+    value: ${{ steps.evidence.outputs.reason }}
   verified:
     description: True only after both Checks and CodeQL evidence pass validation.
     value: ${{ steps.evidence.outputs.verified }}

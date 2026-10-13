@@ -91,9 +91,9 @@ void test_release_runtime_closure() {
     );
     const auto source_binary
         = ecosystem::local_build_dir(project, "release") / "runtime_app";
-    const auto original = ecosystem::capture_command_result(
-        { "readelf", "-d", source_binary.string() }
-    );
+    const auto original
+        = ecosystem::capture_command_result({ "readelf", "-d",
+                                              source_binary.string() });
     require_true(original.exit_code == 0, "source ELF inspection must succeed");
     require_contains(
         original.output, project.string(),
@@ -145,9 +145,9 @@ void test_release_runtime_closure() {
         );
         for (const auto& executable : { "runtime_app", "runtime_tool" }) {
             const auto binary = prefix / "usr/bin" / executable;
-            const auto dynamic = ecosystem::capture_command_result(
-                { "readelf", "-d", binary.string() }
-            );
+            const auto dynamic
+                = ecosystem::capture_command_result({ "readelf", "-d",
+                                                      binary.string() });
             require_true(
                 dynamic.exit_code == 0, "packaged ELF inspection must succeed"
             );
@@ -187,10 +187,9 @@ void test_release_provider_runtime() {
     }
     write_text(
         consumer / "manifesto.local.json",
-        json(
-            { { "sources",
-                { { "https://example.invalid/numbers.git",
-                    provider.string() } } } }
+        json({ { "sources",
+                 { { "https://example.invalid/numbers.git",
+                     provider.string() } } } }
         ).dump(2)
     );
     scoped_env override_path(
@@ -278,11 +277,9 @@ void test_release_runtime_aliases() {
     };
     auto library = [&](const fs::path& directory) {
         fs::create_directories(directory);
-        command(
-            { "c++", "-shared", "-fPIC", (project / "value.cpp").string(),
-              "-Wl,-soname,libversioned.so.3", "-o",
-              (directory / "libversioned.so.3.2").string() }
-        );
+        command({ "c++", "-shared", "-fPIC", (project / "value.cpp").string(),
+                  "-Wl,-soname,libversioned.so.3", "-o",
+                  (directory / "libversioned.so.3.2").string() });
         fs::create_symlink(
             "libversioned.so.3.2", directory / "libversioned.so.3"
         );
@@ -290,11 +287,9 @@ void test_release_runtime_aliases() {
     };
     auto application = [&](const fs::path& output, const fs::path& directory) {
         fs::create_directories(output.parent_path());
-        command(
-            { "c++", (project / "main.cpp").string(), "-L" + directory.string(),
-              "-lversioned", "-Wl,-rpath," + directory.string(), "-o",
-              output.string() }
-        );
+        command({ "c++", (project / "main.cpp").string(),
+                  "-L" + directory.string(), "-lversioned",
+                  "-Wl,-rpath," + directory.string(), "-o", output.string() });
     };
     library(first_lib);
     application(primary, first_lib);
@@ -320,10 +315,8 @@ void test_release_runtime_aliases() {
     );
     const auto prefix = root.path() / "installed";
     fs::create_directories(prefix);
-    command(
-        { "tar", "-xzf", artifacts.pacman_package_path.string(), "-C",
-          prefix.string() }
-    );
+    command({ "tar", "-xzf", artifacts.pacman_package_path.string(), "-C",
+              prefix.string() });
     for (const auto& name : { "libversioned.so.3", "libversioned.so.3.2" })
         require_true(
             fs::is_regular_file(prefix / "usr/lib" / name),

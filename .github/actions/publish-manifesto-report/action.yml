@@ -14,6 +14,18 @@ inputs:
   report-directory:
     description: Directory that contains stage summary files.
     required: true
+  workflow-result:
+    description: Actual result of the required upstream job.
+    default: ''
+  selection-result:
+    description: Actual result of the selection job.
+    default: ''
+  scope:
+    description: Selected verification scope.
+    default: ''
+  selection-reason:
+    description: Recorded explanation of the selected scope.
+    default: ''
 
 outputs:
   has-failures:
@@ -26,8 +38,25 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Collect hosted execution diagnostics
+      if: ${{ always() && (inputs.report-key == 'checks' || inputs.report-key == 'codeql') }}
+      uses: actions/github-script@v7
+      env:
+        REPORT_KIND: ${{ inputs.report-key }}
+        REPORT_WORKFLOW_RESULT: ${{ inputs.workflow-result }}
+        REPORT_SELECTION_RESULT: ${{ inputs.selection-result }}
+        REPORT_SCOPE: ${{ inputs.scope }}
+        REPORT_SELECTION_REASON: ${{ inputs.selection-reason }}
+      with:
+        script: |
+          await require('./.github/actions/publish-manifesto-report/diagnostics.cjs').collect({github, context, core,
+            kind: process.env.REPORT_KIND, workflowResult: process.env.REPORT_WORKFLOW_RESULT,
+            selectionResult: process.env.REPORT_SELECTION_RESULT, scope: process.env.REPORT_SCOPE,
+            selectionReason: process.env.REPORT_SELECTION_REASON});
+
     - name: Combine stage reports
       id: combine
+      if: ${{ always() }}
       shell: bash
       run: |
         report_dir="${{ inputs.report-directory }}"
@@ -36,7 +65,10 @@ runs:
         mkdir -p "$report_dir"
 
         has_failures="false"
-        if grep -R 'status: `failed`' "$report_dir" > /dev/null 2>&1; then
+        if grep -RE 'status: `(failed|blocked|cancelled)`' "$report_dir" > /dev/null 2>&1; then
+          has_failures="true"
+        fi
+        if ! find "$report_dir" -name summary.md -print -quit | grep -q .; then
           has_failures="true"
         fi
 
@@ -47,7 +79,7 @@ runs:
           printf -- '- ref: `%s`\n' "$GITHUB_REF_NAME"
           printf -- '- run: `https://github.com/%s/actions/runs/%s`\n\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
           if ! find "$report_dir" -name summary.md -print -quit | grep -q .; then
-            printf 'No stage reports were produced.\n'
+            printf 'No stage reports were produced. Verification is incomplete, not successful.\n'
           else
             while IFS= read -r file; do
               cat "$file"

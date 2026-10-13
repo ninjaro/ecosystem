@@ -1,3 +1,5 @@
+# Script mode has its own policy scope; it does not inherit the project policy.
+cmake_minimum_required(VERSION 3.20)
 {{assets_inventory_functions}}
 if (NOT IS_DIRECTORY "${asset_source}" OR IS_SYMLINK "${asset_source}")
     message(FATAL_ERROR "Invalid runtime asset source: ${asset_source}")

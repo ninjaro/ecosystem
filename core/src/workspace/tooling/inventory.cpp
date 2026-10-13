@@ -131,18 +131,16 @@ json toolchains_report(
                 command = selected;
         }
         const auto status = probe_tool(command, requirement.version_args);
-        report[requirement.name] = json::object(
-            {
-                { "label", requirement.label },
-                { "profiles", requirement.profiles },
-                { "required", requirement.required },
-                { "available", status.available },
-                { "path", status.path },
-                { "version", status.version },
-                { "version_exit_code", status.version_exit_code },
-                { "version_error", status.version_error },
-            }
-        );
+        report[requirement.name] = json::object({
+            { "label", requirement.label },
+            { "profiles", requirement.profiles },
+            { "required", requirement.required },
+            { "available", status.available },
+            { "path", status.path },
+            { "version", status.version },
+            { "version_exit_code", status.version_exit_code },
+            { "version_error", status.version_error },
+        });
     }
     return report;
 }

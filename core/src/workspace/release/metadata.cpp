@@ -166,13 +166,11 @@ bool write_debian_release_file(
                 error.clear();
                 continue;
             }
-            files.push_back(
-                {
-                    path.lexically_relative(distribution_dir).generic_string(),
-                    fs::file_size(path, error),
-                    sha256_for_file(sha256_tool, path),
-                }
-            );
+            files.push_back({
+                path.lexically_relative(distribution_dir).generic_string(),
+                fs::file_size(path, error),
+                sha256_for_file(sha256_tool, path),
+            });
             error.clear();
         }
     }
@@ -344,11 +342,11 @@ bool rewrite_pacman_repo(
             continue;
         }
         const fs::path db_entry_dir = db_root
-            / (package.package_name + "-" + package.latest_pacman_version
-               + "-1");
+            / (package.package_name + "-" + package.latest_pacman_version + "-1"
+            );
         const fs::path files_entry_dir = files_root
-            / (package.package_name + "-" + package.latest_pacman_version
-               + "-1");
+            / (package.package_name + "-" + package.latest_pacman_version + "-1"
+            );
         fs::create_directories(db_entry_dir, error);
         if (error) {
             *error_message = "unable to create " + db_entry_dir.string() + ": "

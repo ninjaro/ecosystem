@@ -15,4 +15,4 @@ std::string_view package_group_heading(const package_group group) {
     return "unknown";
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

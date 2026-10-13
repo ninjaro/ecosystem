@@ -31,14 +31,17 @@ string_list validate_manifest_paths(
     const manifest& value, const std::filesystem::path& project_root
 );
 
-const component* find_component(const manifest& value, const std::string& component_id);
-const artifact* find_artifact(const component& value, const std::string& artifact_id);
+const component*
+find_component(const manifest& value, const std::string& component_id);
+const artifact*
+find_artifact(const component& value, const std::string& artifact_id);
 std::optional<resolved_artifact> resolve_artifact(
     const manifest& value, const std::optional<artifact_ref>& requested
 );
 std::vector<artifact_ref>
 distribution_artifacts(const manifest& value, const artifact_ref& primary);
-std::vector<std::string> component_stack_values(const component& value, const std::string& key);
+std::vector<std::string>
+component_stack_values(const component& value, const std::string& key);
 bool component_has_stack_key(const component& value, const std::string& key);
 std::vector<const component*> component_closure_for_artifact(
     const manifest& value, const artifact_ref& root_ref
@@ -93,8 +96,7 @@ bool component_has_benchmarks(const component& value);
 std::optional<std::string>
 component_generated_test_target(const component& value);
 std::optional<std::filesystem::path> artifact_output_path(
-    const std::filesystem::path& build_dir,
-    const artifact& artifact_value,
+    const std::filesystem::path& build_dir, const artifact& artifact_value,
     const std::string& output_name
 );
 
@@ -108,27 +110,26 @@ std::vector<std::filesystem::path> declared_cpp_files(
     const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
 std::vector<cxx_analysis_source> cxx_analysis_sources(
-    const manifest& value,
-    const std::filesystem::path& project_root,
-    const std::optional<std::string>& component_filter,
-    bool include_tests,
+    const manifest& value, const std::filesystem::path& project_root,
+    const std::optional<std::string>& component_filter, bool include_tests,
     bool include_benchmarks
 );
 std::vector<std::filesystem::path> manifest_include_dirs(
-    const manifest& value,
-    const std::filesystem::path& project_root,
-    const std::optional<std::string>& component_filter,
-    bool include_tests,
+    const manifest& value, const std::filesystem::path& project_root,
+    const std::optional<std::string>& component_filter, bool include_tests,
     bool include_benchmarks
 );
 
-string_list missing_declared_files(const manifest& value, const std::filesystem::path& project_root);
+string_list missing_declared_files(
+    const manifest& value, const std::filesystem::path& project_root
+);
 
 std::vector<std::string> supported_build_profiles(const manifest& value);
 std::vector<std::string> supported_check_profiles(const manifest& value);
 std::vector<std::string> supported_report_kinds();
 std::vector<std::string> supported_platforms(const manifest& value);
-std::vector<artifact_ref> artifact_refs_for_kind(const manifest& value, const std::string& kind);
+std::vector<artifact_ref>
+artifact_refs_for_kind(const manifest& value, const std::string& kind);
 std::vector<artifact_ref> benchmark_artifact_refs(const manifest& value);
 
 bool supports_build_profile(const manifest& value, const std::string& profile);
@@ -140,4 +141,4 @@ bool has_benchmarks_enabled(const manifest& value);
 
 std::string cmake_target_name(const artifact_ref& ref);
 
-}  // namespace ecosystem
+} // namespace ecosystem

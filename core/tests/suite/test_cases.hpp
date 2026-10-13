@@ -20,7 +20,8 @@ void test_cli_check_naming_reports_identifier_overflow_and_honors_allowlist();
 void test_personal_naming_uses_declarations_and_exact_policy_boundaries();
 void test_personal_naming_reports_analysis_failures_and_owned_headers();
 void test_personal_style_measures_control_bodies_and_local_scopes();
-void test_personal_style_indexes_referents_and_measures_volume_without_size_gates();
+void test_personal_style_indexes_referents_and_measures_volume_without_size_gates(
+);
 void test_cli_personal_style_preserves_workspace_scope_and_failure_status();
 void test_clang_analysis_reports_unusable_inputs();
 void test_clang_analysis_runs_on_sample_project();
@@ -89,7 +90,8 @@ void test_cli_workspace_build_on_sample_workspace();
 void test_cli_workspace_build_supports_multiple_artifact_filters();
 void test_cli_workspace_sync_supports_project_filter();
 void test_cli_workspace_sync_supports_multi_project_filter();
-void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection();
+void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection(
+);
 void test_cli_run_executes_facade_entry();
 void test_cli_run_executes_requested_artifact_with_passthrough_args();
 void test_cli_workspace_run_executes_selected_project();
@@ -164,7 +166,8 @@ void test_configured_status_for_package_reports_profile_disabled_kde();
 void test_configured_status_for_package_requires_all_jni_cache_keys();
 void test_configured_status_for_package_detects_cxxopts_dir();
 void test_find_package_surface_rule_returns_qt_rule();
-void test_render_package_surface_block_keeps_header_only_json_cross_compilable();
+void test_render_package_surface_block_keeps_header_only_json_cross_compilable(
+);
 void test_render_package_surface_block_renders_kde_support();
 void test_render_package_surface_block_renders_qt_support();
 void test_render_package_surface_block_renders_llvm_support();
@@ -217,14 +220,16 @@ void test_source_facade_pins_revisions_and_rejects_stale_packages();
 void test_source_facade_preserves_shared_and_interface_contracts();
 void test_source_facade_reports_provider_failures();
 void test_real_facade_packages(const std::filesystem::path& prefix);
-void test_source_dependency_local_override_builds_and_installs_before_consumer();
+void test_source_dependency_local_override_builds_and_installs_before_consumer(
+);
 void test_source_local_map_selects_mutable_checkouts_and_preserves_facade();
 void test_source_local_map_rejects_invalid_configuration();
 void test_source_local_map_applies_to_recursive_providers();
 void test_source_dependency_repository_selection_is_stable_and_explicit();
 void test_source_dependency_consumer_exports_are_relocatable();
 void test_source_dependency_shared_and_interface_usage_requirements();
-void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure();
+void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure(
+);
 void test_source_dependency_rejects_ambiguous_authored_metadata();
 
 } // namespace ecosystem_test_support

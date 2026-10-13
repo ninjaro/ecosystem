@@ -291,18 +291,16 @@ public:
             std::lock_guard<std::mutex> lock(mutex_);
             request_id = requests_.size() + 1U;
             summary = join_words(args);
-            requests_.push_back(
-                queued_request {
-                    request_id,
-                    owner,
-                    args,
-                    summary,
-                    queued_request::state::pending,
-                    0,
-                    {},
-                    {},
-                }
-            );
+            requests_.push_back(queued_request {
+                request_id,
+                owner,
+                args,
+                summary,
+                queued_request::state::pending,
+                0,
+                {},
+                {},
+            });
             pending_ids_.push_back(request_id);
         }
         condition_.notify_all();
@@ -598,7 +596,8 @@ int run_actor_shell(
             continue;
         }
         const bool valid = std::all_of(
-            requests->begin(), requests->end(), [&](const args_list& request) {
+            requests->begin(), requests->end(),
+            [&](const args_list& request) {
                 return validate_actor_request(frontend, request, err);
             }
         );

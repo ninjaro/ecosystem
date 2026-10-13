@@ -67,7 +67,8 @@ single_selected_workspace_project(const workspace_scope& scope);
 std::vector<artifact_ref> workspace_artifacts_for_project(
     const workspace_scope& scope, const workspace_project* project
 );
-std::vector<std::optional<artifact_ref>> workspace_artifact_requests_for_project(
+std::vector<std::optional<artifact_ref>>
+workspace_artifact_requests_for_project(
     const workspace_scope& scope, const workspace_project* project
 );
 std::optional<artifact_ref> workspace_single_artifact_for_project(
@@ -82,4 +83,4 @@ json workspace_scope_json(
     const workspace_context& workspace, const workspace_scope& scope
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

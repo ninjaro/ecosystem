@@ -14,10 +14,8 @@
 namespace ecosystem {
 namespace package_surface_render_support {
 
-    std::string render_package_surface_template(
-        const std::filesystem::path& relative_path,
-        const template_bindings& bindings, std::string*
-    ) {
+    std::string
+    render_package_surface_template(const std::filesystem::path& relative_path, const template_bindings& bindings, std::string*) {
         return render_required_text_template(relative_path, bindings);
     }
 
@@ -30,8 +28,8 @@ namespace package_surface_render_support {
         return stream.str();
     }
 
-    std::string
-    newline_terminated_lines(const std::vector<std::string>& lines) {
+    std::string newline_terminated_lines(const std::vector<std::string>& lines
+    ) {
         std::ostringstream stream;
         for (const std::string& line : lines) {
             stream << line << "\n";
@@ -368,8 +366,7 @@ namespace package_surface_render_support {
         }
 
         return render_component_find_package_block(
-            newline_terminated_lines(
-                rule.component_rule.pre_find_package_lines
+            newline_terminated_lines(rule.component_rule.pre_find_package_lines
             ),
             std::string(rule.component_rule.find_package_open_line),
             prefixed_values_block(
@@ -377,8 +374,7 @@ namespace package_surface_render_support {
                 std::string(rule.component_rule.component_line_prefix)
             ),
             std::string(rule.component_rule.find_package_close_line),
-            newline_terminated_lines(
-                rule.component_rule.post_find_package_lines
+            newline_terminated_lines(rule.component_rule.post_find_package_lines
             ),
             qt_automation_block, error_message
         );

@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -47,30 +47,29 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
         write_text(profiles / "old.profraw", "stale profile");
         write_text(profiles / "coverage.profdata", "stale merge");
     };
-    for (
-        const auto& [name, value, diagnostic] :
-        std::vector<std::tuple<std::string, std::string, std::string>> {
-            { "COVERAGE_TEST_CTEST_EXIT", "8", "coverage test run failed" },
-            { "COVERAGE_TEST_PROFILES", "no", "no coverage profiles" },
-            { "COVERAGE_TEST_MERGE_EXIT", "1", "llvm-profdata merge failed" },
-            { "COVERAGE_TEST_MERGE_OUTPUT", "no",
-              "no usable coverage profile" },
-            { "COVERAGE_TEST_EXPORT_EXIT", "9",
-              "llvm-cov export failed (exit 9)" },
-            { "COVERAGE_TEST_EXPORT", "error: export failed",
-              "no valid coverage export" },
-            { "COVERAGE_TEST_EXPORT", "", "no valid coverage export" },
-            { "COVERAGE_TEST_EXPORT", "[]", "no valid coverage export" },
-            { "COVERAGE_TEST_EXPORT", "{}", "no valid coverage export" },
-            { "COVERAGE_TEST_EXPORT",
-              R"({"type":"llvm.coverage.json.export","version":"2","data":[]})",
-              "no valid coverage export" },
-            { "COVERAGE_TEST_EXPORT",
-              R"({"type":"llvm.coverage.json.export","version":"2","data":[{}]})",
-              "no valid coverage export" },
-            { "COVERAGE_TEST_EXPORT",
-              R"({"type":"llvm.coverage.json.export","version":"2","data":[{"files":[],"totals":{}}]})",
-              "no valid coverage export" } }) {
+    for (const auto& [name, value, diagnostic] :
+         std::vector<std::tuple<std::string, std::string, std::string>> {
+             { "COVERAGE_TEST_CTEST_EXIT", "8", "coverage test run failed" },
+             { "COVERAGE_TEST_PROFILES", "no", "no coverage profiles" },
+             { "COVERAGE_TEST_MERGE_EXIT", "1", "llvm-profdata merge failed" },
+             { "COVERAGE_TEST_MERGE_OUTPUT", "no",
+               "no usable coverage profile" },
+             { "COVERAGE_TEST_EXPORT_EXIT", "9",
+               "llvm-cov export failed (exit 9)" },
+             { "COVERAGE_TEST_EXPORT", "error: export failed",
+               "no valid coverage export" },
+             { "COVERAGE_TEST_EXPORT", "", "no valid coverage export" },
+             { "COVERAGE_TEST_EXPORT", "[]", "no valid coverage export" },
+             { "COVERAGE_TEST_EXPORT", "{}", "no valid coverage export" },
+             { "COVERAGE_TEST_EXPORT",
+               R"({"type":"llvm.coverage.json.export","version":"2","data":[]})",
+               "no valid coverage export" },
+             { "COVERAGE_TEST_EXPORT",
+               R"({"type":"llvm.coverage.json.export","version":"2","data":[{}]})",
+               "no valid coverage export" },
+             { "COVERAGE_TEST_EXPORT",
+               R"({"type":"llvm.coverage.json.export","version":"2","data":[{"files":[],"totals":{}}]})",
+               "no valid coverage export" } }) {
         prepare();
         scoped_env failure(name, value);
         const auto result = run_engels_cli(project, "check coverage");
@@ -181,10 +180,8 @@ void test_cli_check_leaks_runs_sanitized_tests() {
         "an unavailable sanitizer environment must fail explicitly:\n"
             + result.output
     );
-    if (result.output.find(
-            "sanitizer-backed leak checks are unavailable while "
-            "the process is being traced"
-        )
+    if (result.output.find("sanitizer-backed leak checks are unavailable while "
+                           "the process is being traced")
         != std::string::npos) {
         return;
     }
@@ -254,8 +251,7 @@ void test_cli_check_leaks_preserves_artifact_selection() {
     write_text(
         root.path() / "tests/unrelated_tests.cpp", "#error unselected tests\n"
     );
-    auto result
-        = run_engels_cli(root.path(), "check leaks core:selected");
+    auto result = run_engels_cli(root.path(), "check leaks core:selected");
     require_true(
         result.exit_code == 0,
         "selected leak checks must not build an unrelated facade or tests:\n"
@@ -286,8 +282,7 @@ void test_cli_check_leaks_preserves_artifact_selection() {
         "exec \"$MANIFESTO_TEST_REAL_CTEST\" \"$@\"\n"
     );
     scoped_env path("PATH", bin.string() + ":" + current_path_env());
-    result
-        = run_engels_cli(root.path(), "check leaks core:selected");
+    result = run_engels_cli(root.path(), "check leaks core:selected");
     require_true(
         result.exit_code == 5, "empty selected test execution must fail"
     );
@@ -565,21 +560,18 @@ void test_cli_check_tidy_honors_full_artifact_identity_and_configuration() {
     const auto project = root.path() / "project with spaces";
     write_text(
         project / "manifest.json",
-        json(
-            { { "id", "tidy_sample" },
-              { "description", "Required tidy scope" },
-              { "facade", "core:app" },
-              { "artifacts",
-                json::array(
-                    { { { "id", "core:app" },
-                        { "kind", "exe" },
-                        { "owns", json::array() },
-                        { "entry", "src/main.cpp" } },
-                      { { "id", "core:other" },
-                        { "kind", "exe" },
-                        { "owns", json::array() },
-                        { "entry", "src/other_main.cpp" } } }
-                ) } }
+        json({ { "id", "tidy_sample" },
+               { "description", "Required tidy scope" },
+               { "facade", "core:app" },
+               { "artifacts",
+                 json::array({ { { "id", "core:app" },
+                                 { "kind", "exe" },
+                                 { "owns", json::array() },
+                                 { "entry", "src/main.cpp" } },
+                               { { "id", "core:other" },
+                                 { "kind", "exe" },
+                                 { "owns", json::array() },
+                                 { "entry", "src/other_main.cpp" } } }) } }
         ).dump(2)
     );
     const std::string clean
@@ -667,29 +659,45 @@ void test_cli_check_tidy_honors_full_artifact_identity_and_configuration() {
     // With optional local config absent, use the canonical bundle rather than
     // weakening diagnostics through an unrelated ancestor configuration.
     fs::remove(project / ".clang-tidy");
-    write_text(root.path() / ".clang-tidy",
-        "Checks: '-*,clang-analyzer-core.NullDereference'\n");
-    write_text(project / "src/main.cpp",
+    write_text(
+        root.path() / ".clang-tidy",
+        "Checks: '-*,clang-analyzer-core.NullDereference'\n"
+    );
+    write_text(
+        project / "src/main.cpp",
         "class sample { public: sample() {} };\n"
-        "int main() { sample instance; (void)instance; return 0; }\n");
+        "int main() { sample instance; (void)instance; return 0; }\n"
+    );
     result = run_engels_cli(project, "check tidy core:app");
-    require_true(result.exit_code == 5,
-        "absent local configuration must retain canonical diagnostics");
-    require_contains(result.output, "modernize-use-equals-default",
-        "canonical diagnostics must not be replaced by parent defaults");
-    require_true(!fs::exists(project / ".clang-tidy"),
-        "required tidy must not recreate optional root configuration");
+    require_true(
+        result.exit_code == 5,
+        "absent local configuration must retain canonical diagnostics"
+    );
+    require_contains(
+        result.output, "modernize-use-equals-default",
+        "canonical diagnostics must not be replaced by parent defaults"
+    );
+    require_true(
+        !fs::exists(project / ".clang-tidy"),
+        "required tidy must not recreate optional root configuration"
+    );
 
     write_text(project / ".clang-tidy", "Checks: '-*,not-a-real-check'\n");
     result = run_engels_cli(project, "check tidy core:app");
-    require_true(result.exit_code == 5,
-        "unknown check names must fail configuration validation");
-    require_contains(result.output, "configuration is invalid",
-        "configuration failures must be distinct from source diagnostics");
+    require_true(
+        result.exit_code == 5,
+        "unknown check names must fail configuration validation"
+    );
+    require_contains(
+        result.output, "configuration is invalid",
+        "configuration failures must be distinct from source diagnostics"
+    );
     report = json::parse(read_text(report_path));
-    require_true(report.at("clang_tidy_configuration_error").get<bool>()
-        && !report.at("clang_tidy_used").get<bool>(),
-        "failed preflight must not claim source analysis executed");
+    require_true(
+        report.at("clang_tidy_configuration_error").get<bool>()
+            && !report.at("clang_tidy_used").get<bool>(),
+        "failed preflight must not claim source analysis executed"
+    );
 }
 
 void test_cli_format_shares_verifier_selection_and_tool() {
@@ -699,25 +707,22 @@ void test_cli_format_shares_verifier_selection_and_tool() {
         !real_formatter.empty(), "format acceptance requires clang-format"
     );
     const auto project = root.path() / "project with spaces";
-    const json authored
-        = { { "id", "format_sample" },
-            { "description", "Format selection" },
-            { "facade", "core:app" },
-            { "artifacts",
-              json::array(
-                  { { { "id", "core:lib" },
-                      { "kind", "static_lib" },
-                      { "owns",
-                        json::array(
-                            { "math", "tests/lib_tests.cpp",
-                              "benchmarks/lib_bench.cpp" }
-                        ) } },
-                    { { "id", "core:app" },
-                      { "kind", "exe" },
-                      { "owns", json::array() },
-                      { "entry", "src/main.cpp" },
-                      { "dependencies", json::array({ "core:lib" }) } } }
-              ) } };
+    const json authored = {
+        { "id", "format_sample" },
+        { "description", "Format selection" },
+        { "facade", "core:app" },
+        { "artifacts",
+          json::array({ { { "id", "core:lib" },
+                          { "kind", "static_lib" },
+                          { "owns",
+                            json::array({ "math", "tests/lib_tests.cpp",
+                                          "benchmarks/lib_bench.cpp" }) } },
+                        { { "id", "core:app" },
+                          { "kind", "exe" },
+                          { "owns", json::array() },
+                          { "entry", "src/main.cpp" },
+                          { "dependencies", json::array({ "core:lib" }) } } }) }
+    };
     write_text(project / "manifest.json", authored.dump(2));
     const std::string unformatted = "int helper(){return 2;}\n";
     const std::vector<fs::path> selected {
@@ -784,7 +789,8 @@ void test_cli_format_shares_verifier_selection_and_tool() {
     };
     require_true(
         without_mode(check_call) == without_mode(format_call),
-        "formatter and verifier must receive exactly the same files and configurations"
+        "formatter and verifier must receive exactly the same files and "
+        "configurations"
     );
     for (const auto& file : selected) {
         require_contains(
@@ -864,24 +870,34 @@ void test_cli_format_shares_verifier_selection_and_tool() {
     );
 
     fs::remove(project / ".clang-format");
-    write_text(root.path() / ".clang-format",
-        "BasedOnStyle: LLVM\nIndentWidth: 8\n");
-    write_text(project / "src/main.cpp",
-        "int main(){int result=1;if(result){result+=2;}return result;}\n");
-    const auto canonical_style = ecosystem::locate_template_path(
-        { "tooling/clang-format.tpl" }
+    write_text(
+        root.path() / ".clang-format", "BasedOnStyle: LLVM\nIndentWidth: 8\n"
     );
-    const auto expected = ecosystem::capture_command_result({
-        real_formatter, "-style=file:" + canonical_style.string(),
-        (project / "src/main.cpp").string()
-    });
-    require_true(expected.exit_code == 0, "canonical formatter config must parse");
-    require_true(run_marx_cli(project, "format core:app").exit_code == 0,
-        "optional root config absence must retain canonical formatting");
-    require_true(read_text(project / "src/main.cpp") == expected.output,
-        "unrelated parent style must not replace the canonical fallback");
-    require_true(!fs::exists(project / ".clang-format"),
-        "formatting must not recreate optional root configuration");
+    write_text(
+        project / "src/main.cpp",
+        "int main(){int result=1;if(result){result+=2;}return result;}\n"
+    );
+    const auto canonical_style
+        = ecosystem::locate_template_path({ "tooling/clang-format.tpl" });
+    const auto expected = ecosystem::capture_command_result(
+        { real_formatter, "-style=file:" + canonical_style.string(),
+          (project / "src/main.cpp").string() }
+    );
+    require_true(
+        expected.exit_code == 0, "canonical formatter config must parse"
+    );
+    require_true(
+        run_marx_cli(project, "format core:app").exit_code == 0,
+        "optional root config absence must retain canonical formatting"
+    );
+    require_true(
+        read_text(project / "src/main.cpp") == expected.output,
+        "unrelated parent style must not replace the canonical fallback"
+    );
+    require_true(
+        !fs::exists(project / ".clang-format"),
+        "formatting must not recreate optional root configuration"
+    );
 }
 
 void test_cli_workspace_format_respects_selected_projects_and_artifacts() {

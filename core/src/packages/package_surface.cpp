@@ -8,25 +8,28 @@
 namespace ecosystem {
 namespace package_surface_support {
 
-void write_package_section(std::ostringstream* stream, bool* has_output) {
-    if (*has_output) {
-        *stream << "\n";
+    void write_package_section(std::ostringstream* stream, bool* has_output) {
+        if (*has_output) {
+            *stream << "\n";
+        }
+        *has_output = true;
     }
-    *has_output = true;
-}
 
-}  // namespace package_surface_support
+} // namespace package_surface_support
 
 using namespace package_surface_support;
 
 std::string render_package_surface(
-    const dependency_summary& dependencies, const package_surface_options& options
+    const dependency_summary& dependencies,
+    const package_surface_options& options
 ) {
     std::ostringstream stream;
     bool has_output = false;
 
-    for (const package_surface_block block : enabled_surface_blocks(dependencies)) {
-        const std::string block_contents = render_package_surface_block(block, dependencies, options);
+    for (const package_surface_block block :
+         enabled_surface_blocks(dependencies)) {
+        const std::string block_contents
+            = render_package_surface_block(block, dependencies, options);
         if (block_contents.empty()) {
             continue;
         }
@@ -45,4 +48,4 @@ std::string render_package_surface(
     return stream.str();
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

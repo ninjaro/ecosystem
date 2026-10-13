@@ -45,7 +45,7 @@ test('one changed C++ file is the only input to the real formatter; full verific
   assert.match(result.stdout, /format selection: changed/);
   const invocations = f.calls().filter(args => args[0] !== '--version');
   assert.equal(invocations.length, 1);
-  assert.deepEqual(invocations[0], ['--dry-run', '--Werror', '-style=file', path.join(f.root, 'program/src/main.cpp')]);
+  assert.deepEqual(invocations[0], ['--dry-run', '--Werror', '-style=file:' + path.join(f.root, '.clang-format'), path.join(f.root, 'program/src/main.cpp')]);
   assert.equal(f.git('status', '--porcelain'), before, 'verification must not repair files');
   const full = f.run(['check', 'format']);
   assert.equal(full.status, 5, full.stdout + full.stderr);

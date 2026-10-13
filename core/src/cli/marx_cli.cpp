@@ -47,4 +47,4 @@ int run_marx_request(
     return run_marx_command(args, out, err);
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

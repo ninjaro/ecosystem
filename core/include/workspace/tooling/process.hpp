@@ -65,14 +65,10 @@ public:
     static std::string active_error();
 
 private:
-    friend captured_command capture_command_result(
-        const std::vector<std::string>&, const std::filesystem::path&,
-        const std::vector<std::pair<std::string, std::string>>&
-    );
-    friend int run_command(
-        const std::vector<std::string>&, const std::filesystem::path&,
-        const std::vector<std::pair<std::string, std::string>>&
-    );
+    friend captured_command
+    capture_command_result(const std::vector<std::string>&, const std::filesystem::path&, const std::vector<std::pair<std::string, std::string>>&);
+    friend int
+    run_command(const std::vector<std::string>&, const std::filesystem::path&, const std::vector<std::pair<std::string, std::string>>&);
     static captured_command capture(
         const std::vector<std::string>& args,
         const std::filesystem::path& working_directory,

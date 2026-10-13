@@ -17,19 +17,20 @@ const dependency_entry& package_dependency_entry(
 package_group effective_package_group(
     const package_descriptor& descriptor, const bool kde_enabled_for_profile
 ) {
-    if (descriptor.promote_to_required_for_kde_profile && kde_enabled_for_profile) {
+    if (descriptor.promote_to_required_for_kde_profile
+        && kde_enabled_for_profile) {
         return package_group::required;
     }
     return descriptor.group;
 }
 
-std::vector<package_surface_block> enabled_surface_blocks(
-    const dependency_summary& dependencies
-) {
+std::vector<package_surface_block>
+enabled_surface_blocks(const dependency_summary& dependencies) {
     std::vector<package_surface_block> blocks;
     std::set<package_surface_block> enabled_blocks;
 
-    for (const package_descriptor* descriptor : enabled_packages(dependencies)) {
+    for (const package_descriptor* descriptor :
+         enabled_packages(dependencies)) {
         if (descriptor == nullptr) {
             continue;
         }
@@ -48,4 +49,4 @@ std::vector<package_surface_block> enabled_surface_blocks(
     return blocks;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

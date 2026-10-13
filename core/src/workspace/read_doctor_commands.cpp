@@ -116,8 +116,8 @@ command_error run_doctor(
              || (*profile == "ci" && !requested_artifact
                  && project_supports_java_check(project_root, manifest_value)))
             && (!has_java_gradle_surface(project_root)
-                || artifact_refs_for_kind(manifest_value, "shared_lib")
-                       .empty())) {
+                || artifact_refs_for_kind(manifest_value, "shared_lib").empty()
+            )) {
             print_error(
                 err, command_error::unsupported_by_manifest,
                 "java checks require a java/ Gradle test surface and a shared "

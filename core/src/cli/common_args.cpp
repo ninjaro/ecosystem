@@ -7,15 +7,13 @@
 
 namespace ecosystem::common_args_support {
 
-std::string expected_usage(
-    const std::string& actor_name, const std::string& usage_tail
-) {
+std::string
+expected_usage(const std::string& actor_name, const std::string& usage_tail) {
     return "expected: " + actor_name + " " + usage_tail;
 }
 
-std::vector<char*> argv_for_args(
-    const std::string& command_name, const args_list& args
-) {
+std::vector<char*>
+argv_for_args(const std::string& command_name, const args_list& args) {
     std::vector<char*> argv;
     argv.reserve(args.size() + 1U);
     argv.push_back(const_cast<char*>(command_name.c_str()));
@@ -25,9 +23,8 @@ std::vector<char*> argv_for_args(
     return argv;
 }
 
-std::vector<std::string> positional_values(
-    const cxxopts::ParseResult& result, const std::string& key
-) {
+std::vector<std::string>
+positional_values(const cxxopts::ParseResult& result, const std::string& key) {
     if (result.count(key) == 0U) {
         return {};
     }
@@ -58,7 +55,8 @@ args_list scope_args_from_result(const cxxopts::ParseResult& result) {
     args_list scope_args;
     append_repeated_scope_option(&scope_args, result, "project");
     append_repeated_scope_option(&scope_args, result, "group");
-    const std::vector<std::string> positional = positional_values(result, "scope");
+    const std::vector<std::string> positional
+        = positional_values(result, "scope");
     scope_args.insert(scope_args.end(), positional.begin(), positional.end());
     return scope_args;
 }
@@ -87,7 +85,7 @@ std::string mutate_add_component_usage(const std::string& actor_name) {
     );
 }
 
-}  // namespace ecosystem::common_args_support
+} // namespace ecosystem::common_args_support
 
 namespace ecosystem {
 
@@ -150,16 +148,9 @@ std::optional<run_request> parse_run_request(
     );
 
     cxxopts::Options options(actor_name + " run", "");
-    options.add_options()(
-        "project", "Workspace project selector",
-        cxxopts::value<std::vector<std::string>>()
-    )(
-        "group", "Workspace group selector",
-        cxxopts::value<std::vector<std::string>>()
-    )(
-        "android-mode", "Android deployment mode",
-        cxxopts::value<std::string>()
-    )("scope", "", cxxopts::value<std::vector<std::string>>());
+    options.add_options()("project", "Workspace project selector", cxxopts::value<std::vector<std::string>>())("group", "Workspace group selector", cxxopts::value<std::vector<std::string>>())("android-mode", "Android deployment mode", cxxopts::value<std::string>())(
+        "scope", "", cxxopts::value<std::vector<std::string>>()
+    );
     options.parse_positional({ "scope" });
 
     const std::optional<cxxopts::ParseResult> result
@@ -194,13 +185,10 @@ std::optional<benchmark_request> parse_benchmark_request(
     );
 
     cxxopts::Options options(actor_name + " benchmark", "");
-    options.add_options()(
-        "project", "Workspace project selector",
-        cxxopts::value<std::vector<std::string>>()
-    )(
-        "group", "Workspace group selector",
-        cxxopts::value<std::vector<std::string>>()
-    )("scope", "", cxxopts::value<std::vector<std::string>>());
+    options
+        .add_options()("project", "Workspace project selector", cxxopts::value<std::vector<std::string>>())("group", "Workspace group selector", cxxopts::value<std::vector<std::string>>())(
+            "scope", "", cxxopts::value<std::vector<std::string>>()
+        );
     options.parse_positional({ "scope" });
 
     const std::optional<cxxopts::ParseResult> result
@@ -276,19 +264,9 @@ std::optional<prerelease_request> parse_prerelease_request(
     );
 
     cxxopts::Options options(actor_name + " prerelease", "");
-    options.add_options()(
-        "project", "Workspace project selector",
-        cxxopts::value<std::vector<std::string>>()
-    )(
-        "group", "Workspace group selector",
-        cxxopts::value<std::vector<std::string>>()
-    )(
-        "version-base", "Base version", cxxopts::value<std::string>()
-    )(
-        "sign", "Sign prerelease metadata"
-    )(
-        "sign-key", "Signing key id", cxxopts::value<std::string>()
-    )("scope", "", cxxopts::value<std::vector<std::string>>());
+    options.add_options()("project", "Workspace project selector", cxxopts::value<std::vector<std::string>>())("group", "Workspace group selector", cxxopts::value<std::vector<std::string>>())("version-base", "Base version", cxxopts::value<std::string>())("sign", "Sign prerelease metadata")("sign-key", "Signing key id", cxxopts::value<std::string>())(
+        "scope", "", cxxopts::value<std::vector<std::string>>()
+    );
     options.parse_positional({ "scope" });
 
     const std::optional<cxxopts::ParseResult> result
@@ -306,8 +284,8 @@ std::optional<prerelease_request> parse_prerelease_request(
 
     prerelease_request request;
     request.scope_args = common_args_support::scope_args_from_result(*result);
-    request.signing_options.sign = result->count("sign") != 0U
-        || result->count("sign-key") != 0U;
+    request.signing_options.sign
+        = result->count("sign") != 0U || result->count("sign-key") != 0U;
     if (result->count("version-base") != 0U) {
         request.version_base = (*result)["version-base"].as<std::string>();
     }
@@ -323,21 +301,17 @@ std::optional<add_component_options> parse_add_component_options(
     std::string* error_message
 ) {
     if (args.size() < 3U) {
-        *error_message = common_args_support::mutate_add_component_usage(
-            actor_name
-        );
+        *error_message
+            = common_args_support::mutate_add_component_usage(actor_name);
         return std::nullopt;
     }
 
     const args_list option_args(args.begin() + 3, args.end());
     cxxopts::Options options(actor_name + " mutate add component", "");
-    options.add_options()(
-        "kind", "Component template kind", cxxopts::value<std::string>()
-    )(
-        "artifact-id", "Artifact id override", cxxopts::value<std::string>()
-    )(
-        "link", "Artifact link", cxxopts::value<std::vector<std::string>>()
-    );
+    options
+        .add_options()("kind", "Component template kind", cxxopts::value<std::string>())("artifact-id", "Artifact id override", cxxopts::value<std::string>())(
+            "link", "Artifact link", cxxopts::value<std::vector<std::string>>()
+        );
 
     const std::optional<cxxopts::ParseResult> result
         = common_args_support::parse_options(
@@ -349,9 +323,8 @@ std::optional<add_component_options> parse_add_component_options(
     }
     if (common_args_support::duplicate_option(*result, "kind")
         || common_args_support::duplicate_option(*result, "artifact-id")) {
-        *error_message = common_args_support::mutate_add_component_usage(
-            actor_name
-        );
+        *error_message
+            = common_args_support::mutate_add_component_usage(actor_name);
         return std::nullopt;
     }
 
@@ -378,4 +351,4 @@ std::optional<add_component_options> parse_add_component_options(
     return options_value;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

@@ -19,10 +19,8 @@ void test_android_application_id_is_manifest_owned() {
             { "excluded_permissions",
               json::array({ "android.permission.RECORD_AUDIO" }) },
             { "features",
-              json::array(
-                  { { { "name", "android.hardware.camera.any" },
-                      { "required", false } } }
-              ) } };
+              json::array({ { { "name", "android.hardware.camera.any" },
+                              { "required", false } } }) } };
     value.components.front().stack["android"] = json::array({ "qt_android" });
     value.components.front().artifacts.front().kind = "qt_app";
     write_text(root.path() / "assets/brand/logo.svg", "<svg/>\n");
@@ -96,10 +94,8 @@ void test_android_application_id_is_manifest_owned() {
              { { "permissions",
                  json::array({ " android.permission.CAMERA " }) } },
              { { "permissions",
-                 json::array(
-                     { "android.permission.CAMERA",
-                       "android.permission.CAMERA" }
-                 ) } },
+                 json::array({ "android.permission.CAMERA",
+                               "android.permission.CAMERA" }) } },
              { { "permissions", json::array({ "android.permission.CAMERA" }) },
                { "excluded_permissions",
                  json::array({ "android.permission.CAMERA" }) } },
@@ -423,12 +419,10 @@ exit 0
 void test_cli_run_android_deploys_selected_artifact() {
     temp_dir root;
     ecosystem::manifest manifest_value = sample_build_manifest("sample");
-    manifest_value.components.front().stack = json::object(
-        {
-            { "qt", json::array({ "Core" }) },
-            { "android", json::array({ "qt_android" }) },
-        }
-    );
+    manifest_value.components.front().stack = json::object({
+        { "qt", json::array({ "Core" }) },
+        { "android", json::array({ "qt_android" }) },
+    });
     manifest_value.components.front().artifacts.front().kind = "qt_app";
 
     std::string error_message;

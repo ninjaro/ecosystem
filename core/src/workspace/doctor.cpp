@@ -65,8 +65,7 @@ namespace doctor_support {
         return render_text_template(
             "cmake/doctor_probe.tpl",
             {
-                { "cpp_standard",
-                  std::to_string(manifest_value.cpp_standard) },
+                { "cpp_standard", std::to_string(manifest_value.cpp_standard) },
                 { "package_surface",
                   render_package_surface(dependencies, options) },
             },
@@ -104,10 +103,9 @@ namespace doctor_support {
         const fs::path build_dir = local_doctor_probe_build_dir(
             project_root, requested_artifact, cache_profile
         );
-        const std::string cmake_contents
-            = generate_doctor_probe_cmakelists(
-                manifest_value, dependencies, &result.error_message
-            );
+        const std::string cmake_contents = generate_doctor_probe_cmakelists(
+            manifest_value, dependencies, &result.error_message
+        );
         if (!result.error_message.empty()) {
             result.status = command_error::task_failed;
             result.cache_status = inspect_cache_file(

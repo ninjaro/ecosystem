@@ -23,6 +23,18 @@ void test_ci_stage_failures() {
     const auto generated = ecosystem::generate_tracked_surface_files(
         sample_manifest(), project.path()
     );
+    const auto* publisher = find_tracked_surface_file(
+        generated, ".github/actions/publish-manifesto-report/action.yml"
+    );
+    require_true(publisher != nullptr, "shared report publisher must exist");
+    require_contains(
+        publisher->contents,
+        "always() && (inputs.report-key == 'checks' || inputs.report-key == "
+        "'codeql')",
+        "Checks/CodeQL diagnostics must not require their private upstream "
+        "inputs "
+        "from the existing Pages report caller"
+    );
     for (const auto& filename : { "tests.yml", "codeql.yml", "html.yml" }) {
         const auto* workflow = find_tracked_surface_file(
             generated, std::string(".github/workflows/") + filename
@@ -84,6 +96,8 @@ void test_ci_stage_failures() {
              { "false | cat", "failed", 1 },
              { "printf success", "passed", 0 },
              { "exit 3", "skipped", 3 },
+             { "exit 4", "failed", 4 },
+             { "exit 127", "failed", 127 },
          }) {
         temp_dir root;
         std::string script = program;
@@ -133,12 +147,55 @@ void test_ci_stage_failures() {
 
 void test_ci_result_gates() {
     temp_dir root;
+    write_text(
+        root.path() / ".ecosystem/github/reports/00-workflow/result.json",
+        "{\"status\":\"passed\"}"
+    );
     const auto files = ecosystem::generate_tracked_surface_files(
         sample_manifest(), root.path()
     );
     const auto* workflow
         = find_tracked_surface_file(files, ".github/workflows/tests.yml");
     require_true(workflow != nullptr, "required workflow must exist");
+    const auto* publisher = find_tracked_surface_file(
+        files, ".github/actions/publish-manifesto-report/action.yml"
+    );
+    require_true(publisher != nullptr, "report collector must exist");
+    {
+        temp_dir empty_reports;
+        auto combine
+            = ci_shell(publisher->contents, "Combine stage reports", 6);
+        for (const auto& [key, replacement] :
+             std::vector<std::pair<std::string, std::string>> {
+                 { "report-directory",
+                   (empty_reports.path() / "reports").string() },
+                 { "report-key", "checks" },
+                 { "project-id", "fixture" },
+                 { "report-title", "Checks" } }) {
+            combine = ci_bind(combine, "inputs." + key, replacement);
+        }
+        write_text(empty_reports.path() / "combine.sh", combine);
+        const auto output = empty_reports.path() / "outputs";
+        const auto collected = ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail",
+              (empty_reports.path() / "combine.sh").string() },
+            empty_reports.path(),
+            { { "GITHUB_OUTPUT", output.string() },
+              { "GITHUB_STEP_SUMMARY",
+                (empty_reports.path() / "summary").string() },
+              { "RUNNER_TEMP", empty_reports.path().string() },
+              { "GITHUB_WORKFLOW", "Checks" },
+              { "GITHUB_REF_NAME", "main" },
+              { "GITHUB_REPOSITORY", "fixture/project" },
+              { "GITHUB_RUN_ID", "1" } }
+        );
+        require_true(collected.exit_code == 0, collected.output);
+        require_contains(
+            read_text(output), "has-failures=true",
+            "missing stage reports must never close a failure issue or claim "
+            "success"
+        );
+    }
     require_not_contains(
         workflow->contents, "paths:",
         "required checks must cover arbitrary manifest-owned source directories"
@@ -154,7 +211,11 @@ void test_ci_result_gates() {
          { "Publish check report", "Enforce required result" }) {
         require_contains(
             workflow->contents,
-            std::string("- name: ") + name + "\n        if: ${{ always() }}",
+            std::string("- name: ") + name
+                + (std::string(name) == "Publish check report"
+                       ? "\n        id: published"
+                       : "")
+                + "\n        if: ${{ always() }}",
             "reporting and enforcement must also run after setup or stage "
             "failures"
         );
@@ -177,7 +238,9 @@ void test_ci_result_gates() {
                               const std::string& code) {
         return ecosystem::capture_command_result(
             { "bash", "-e", "-o", "pipefail", gate.string() }, root.path(),
-            { { "CHECK_SCOPE", "cheap" },
+            { { "DIAGNOSTIC_OUTCOME", "success" },
+              { "DIAGNOSTIC_STATUS", "passed" },
+              { "CHECK_SCOPE", "cheap" },
               { "CHECK_OUTCOME", outcome },
               { "CHECK_STATUS", status },
               { "CHECK_EXIT_CODE", code } }
@@ -257,14 +320,32 @@ void test_ci_result_gates() {
     require_true(codeql != nullptr, "CodeQL adapter must exist");
     write_text(gate, ci_shell(codeql->contents, "Enforce CodeQL result", 8));
     const std::vector<std::pair<std::string, std::string>> clean {
+        { "DIAGNOSTIC_OUTCOME", "success" },
+        { "DIAGNOSTIC_STATUS", "passed" },
+        { "CHECK_SCOPE", "full" },
         { "CODEQL_SCOPE", "full" },
         { "REPOSITORY_OUTCOME", "success" },
         { "REPOSITORY_EXIT_CODE", "0" },
         { "REPOSITORY_STATUS", "passed" },
         { "CODEQL_INIT_STATUS", "success" },
         { "CODEQL_BUILD_STATUS", "passed" },
+        { "CODEQL_BUILD_OUTCOME", "success" },
+        { "CODEQL_BUILD_EXIT_CODE", "0" },
         { "CODEQL_ANALYZE_STATUS", "success" }
     };
+    for (const auto* stage_name :
+         { "01-tracked-surface", "02-codeql-build", "03-codeql-analysis" }) {
+        write_text(
+            root.path() / ".ecosystem/github/reports" / stage_name
+                / "summary.md",
+            "simulated complete stage"
+        );
+        write_text(
+            root.path() / ".ecosystem/github/reports" / stage_name
+                / "output.log",
+            "simulated action log"
+        );
+    }
     require_true(
         ecosystem::capture_command_result(
             { "bash", gate.string() }, root.path(), clean
@@ -273,6 +354,25 @@ void test_ci_result_gates() {
             == 0,
         "completed CodeQL operations must pass"
     );
+    for (const auto& relative :
+         { "01-tracked-surface/summary.md", "01-tracked-surface/output.log",
+           "02-codeql-build/summary.md", "02-codeql-build/output.log",
+           "03-codeql-analysis/summary.md" }) {
+        const auto missing
+            = root.path() / ".ecosystem/github/reports" / relative;
+        const auto saved = read_text(missing);
+        fs::remove(missing);
+        require_true(
+            ecosystem::capture_command_result(
+                { "bash", gate.string() }, root.path(), clean
+            )
+                    .exit_code
+                != 0,
+            "successful CodeQL outcomes cannot replace a missing stage "
+            "report/log"
+        );
+        write_text(missing, saved);
+    }
     for (std::size_t i = 0; i < clean.size(); ++i) {
         for (const auto* state :
              { "", "failed", "failure", "skipped", "cancelled" }) {

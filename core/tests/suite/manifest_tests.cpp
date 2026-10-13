@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -120,8 +120,7 @@ void test_qml_modules_preserve_optional_ownership_and_generation() {
                     { { "uri", "Sample.Ui" },
                       { "version", "1.0" },
                       { "files",
-                        json::array(
-                            { "qml/Main.qml", "qml/nested/Tile.qml" }
+                        json::array({ "qml/Main.qml", "qml/nested/Tile.qml" }
                         ) } } } } }
           ) }
     };
@@ -269,22 +268,21 @@ void test_qml_modules_preserve_optional_ownership_and_generation() {
 
 void test_authored_artifacts_round_trip_and_mutate() {
     temp_dir root;
-    json authored
-        = { { "id", "owned" },
-            { "description", "Explicit artifact intent" },
-            { "version", "1.2.3" },
-            { "facade", "core:app" },
-            { "artifacts",
-              json::array(
-                  { { { "id", "core:lib" },
-                      { "kind", "static_lib" },
-                      { "owns", json::array({ "math" }) } },
-                    { { "id", "core:app" },
-                      { "kind", "exe" },
-                      { "owns", json::array() },
-                      { "entry", "src/launch.cpp" },
-                      { "dependencies", json::array({ "core:lib" }) } } }
-              ) } };
+    json authored = {
+        { "id", "owned" },
+        { "description", "Explicit artifact intent" },
+        { "version", "1.2.3" },
+        { "facade", "core:app" },
+        { "artifacts",
+          json::array({ { { "id", "core:lib" },
+                          { "kind", "static_lib" },
+                          { "owns", json::array({ "math" }) } },
+                        { { "id", "core:app" },
+                          { "kind", "exe" },
+                          { "owns", json::array() },
+                          { "entry", "src/launch.cpp" },
+                          { "dependencies", json::array({ "core:lib" }) } } }) }
+    };
     write_text(root.path() / "manifest.json", authored.dump(2) + "\n");
     write_text(root.path() / "include/math.hpp", "int answer();\n");
     write_text(root.path() / "src/math.cpp", "int answer() { return 42; }\n");
@@ -405,12 +403,11 @@ void test_authored_artifacts_round_trip_and_mutate() {
     );
     auto app_only = authored;
     app_only["facade"] = "solo:app";
-    app_only["artifacts"] = json::array(
-        { { { "id", "solo:app" },
-            { "kind", "exe" },
-            { "owns", json::array() },
-            { "entry", "src/standalone.cpp" } } }
-    );
+    app_only["artifacts"]
+        = json::array({ { { "id", "solo:app" },
+                          { "kind", "exe" },
+                          { "owns", json::array() },
+                          { "entry", "src/standalone.cpp" } } });
     write_text(root.path() / "manifest.json", app_only.dump(2) + "\n");
     write_text(
         root.path() / "src/standalone.cpp",
@@ -434,12 +431,10 @@ void test_authored_artifacts_reject_obsolete_and_ambiguous_intent() {
                         { "description", "Owned app" },
                         { "facade", "app:app" },
                         { "artifacts",
-                          json::array(
-                              { { { "id", "app:app" },
-                                  { "kind", "exe" },
-                                  { "owns", json::array() },
-                                  { "entry", "src/start.cc" } } }
-                          ) } };
+                          json::array({ { { "id", "app:app" },
+                                          { "kind", "exe" },
+                                          { "owns", json::array() },
+                                          { "entry", "src/start.cc" } } }) } };
     auto check = [&](const json& value, const std::string& diagnostic) {
         write_text(root.path() / "manifest.json", value.dump());
         const auto loaded
@@ -482,11 +477,9 @@ void test_authored_artifacts_reject_obsolete_and_ambiguous_intent() {
     value["artifacts"][0]["dependencies"] = json::array({ "missing:lib" });
     check(value, "unresolved artifact link");
     value = base;
-    value["artifacts"].push_back(
-        { { "id", "lib:lib" },
-          { "kind", "static_lib" },
-          { "owns", json::array({ "." }) } }
-    );
+    value["artifacts"].push_back({ { "id", "lib:lib" },
+                                   { "kind", "static_lib" },
+                                   { "owns", json::array({ "." }) } });
     check(value, "overlapping artifact ownership");
     value = base;
     value["artifacts"][0]["owns"] = json::array({ "../escape" });
@@ -500,16 +493,12 @@ void test_authored_artifacts_reject_obsolete_and_ambiguous_intent() {
     fs::create_directories(root.path() / "src/empty");
     fs::create_directory_symlink("empty", root.path() / "src/alias");
     value = base;
-    value["artifacts"].push_back(
-        { { "id", "first:lib" },
-          { "kind", "static_lib" },
-          { "owns", json::array({ "src/empty" }) } }
-    );
-    value["artifacts"].push_back(
-        { { "id", "second:lib" },
-          { "kind", "static_lib" },
-          { "owns", json::array({ "src/alias" }) } }
-    );
+    value["artifacts"].push_back({ { "id", "first:lib" },
+                                   { "kind", "static_lib" },
+                                   { "owns", json::array({ "src/empty" }) } });
+    value["artifacts"].push_back({ { "id", "second:lib" },
+                                   { "kind", "static_lib" },
+                                   { "owns", json::array({ "src/alias" }) } });
     check(value, "overlapping artifact ownership through filesystem paths");
     value = base;
     auto& imported = value["artifacts"][0];
@@ -644,9 +633,16 @@ void test_owned_test_targets_are_independent() {
 }
 
 void test_owned_scope_discovery_and_build() {
-    require_true(fs::equivalent(ecosystem::locate_template_path({"cmake/generated_tests_block.tpl"}),
-        fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates/cmake/generated_tests_block.tpl"),
-        "default templates must come from the generator's own version");
+    require_true(
+        fs::equivalent(
+            ecosystem::locate_template_path(
+                { "cmake/generated_tests_block.tpl" }
+            ),
+            fs::path(ECOS_TEST_SOURCE_DIR)
+                / "assets/templates/cmake/generated_tests_block.tpl"
+        ),
+        "default templates must come from the generator's own version"
+    );
     temp_dir root;
     write_text(root.path() / "include/math.hpp", "int answer();\n");
     write_text(root.path() / "include/math.tpp", "// companion\n");

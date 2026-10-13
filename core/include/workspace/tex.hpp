@@ -7,8 +7,8 @@
 namespace ecosystem {
 
 /** Select root-level TeX documents; nested files remain supporting inputs. */
-std::vector<std::filesystem::path>
-tex_sources(const std::filesystem::path& root);
+std::vector<std::filesystem::path> tex_sources(const std::filesystem::path& root
+);
 command_error build_tex(
     const std::filesystem::path& root, std::ostream& out, std::ostream& err
 );

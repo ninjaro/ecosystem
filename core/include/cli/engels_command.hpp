@@ -10,4 +10,4 @@ int run_engels_command(
     const args_list& args, std::ostream& out, std::ostream& err
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

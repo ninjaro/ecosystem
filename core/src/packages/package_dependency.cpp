@@ -64,4 +64,4 @@ dependency_entry& dependency_entry_for_id(
     return dependencies.json;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

@@ -29,6 +29,9 @@ outputs:
   log-path:
     description: Captured stage log path.
     value: ${{ steps.run.outputs.log-path }}
+  reason:
+    description: Completion, unsupported capability, environment or command failure reason.
+    value: ${{ steps.run.outputs.reason }}
 
 runs:
   using: composite
@@ -64,6 +67,20 @@ runs:
           done
         fi
 
+        reason="Command completed successfully."
+        category="executed"
+        if [ "$status" = skipped ]; then
+          reason="Capability is unsupported (exit $exit_code); see the command log."
+          category="not-applicable"
+        elif [ "$status" = failed ]; then
+          reason="Command failed (exit $exit_code); see the command log."
+          category="actual-failure"
+          if [ "$exit_code" = 4 ] || [ "$exit_code" = 127 ]; then
+            reason="Required tool/environment unavailable (exit $exit_code); see the command log."
+            category="unavailable-environment"
+          fi
+        fi
+
         log_lines=0
         if [ -f "$log_path" ]; then
           log_lines=$(wc -l < "$log_path")
@@ -73,13 +90,18 @@ runs:
           printf '## %s\n\n' "${{ inputs.stage-label }}"
           printf -- '- status: `%s`\n' "$status"
           printf -- '- exit code: `%s`\n' "$exit_code"
+          printf -- '- category: `%s`\n' "$category"
+          printf -- '- reason: %s\n' "$reason"
           printf -- '- command:\n\n```bash\n'
           cat "$command_path"
           printf '```\n\n'
           printf '<details><summary>Log excerpt</summary>\n\n```text\n'
-          sed -n '1,120p' "$log_path"
           if [ "$log_lines" -gt 120 ]; then
-            printf '\n... truncated %s additional lines ...\n' "$((log_lines - 120))"
+            sed -n '1,40p' "$log_path"
+            printf '\n... omitted %s middle lines; full log retained ...\n' "$((log_lines - 120))"
+            tail -n 80 "$log_path"
+          else
+            cat "$log_path"
           fi
           printf '```\n</details>\n'
         } > "$report_path"
@@ -89,3 +111,4 @@ runs:
         echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
         echo "report-path=$report_path" >> "$GITHUB_OUTPUT"
         echo "log-path=$log_path" >> "$GITHUB_OUTPUT"
+        echo "reason=$reason" >> "$GITHUB_OUTPUT"

@@ -129,7 +129,8 @@ namespace manifest_support {
             return false;
         }
         return std::none_of(
-            path.begin(), path.end(), [](const fs::path& segment) {
+            path.begin(), path.end(),
+            [](const fs::path& segment) {
                 return segment == "." || segment == "..";
             }
         );
@@ -430,9 +431,9 @@ namespace manifest_support {
         }
         if (external.contains("artifact")
             && external.at("artifact").is_string()) {
-            const auto ref = parse_artifact_ref(
-                external.at("artifact").get<std::string>()
-            );
+            const auto ref
+                = parse_artifact_ref(external.at("artifact").get<std::string>()
+                );
             if (!ref || !is_valid_id(ref->component_id)
                 || !is_valid_id(ref->artifact_id)) {
                 errors->push_back(
@@ -1136,10 +1137,8 @@ string_list validate_manifest(const manifest& value) {
                 errors.push_back(
                     "unresolved artifact link: " + ref + " -> " + link
                 );
-            } else if (
-                target->second->kind == "exe"
-                || target->second->kind == "qt_app"
-            ) {
+            } else if (target->second->kind == "exe"
+                       || target->second->kind == "qt_app") {
                 errors.push_back(
                     "artifact link must reference a library: " + ref + " -> "
                     + link
@@ -1355,15 +1354,11 @@ discover_owned_files(manifest* value, const fs::path& project_root) {
                 = path.lexically_relative(fs::path(owner.root));
             if (header)
                 owned.headers.push_back(path.lexically_normal());
-            else if (
-                *relative.begin() == "tests"
-                && relative != fs::path(owned.entry)
-            )
+            else if (*relative.begin() == "tests"
+                     && relative != fs::path(owned.entry))
                 owned.tests.push_back(path.lexically_normal());
-            else if (
-                *relative.begin() == "benchmarks"
-                && relative != fs::path(owned.entry)
-            )
+            else if (*relative.begin() == "benchmarks"
+                     && relative != fs::path(owned.entry))
                 owned.benchmarks.push_back(path.lexically_normal());
             else
                 owned.sources.push_back(path.lexically_normal());

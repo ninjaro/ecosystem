@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -28,9 +28,9 @@ void test_prerelease_command_log_preserves_output_and_fails_closed() {
             ) == 23,
             "streamed commands must retain their native exit status"
         );
-        const auto signaled = ecosystem::capture_command_result(
-            { "/bin/sh", "-c", "kill -TERM $$" }
-        );
+        const auto signaled
+            = ecosystem::capture_command_result({ "/bin/sh", "-c",
+                                                  "kill -TERM $$" });
         require_true(
             signaled.exit_code == 143,
             "signal termination must have shell-compatible status"
@@ -58,9 +58,9 @@ void test_prerelease_command_log_preserves_output_and_fails_closed() {
         transcript.find("do-not-record-this-value") == std::string::npos,
         "command headers must not dump environment values"
     );
-    const auto after_scope = ecosystem::capture_command_result(
-        { "/bin/sh", "-c", "printf 'after-scope'" }
-    );
+    const auto after_scope
+        = ecosystem::capture_command_result({ "/bin/sh", "-c",
+                                              "printf 'after-scope'" });
     require_true(
         after_scope.output == "after-scope"
             && read_text(log_path) == transcript,
@@ -388,9 +388,9 @@ void test_cli_prerelease_builds_shareable_repos_and_auto_increments_version() {
     for (const auto& archive :
          { pacman_package, deb_contents / "control.tar.gz",
            deb_contents / "data.tar.gz" }) {
-        const auto listing = ecosystem::capture_command_result(
-            { "tar", "--numeric-owner", "-tvf", archive.string() }
-        );
+        const auto listing
+            = ecosystem::capture_command_result({ "tar", "--numeric-owner",
+                                                  "-tvf", archive.string() });
         require_true(
             listing.exit_code == 0 && !listing.output.empty(),
             "native tar must inspect ownership: " + listing.output
@@ -422,9 +422,9 @@ void test_cli_prerelease_builds_shareable_repos_and_auto_increments_version() {
         pkginfo.output.find("pkgrel =") == std::string::npos,
         "PKGINFO must not use the PKGBUILD-only pkgrel field"
     );
-    const auto indexed = ecosystem::capture_command_result(
-        { "tar", "-xOf", pacman_db.string(), "sample-1.2.3pre1-1/desc" }
-    );
+    const auto indexed
+        = ecosystem::capture_command_result({ "tar", "-xOf", pacman_db.string(),
+                                              "sample-1.2.3pre1-1/desc" });
     require_true(
         indexed.exit_code == 0, "Pacman repository metadata must extract"
     );
@@ -434,9 +434,9 @@ void test_cli_prerelease_builds_shareable_repos_and_auto_increments_version() {
     );
     if (const auto pacman = ecosystem::find_command_path("pacman");
         !pacman.empty()) {
-        const auto queried = ecosystem::capture_command_result(
-            { pacman, "-Qp", "--", pacman_package.string() }
-        );
+        const auto queried
+            = ecosystem::capture_command_result({ pacman, "-Qp", "--",
+                                                  pacman_package.string() });
         require_true(
             queried.exit_code == 0,
             "native Pacman must accept the archive: " + queried.output
@@ -456,10 +456,10 @@ void test_cli_prerelease_builds_shareable_repos_and_auto_increments_version() {
             "Never\nServer = file://"
                 + pacman_db.parent_path().string() + "\n"
         );
-        const auto listed = ecosystem::capture_command_result(
-            { pacman, "--config", config.string(), "--dbpath",
-              database.string(), "-Sl" }
-        );
+        const auto listed
+            = ecosystem::capture_command_result({ pacman, "--config",
+                                                  config.string(), "--dbpath",
+                                                  database.string(), "-Sl" });
         require_true(
             listed.exit_code == 0,
             "native Pacman must read the repository: " + listed.output
@@ -590,8 +590,7 @@ void test_prerelease_preserves_published_state_on_late_failures() {
         "Debian index must be a valid binary gzip stream"
     );
     require_true(
-        ecosystem::capture_command(
-            { gzip, "-d", "-c", compressed.string() }
+        ecosystem::capture_command({ gzip, "-d", "-c", compressed.string() }
         ) == read_text(first_recursive_file_named(release / "deb", "Packages")),
         "compressed index must preserve all metadata bytes"
     );

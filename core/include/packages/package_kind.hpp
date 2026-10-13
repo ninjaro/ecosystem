@@ -16,4 +16,4 @@ enum class package_kind {
     benchmark,
 };
 
-}  // namespace ecosystem
+} // namespace ecosystem

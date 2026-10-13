@@ -200,11 +200,9 @@ bool prepare_local_sphinx_output(
         // A failed publication rollback is recovery state, never disposable
         // cache.
         if (fs::exists(directory / "html.previous"))
-            throw template_render_error(
-                "Sphinx recovery output exists at "
-                ".ecosystem/sphinx/html.previous; "
-                "restore or move it before rebuilding"
-            );
+            throw template_render_error("Sphinx recovery output exists at "
+                                        ".ecosystem/sphinx/html.previous; "
+                                        "restore or move it before rebuilding");
         fs::remove_all(directory / "html.pending");
         fs::create_directories(directory / "html.pending");
         return write_text_file(directory / "sphinx.log", "", error_message);
@@ -233,10 +231,8 @@ bool publish_local_sphinx_output(
                     + std::string(name)
                 );
         if (fs::exists(previous))
-            throw template_render_error(
-                "Sphinx recovery output exists at "
-                ".ecosystem/sphinx/html.previous"
-            );
+            throw template_render_error("Sphinx recovery output exists at "
+                                        ".ecosystem/sphinx/html.previous");
         const bool had_output = fs::exists(published);
         if (had_output)
             fs::rename(published, previous);

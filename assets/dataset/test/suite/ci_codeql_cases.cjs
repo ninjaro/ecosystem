@@ -84,11 +84,17 @@ for (const scenario of ['docs', 'empty', 'source', 'header', 'unknown', 'delete'
     if (run) Object.assign(steps.codeql_build, {outcome: 'success', outputs: {status: 'passed'}});
     assert.equal(eligible('      - name: Run CodeQL analysis\n', steps), run);
     if (run) steps.codeql_analyze.outcome = 'success';
-    const env = {CHECK_SCOPE: scenario === 'schedule' ? 'security' : 'full', EVENT_NAME: context.eventName,
+    const env = {DIAGNOSTIC_OUTCOME: 'success', DIAGNOSTIC_STATUS: 'passed', TOOLCHAIN_STATUS: 'success', CLASSIFICATION_STATUS: 'success', CHECK_SCOPE: scenario === 'schedule' ? 'security' : 'full', EVENT_NAME: context.eventName,
       CODEQL_SCOPE: outputs.codeql, REPOSITORY_OUTCOME: 'success', REPOSITORY_STATUS: steps.repository.outputs.status,
       REPOSITORY_EXIT_CODE: String(checked.status), CODEQL_INIT_STATUS: steps.codeql_init.outcome,
       CODEQL_BUILD_OUTCOME: steps.codeql_build.outcome, CODEQL_BUILD_STATUS: steps.codeql_build.outputs.status,
+      CODEQL_BUILD_EXIT_CODE: run ? '0' : '',
       CODEQL_ANALYZE_STATUS: steps.codeql_analyze.outcome};
+    f.write('.ecosystem/github/reports/00-workflow/result.json', '{"status":"passed"}');
+    for (const stage of ['01-tracked-surface', '02-codeql-build', '03-codeql-analysis']) {
+      f.write('.ecosystem/github/reports/' + stage + '/summary.md', 'simulated stage');
+      f.write('.ecosystem/github/reports/' + stage + '/output.log', 'simulated action log');
+    }
     const result = shell(f, gate, env);
     assert.equal(result.status, scenario === 'repo-drift' ? 1 : 0, result.stdout + result.stderr);
     if (narrow) {
@@ -106,9 +112,10 @@ for (const scenario of ['docs', 'empty', 'source', 'header', 'unknown', 'delete'
 test('repository-only gate rejects incomplete or unrelated runs', t => {
   const f = fixture(t);
   f.write('.ecosystem/step-summary', '');
-  const env = {CHECK_SCOPE: 'full', EVENT_NAME: 'pull_request', CODEQL_SCOPE: 'repository',
+  const env = {DIAGNOSTIC_OUTCOME: 'success', DIAGNOSTIC_STATUS: 'passed', TOOLCHAIN_STATUS: 'success', CLASSIFICATION_STATUS: 'success', CHECK_SCOPE: 'full', EVENT_NAME: 'pull_request', CODEQL_SCOPE: 'repository',
     REPOSITORY_OUTCOME: 'success', REPOSITORY_STATUS: 'passed', REPOSITORY_EXIT_CODE: '0',
     CODEQL_INIT_STATUS: 'skipped', CODEQL_BUILD_OUTCOME: 'skipped', CODEQL_BUILD_STATUS: '', CODEQL_ANALYZE_STATUS: 'skipped'};
+  f.write('.ecosystem/github/reports/00-workflow/result.json', '{"status":"passed"}');
   assert.equal(shell(f, gate, env).status, 0);
   for (const override of [{CODEQL_SCOPE: ''}, {CODEQL_SCOPE: 'unknown'}, {CHECK_SCOPE: 'security'},
     {EVENT_NAME: 'push'}, {EVENT_NAME: 'schedule'}, {EVENT_NAME: 'workflow_dispatch'},

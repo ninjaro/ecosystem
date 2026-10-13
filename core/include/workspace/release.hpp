@@ -35,22 +35,20 @@ struct prerelease_artifacts {
     string_list warnings;
 };
 
-std::filesystem::path local_prerelease_dir(const std::filesystem::path& project_root);
+std::filesystem::path
+local_prerelease_dir(const std::filesystem::path& project_root);
 std::string prerelease_package_name(
-    const manifest& manifest_value,
-    const artifact_ref& ref,
+    const manifest& manifest_value, const artifact_ref& ref,
     const artifact& artifact_value
 );
 command_error create_prerelease_packages(
-    const std::filesystem::path& project_root,
-    const manifest& manifest_value,
+    const std::filesystem::path& project_root, const manifest& manifest_value,
     const resolved_artifact& resolved,
     const std::filesystem::path& built_artifact_path,
     const std::optional<std::string>& version_base,
     const prerelease_signing_options& signing_options,
-    prerelease_version* version,
-    prerelease_artifacts* artifacts,
+    prerelease_version* version, prerelease_artifacts* artifacts,
     std::string* error_message
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

@@ -24,8 +24,7 @@ std::vector<char*> argv_for_args(const args_list& args) {
 }
 
 std::optional<cxxopts::ParseResult> parse_options(
-    cxxopts::Options* options, const args_list& args,
-    std::string* error_message
+    cxxopts::Options* options, const args_list& args, std::string* error_message
 ) {
     try {
         std::vector<char*> argv = argv_for_args(args);
@@ -97,7 +96,7 @@ bool validate_mutate_request(
     if (args[0] == "add" && args[1] == "file-unit") {
         if (args.size() != 6U || args[4] != "--kind") {
             *error_message = "expected: marx mutate add file-unit "
-                "<component-id> <module-id> --kind <kind>";
+                             "<component-id> <module-id> --kind <kind>";
             return false;
         }
         return true;
@@ -166,8 +165,7 @@ parse_marx_request(const args_list& args, std::string* error_message) {
     }
 
     if (request.command == "build" && request.command_args.empty()) {
-        *error_message
-            = expected_usage("build <profile> [component:artifact]");
+        *error_message = expected_usage("build <profile> [component:artifact]");
         return std::nullopt;
     }
     if (request.command == "run") {
@@ -180,9 +178,7 @@ parse_marx_request(const args_list& args, std::string* error_message) {
     }
     if (request.command == "benchmark") {
         std::string usage_error;
-        if (!parse_benchmark_request(
-                "marx", request.command_args, &usage_error
-            )
+        if (!parse_benchmark_request("marx", request.command_args, &usage_error)
                  .has_value()) {
             *error_message = usage_error;
             return std::nullopt;
@@ -191,7 +187,7 @@ parse_marx_request(const args_list& args, std::string* error_message) {
     if (request.command == "prerelease") {
         std::string usage_error;
         if (!parse_prerelease_request(
-                "marx", request.command_args, &usage_error
+                 "marx", request.command_args, &usage_error
             )
                  .has_value()) {
             *error_message = usage_error;
@@ -206,4 +202,4 @@ parse_marx_request(const args_list& args, std::string* error_message) {
     return request;
 }
 
-}  // namespace ecosystem::marx_cli_support
+} // namespace ecosystem::marx_cli_support

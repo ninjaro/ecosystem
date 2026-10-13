@@ -12,4 +12,4 @@ enum class package_group {
 
 std::string_view package_group_heading(package_group group);
 
-}  // namespace ecosystem
+} // namespace ecosystem

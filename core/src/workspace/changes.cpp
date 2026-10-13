@@ -244,8 +244,7 @@ json change_report(const fs::path& root, const manifest& value) {
     names all_artifacts;
     for (const auto& owner : value.components)
         for (const auto& artifact : owner.artifacts)
-            all_artifacts.insert(
-                format_artifact_ref({ owner.id, artifact.id })
+            all_artifacts.insert(format_artifact_ref({ owner.id, artifact.id })
             );
     json result { { "schema", 1 },
                   { "project", value.id },
@@ -338,9 +337,8 @@ json change_report(const fs::path& root, const manifest& value) {
                     for (const auto& artifact : owner.artifacts)
                         if (artifact.kind == "exe" || artifact.kind == "qt_app"
                             || !owner.tests.empty())
-                            owners.insert(
-                                format_artifact_ref({ owner.id, artifact.id })
-                            );
+                            owners.insert(format_artifact_ref({ owner.id,
+                                                                artifact.id }));
                 // Assets affect generated staging/install surfaces as well as
                 // runnable targets, including when install_assets is false.
                 full = true;
@@ -363,12 +361,10 @@ json change_report(const fs::path& root, const manifest& value) {
                 || !fs::is_regular_file(root / path))
                 full = true;
             affected.insert(owners.begin(), owners.end());
-            result["paths"].push_back(
-                { { "path", name },
-                  { "status", status },
-                  { "kind", kind },
-                  { "owners", owners } }
-            );
+            result["paths"].push_back({ { "path", name },
+                                        { "status", status },
+                                        { "kind", kind },
+                                        { "owners", owners } });
         }
         bool grew = true;
         while (grew) {
@@ -382,9 +378,8 @@ json change_report(const fs::path& root, const manifest& value) {
                             }
                         ))
                         grew = affected
-                                   .insert(format_artifact_ref(
-                                       { owner.id, artifact.id }
-                                   ))
+                                   .insert(format_artifact_ref({ owner.id,
+                                                                 artifact.id }))
                                    .second
                             || grew;
         }

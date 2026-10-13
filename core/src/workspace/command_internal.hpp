@@ -54,14 +54,11 @@ extern const std::vector<std::string> known_report_kinds;
 void print_error(
     std::ostream& err, command_error error_class, const std::string& message
 );
-std::string join_set(
-    const std::set<std::string>& values, const std::string& separator
-);
-std::string join_strings(
-    const string_list& values, const std::string& separator
-);
-command_error
-combine_status(command_error current, command_error next);
+std::string
+join_set(const std::set<std::string>& values, const std::string& separator);
+std::string
+join_strings(const string_list& values, const std::string& separator);
+command_error combine_status(command_error current, command_error next);
 manifest load_current_manifest(
     const fs::path& project_root, std::ostream& err, int* exit_status
 );
@@ -122,12 +119,10 @@ json workspace_matrix_report(
 void ensure_stream_trailing_newline(std::ostringstream* stream);
 void emit_workspace_project_output(
     const workspace_context& workspace, const workspace_project* project,
-    const std::ostringstream& project_out, const std::ostringstream& project_err,
-    std::ostream& out, std::ostream& err
+    const std::ostringstream& project_out,
+    const std::ostringstream& project_err, std::ostream& out, std::ostream& err
 );
-bool check_profile_supports_multi_artifact_filters(
-    const std::string& profile
-);
+bool check_profile_supports_multi_artifact_filters(const std::string& profile);
 bool is_runnable_artifact(const artifact& artifact_value);
 command_error run_configure_build_tree(
     const fs::path& project_root, const manifest& manifest_value,
@@ -182,4 +177,4 @@ command_error build_android_apk(
     fs::path* apk_path, std::ostream& out, std::ostream& err
 );
 
-}  // namespace ecosystem::command_support
+} // namespace ecosystem::command_support

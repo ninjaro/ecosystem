@@ -50,12 +50,10 @@ void append_workspace_artifact_filter(
 }
 
 json workspace_artifact_filter_json(const workspace_artifact_filter& filter) {
-    return json::object(
-        {
-            { "project", filter.project->identity() },
-            { "artifact", format_artifact_ref(filter.artifact) },
-        }
-    );
+    return json::object({
+        { "project", filter.project->identity() },
+        { "artifact", format_artifact_ref(filter.artifact) },
+    });
 }
 
 std::optional<qualified_workspace_artifact>
@@ -106,10 +104,8 @@ discover_workspace(const std::filesystem::path& root) {
         if (!report.has_manifest) {
             continue;
         }
-        projects.push_back(
-            workspace_project { entry.path(), report.path, report.value,
-                                report.errors }
-        );
+        projects.push_back(workspace_project { entry.path(), report.path,
+                                               report.value, report.errors });
     }
 
     std::sort(
@@ -121,12 +117,7 @@ discover_workspace(const std::filesystem::path& root) {
         return std::nullopt;
     }
     workspace_context workspace {
-        root,
-        projects,
-        {},
-        {},
-        {},
-        false,
+        root, projects, {}, {}, {}, false,
     };
     const workspace_config_report config_report = load_workspace_config(root);
     workspace.config_path = config_report.path;
@@ -185,16 +176,14 @@ command_error validate_workspace_scope(
 json workspace_project_json(
     const workspace_context& workspace, const workspace_project& project
 ) {
-    return json::object(
-        {
-            { "project", project.identity() },
-            { "root", relative_workspace_path(workspace, project.root) },
-            { "manifest_path",
-              relative_workspace_path(workspace, project.manifest_path) },
-            { "valid", project.valid() },
-            { "errors", project.errors },
-        }
-    );
+    return json::object({
+        { "project", project.identity() },
+        { "root", relative_workspace_path(workspace, project.root) },
+        { "manifest_path",
+          relative_workspace_path(workspace, project.manifest_path) },
+        { "valid", project.valid() },
+        { "errors", project.errors },
+    });
 }
 
 std::string relative_workspace_path(
@@ -248,7 +237,8 @@ std::vector<artifact_ref> workspace_artifacts_for_project(
     return artifacts;
 }
 
-std::vector<std::optional<artifact_ref>> workspace_artifact_requests_for_project(
+std::vector<std::optional<artifact_ref>>
+workspace_artifact_requests_for_project(
     const workspace_scope& scope, const workspace_project* project
 ) {
     const std::vector<artifact_ref> artifacts
@@ -361,7 +351,8 @@ command_error parse_workspace_scope(
                 );
                 return command_error::invalid_request;
             }
-            if (const std::optional<command_support::qualified_workspace_artifact>
+            if (const std::optional<
+                    command_support::qualified_workspace_artifact>
                     qualified
                 = command_support::parse_qualified_workspace_artifact(
                     args[index]
@@ -523,15 +514,10 @@ json workspace_scope_json(
     } else if (!scope.projects.empty()) {
         json selected_projects = json::array();
         for (const workspace_project* project : scope.projects) {
-            selected_projects.push_back(
-                json::object(
-                    {
-                        { "project", project->identity() },
-                        { "root",
-                          relative_workspace_path(workspace, project->root) },
-                    }
-                )
-            );
+            selected_projects.push_back(json::object({
+                { "project", project->identity() },
+                { "root", relative_workspace_path(workspace, project->root) },
+            }));
         }
         selection["projects"] = selected_projects;
     }
@@ -550,4 +536,4 @@ json workspace_scope_json(
     return selection;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

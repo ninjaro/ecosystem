@@ -341,11 +341,9 @@ bool resolve_runtime_packages(
             }
             versions.emplace(owner, version);
         }
-        mapping["libraries"].push_back(
-            { { "path", library.generic_string() },
-              { "package", owner },
-              { "version", versions.at(owner) } }
-        );
+        mapping["libraries"].push_back({ { "path", library.generic_string() },
+                                         { "package", owner },
+                                         { "version", versions.at(owner) } });
     }
     auto& dependencies = use_pacman ? artifacts->pacman_dependencies
                                     : artifacts->debian_dependencies;

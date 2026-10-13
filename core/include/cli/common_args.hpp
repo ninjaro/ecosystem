@@ -74,4 +74,4 @@ std::optional<add_component_options> parse_add_component_options(
     std::string* error_message
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

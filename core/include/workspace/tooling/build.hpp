@@ -21,8 +21,8 @@ struct build_tree_layout {
 build_tree_layout describe_build_tree_layout(
     const std::string& profile, const std::string& scope = "project"
 );
-std::filesystem::path
-local_build_root(const std::filesystem::path& project_root);
+std::filesystem::path local_build_root(const std::filesystem::path& project_root
+);
 std::filesystem::path local_build_scope_dir(
     const std::filesystem::path& project_root, const std::string& scope
 );

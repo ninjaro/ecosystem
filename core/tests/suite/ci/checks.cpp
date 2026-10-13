@@ -7,17 +7,14 @@ void test_build_warning_errors() {
     temp_dir root;
     write_text(
         root.path() / "manifest.json",
-        json(
-            { { "id", "warning_sample" },
-              { "description", "Required compiler warnings" },
-              { "facade", "sample:app" },
-              { "artifacts",
-                json::array(
-                    { { { "id", "sample:app" },
-                        { "kind", "exe" },
-                        { "owns", json::array({ "helper" }) },
-                        { "entry", "src/main.cpp" } } }
-                ) } }
+        json({ { "id", "warning_sample" },
+               { "description", "Required compiler warnings" },
+               { "facade", "sample:app" },
+               { "artifacts",
+                 json::array({ { { "id", "sample:app" },
+                                 { "kind", "exe" },
+                                 { "owns", json::array({ "helper" }) },
+                                 { "entry", "src/main.cpp" } } }) } }
         ).dump(2)
     );
     write_text(

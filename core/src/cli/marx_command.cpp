@@ -148,7 +148,7 @@ int handle_mutate_command(
     return exit_code(command_error::invalid_request);
 }
 
-}  // namespace ecosystem::marx_command_support
+} // namespace ecosystem::marx_command_support
 
 namespace ecosystem {
 
@@ -164,11 +164,9 @@ int run_marx_command(
 
     if (marx_command_support::is_engels_command(args.front())) {
         emit_command_error(
-            err,
-            command_error::invalid_request,
+            err, command_error::invalid_request,
             "command '" + args.front()
-                + "' is available via engels; run `engels " + args.front()
-                + "`"
+                + "' is available via engels; run `engels " + args.front() + "`"
         );
         return exit_code(command_error::invalid_request);
     }
@@ -214,7 +212,9 @@ int run_marx_command(
             );
             return exit_code(command_error::invalid_request);
         }
-        return exit_code(run_sync(project_root, *current_manifest_report.value, out, err));
+        return exit_code(
+            run_sync(project_root, *current_manifest_report.value, out, err)
+        );
     }
 
     if (args[0] == "format") {
@@ -287,8 +287,7 @@ int run_marx_command(
         if (workspace_mode) {
             if (args.size() < 2U) {
                 emit_command_error(
-                    err,
-                    command_error::invalid_request,
+                    err, command_error::invalid_request,
                     marx_command_support::expected_usage(
                         "build <profile> [--project <project>] "
                         "[--group <group>] "
@@ -311,8 +310,7 @@ int run_marx_command(
         }
         if (args.size() < 2U || args.size() > 3U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 marx_command_support::expected_usage(
                     "build <profile> [component:artifact]"
                 )
@@ -323,8 +321,7 @@ int run_marx_command(
             = args.size() == 3U ? parse_artifact_ref(args[2]) : std::nullopt;
         if (args.size() == 3U && !requested_artifact.has_value()) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 "artifact must use component:artifact form"
             );
             return exit_code(command_error::invalid_request);
@@ -337,10 +334,11 @@ int run_marx_command(
 
     if (args[0] == "benchmark") {
         std::string benchmark_parse_error;
-        const std::optional<benchmark_request> request = parse_benchmark_request(
-            "marx", args_list(args.begin() + 1, args.end()),
-            &benchmark_parse_error
-        );
+        const std::optional<benchmark_request> request
+            = parse_benchmark_request(
+                "marx", args_list(args.begin() + 1, args.end()),
+                &benchmark_parse_error
+            );
         if (!request.has_value()) {
             emit_command_error(
                 err, command_error::invalid_request, benchmark_parse_error
@@ -361,8 +359,7 @@ int run_marx_command(
         }
         if (request->scope_args.size() > 1U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 marx_command_support::expected_usage(
                     "benchmark [component:artifact] [-- <arg> ...]"
                 )
@@ -375,8 +372,7 @@ int run_marx_command(
             : parse_artifact_ref(request->scope_args.front());
         if (!request->scope_args.empty() && !requested_artifact.has_value()) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 "artifact must use component:artifact form"
             );
             return exit_code(command_error::invalid_request);
@@ -415,8 +411,7 @@ int run_marx_command(
         }
         if (request->scope_args.size() > 1U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 marx_command_support::expected_usage(
                     "prerelease [component:artifact] [--version-base "
                     "<major.minor.patch>] [--sign] [--sign-key <key-id>]"
@@ -430,8 +425,7 @@ int run_marx_command(
             : parse_artifact_ref(request->scope_args.front());
         if (!request->scope_args.empty() && !requested_artifact.has_value()) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 "artifact must use component:artifact form"
             );
             return exit_code(command_error::invalid_request);
@@ -445,8 +439,7 @@ int run_marx_command(
     if (args[0] == "run") {
         if (args.size() < 2U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 marx_command_support::expected_usage(
                     "run <profile> [component:artifact] [--android-mode "
                     "<auto|emulator|device>] [-- <arg> ...]"
@@ -481,8 +474,7 @@ int run_marx_command(
 
         if (request->command_args.size() > 1U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 marx_command_support::expected_usage(
                     "run <profile> [component:artifact] [--android-mode "
                     "<auto|emulator|device>] [-- <arg> ...]"
@@ -496,8 +488,7 @@ int run_marx_command(
             : parse_artifact_ref(request->command_args.front());
         if (!request->command_args.empty() && !requested_artifact.has_value()) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 "artifact must use component:artifact form"
             );
             return exit_code(command_error::invalid_request);
@@ -515,4 +506,4 @@ int run_marx_command(
     return exit_code(command_error::invalid_request);
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

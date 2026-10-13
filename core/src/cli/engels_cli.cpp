@@ -49,4 +49,4 @@ int run_engels_request(
     return run_engels_command(args, out, err);
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

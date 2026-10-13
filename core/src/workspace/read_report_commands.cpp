@@ -120,8 +120,8 @@ command_error run_report(
 ) {
     const bool display_options = view.category || view.severity
         || view.format != diagnostic_format::terminal;
-    if ((display_options && kind != "cxx" && kind != "naming"
-         && kind != "style")
+    if ((display_options && kind != "cxx" && kind != "naming" && kind != "style"
+        )
         || (json_output && display_options)) {
         print_error(
             err, command_error::invalid_request,
@@ -131,8 +131,7 @@ command_error run_report(
     }
     if (!contains_string(known_report_kinds, kind)) {
         print_error(
-            err, command_error::invalid_request,
-            "unknown report kind: " + kind
+            err, command_error::invalid_request, "unknown report kind: " + kind
         );
         return command_error::invalid_request;
     }
@@ -178,7 +177,8 @@ command_error run_report(
 
     if (kind == "matrix") {
         const json report = matrix_report(manifest_value, requested_artifact);
-        const fs::path report_path = local_report_dir(project_root) / "matrix.json";
+        const fs::path report_path
+            = local_report_dir(project_root) / "matrix.json";
         std::string error_message;
         if (!write_text_file(
                 report_path, report.dump(2) + "\n", &error_message
@@ -213,8 +213,8 @@ command_error run_workspace_report(
     }
     const bool display_options = view.category || view.severity
         || view.format != diagnostic_format::terminal;
-    if ((display_options && kind != "cxx" && kind != "naming"
-         && kind != "style")
+    if ((display_options && kind != "cxx" && kind != "naming" && kind != "style"
+        )
         || (json_output && display_options)) {
         print_error(
             err, command_error::invalid_request,
@@ -224,8 +224,7 @@ command_error run_workspace_report(
     }
     if (!contains_string(known_report_kinds, kind)) {
         print_error(
-            err, command_error::invalid_request,
-            "unknown report kind: " + kind
+            err, command_error::invalid_request, "unknown report kind: " + kind
         );
         return command_error::invalid_request;
     }
@@ -291,7 +290,7 @@ command_error run_workspace_report(
     );
 }
 
-}  // namespace ecosystem::command_support
+} // namespace ecosystem::command_support
 
 namespace ecosystem {
 
@@ -317,4 +316,4 @@ command_error run_workspace_report(
     );
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

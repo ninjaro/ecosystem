@@ -552,8 +552,29 @@ async function revalidatePublication({github, context, root = process.cwd(), env
   }
 }
 
+function requiredScope({context, root, baseScope}) {
+  if (baseScope !== 'cheap') return {scope: baseScope, reason: 'event-policy-' + baseScope};
+  // Conservative promotion only: this never narrows native verification. A
+  // source/build change cannot disappear behind the ordinary cheap-branch gate.
+  try {
+    const delta = JSON.parse(readFile(root, '.ecosystem/github/changes.json', true));
+    requireValue(delta.complete && equal(delta, require('./changes.cjs').resolve({context, root})),
+      'Unverified event delta');
+    const buildInput = name => /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx|tpp|ipp|cmake)(?:\.(?:in|tpl))?$/i.test(name)
+      || /^CMakeLists\.txt(?:\.(?:in|tpl))?$/.test(path.basename(name)) || name === 'manifest.json'
+      || name === 'manifesto.github.vars.json' || name.startsWith('.github/')
+      || name.startsWith('assets/templates/');
+    if (delta.paths.some(buildInput)) return {scope: 'full', reason: 'source-or-build-change'};
+    return {scope: 'cheap', reason: 'no-source-or-build-change'};
+  } catch {
+    return {scope: 'full', reason: 'unverified-delta-full-fallback'};
+  }
+}
+
 async function select({github, context, core, root = process.cwd(), env = process.env}) {
-  core.setOutput('scope', env.BASE_SCOPE);
+  const selectedScope = requiredScope({context, root, baseScope: env.BASE_SCOPE});
+  core.setOutput('scope', selectedScope.scope);
+  core.setOutput('reason', selectedScope.reason);
   core.setOutput('verified', 'false');
   if (env.BASE_SCOPE !== 'full' || context.eventName !== 'push'
     || context.ref !== 'refs/heads/' + context.payload.repository.default_branch) return;
@@ -576,12 +597,14 @@ async function select({github, context, core, root = process.cwd(), env = proces
     fs.mkdirSync(path.dirname(summary), {recursive: true});
     fs.writeFileSync(summary, '## Reused PR verification\n\n```json\n' + JSON.stringify(source, null, 2) + '\n```\n', {flag: 'wx'});
     core.setOutput('scope', 'reuse');
+    core.setOutput('reason', 'verified-identical-pr-evidence');
     core.setOutput('verified', 'true');
     core.setOutput('source', JSON.stringify(source));
     core.setOutput('reports', env.EVIDENCE_KIND === 'checks' ? directory : path.join(directory, 'github/reports'));
     core.info(`Reusing PR #${pr} verification for tree ${tree}; Checks run ${source.checks.run_id}, CodeQL run ${source.codeql.run_id}.`);
   } catch (error) {
     core.setOutput('scope', 'full');
+    core.setOutput('reason', 'fresh-verification-required: ' + error.message);
     core.setOutput('verified', 'false');
     core.notice('Fresh verification required: ' + error.message);
   } finally {
@@ -589,5 +612,5 @@ async function select({github, context, core, root = process.cwd(), env = proces
   }
 }
 
-module.exports = {record, presentation, select, publication, revalidatePublication, reusablePair, policy, fileNames, artifactName, hash,
+module.exports = {record, presentation, select, requiredScope, publication, revalidatePublication, reusablePair, policy, fileNames, artifactName, hash,
   checkPublicationTip: ({github, context}) => currentDefault(apiFor(github, context), context)};

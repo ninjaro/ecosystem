@@ -65,15 +65,16 @@ namespace {
             // Duplicate keys must not silently select a different checkout.
             std::vector<std::set<std::string>> keys;
             const auto config = json::parse(
-                text, [&](int, json::parse_event_t event, json& item) {
+                text,
+                [&](int, json::parse_event_t event, json& item) {
                     if (event == json::parse_event_t::object_start)
                         keys.emplace_back();
                     else if (event == json::parse_event_t::object_end)
                         keys.pop_back();
-                    else if (
-                        event == json::parse_event_t::key
-                        && !keys.back().insert(item.get<std::string>()).second
-                    )
+                    else if (event == json::parse_event_t::key
+                             && !keys.back()
+                                     .insert(item.get<std::string>())
+                                     .second)
                         throw std::runtime_error(
                             "duplicate key: " + item.get<std::string>()
                         );

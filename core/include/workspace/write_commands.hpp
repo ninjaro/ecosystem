@@ -55,8 +55,8 @@ command_error run_set_facade_entry(
 command_error run_build(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::string& profile,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 );
 command_error run_workspace_build(
     const workspace_context& workspace, const std::string& profile,
@@ -98,4 +98,4 @@ command_error run_workspace_run(
     const string_list& passthrough_args, std::ostream& out, std::ostream& err
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

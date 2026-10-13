@@ -16,4 +16,4 @@ enum class dependency_id {
     benchmark,
 };
 
-}  // namespace ecosystem
+} // namespace ecosystem

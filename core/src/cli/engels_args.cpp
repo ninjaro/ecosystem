@@ -23,8 +23,7 @@ std::vector<char*> argv_for_args(const args_list& args) {
 }
 
 std::optional<cxxopts::ParseResult> parse_options(
-    cxxopts::Options* options, const args_list& args,
-    std::string* error_message
+    cxxopts::Options* options, const args_list& args, std::string* error_message
 ) {
     try {
         std::vector<char*> argv = argv_for_args(args);
@@ -60,9 +59,8 @@ std::string engels_usage_text() {
            "report kinds: matrix cxx naming style toolchains changes\n";
 }
 
-std::optional<engels_request> parse_engels_request(
-    const args_list& args, std::string* error_message
-) {
+std::optional<engels_request>
+parse_engels_request(const args_list& args, std::string* error_message) {
     cxxopts::Options options("engels", "");
     options.allow_unrecognised_options();
     options.add_options()("command", "", cxxopts::value<std::string>());
@@ -91,7 +89,8 @@ std::optional<engels_request> parse_engels_request(
 
     if (request.command == "list" && request.command_args.size() > 1U) {
         *error_message = expected_usage(
-            "list [components|artifacts|profiles|platforms|matrix|projects|groups]"
+            "list "
+            "[components|artifacts|profiles|platforms|matrix|projects|groups]"
         );
         return std::nullopt;
     }
@@ -114,4 +113,4 @@ std::optional<engels_request> parse_engels_request(
     return request;
 }
 
-}  // namespace ecosystem::engels_cli_support
+} // namespace ecosystem::engels_cli_support

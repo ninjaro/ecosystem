@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -37,22 +37,20 @@ void test_personal_naming_uses_declarations_and_exact_policy_boundaries() {
     temp_dir root;
     write_text(
         root.path() / "manifest.json",
-        json(
-            { { "id", "naming_sample" },
-              { "description", "Naming acceptance" },
-              { "facade", "core:app" },
-              { "artifacts",
-                json::array(
-                    { { { "id", "core:app" },
-                        { "kind", "exe" },
-                        { "owns",
-                          json::array({ "BadDirectory", "tests/names.cpp" }) },
-                        { "entry", "src/main.cpp" } },
-                      { { "id", "core:other" },
-                        { "kind", "exe" },
-                        { "owns", json::array() },
-                        { "entry", "src/other_main.cpp" } } }
-                ) } }
+        json({ { "id", "naming_sample" },
+               { "description", "Naming acceptance" },
+               { "facade", "core:app" },
+               { "artifacts",
+                 json::array({ { { "id", "core:app" },
+                                 { "kind", "exe" },
+                                 { "owns",
+                                   json::array({ "BadDirectory",
+                                                 "tests/names.cpp" }) },
+                                 { "entry", "src/main.cpp" } },
+                               { { "id", "core:other" },
+                                 { "kind", "exe" },
+                                 { "owns", json::array() },
+                                 { "entry", "src/other_main.cpp" } } }) } }
         ).dump(2)
     );
     write_text(
@@ -253,9 +251,9 @@ void test_personal_naming_reports_analysis_failures_and_owned_headers() {
         result.exit_code == 5,
         "unparseable analysis inputs must fail the operation"
     );
-    const auto report = json::parse(
-        read_text(root.path() / ".ecosystem/reports/naming.json")
-    );
+    const auto report
+        = json::parse(read_text(root.path() / ".ecosystem/reports/naming.json")
+        );
     require_true(
         report.at("status") == "failed" && !report.at("errors").empty(),
         "analysis failure must persist distinctly from findings"
@@ -268,16 +266,13 @@ void test_personal_naming_reports_analysis_failures_and_owned_headers() {
     const auto header_project = root.path() / "headers";
     write_text(
         header_project / "manifest.json",
-        json(
-            { { "id", "headers" },
-              { "description", "Header-only naming" },
-              { "facade", "core:lib" },
-              { "artifacts",
-                json::array(
-                    { { { "id", "core:lib" },
-                        { "kind", "interface_lib" },
-                        { "owns", json::array({ "api" }) } } }
-                ) } }
+        json({ { "id", "headers" },
+               { "description", "Header-only naming" },
+               { "facade", "core:lib" },
+               { "artifacts",
+                 json::array({ { { "id", "core:lib" },
+                                 { "kind", "interface_lib" },
+                                 { "owns", json::array({ "api" }) } } }) } }
         ).dump(2)
     );
     write_text(
@@ -434,24 +429,21 @@ void test_personal_style_measures_control_bodies_and_local_scopes() {
     );
 }
 
-void test_personal_style_indexes_referents_and_measures_volume_without_size_gates() {
+void test_personal_style_indexes_referents_and_measures_volume_without_size_gates(
+) {
     temp_dir root;
     write_text(
         root.path() / "manifest.json",
-        json(
-            { { "id", "tree_sample" },
-              { "description", "Referent metrics" },
-              { "facade", "core:lib" },
-              { "artifacts",
-                json::array(
-                    { { { "id", "core:lib" },
-                        { "kind", "static_lib" },
-                        { "owns",
-                          json::array(
-                              { "math", "flat", "deep", "tests", "benchmarks",
-                                "src/no_referent" }
-                          ) } } }
-                ) } }
+        json({ { "id", "tree_sample" },
+               { "description", "Referent metrics" },
+               { "facade", "core:lib" },
+               { "artifacts",
+                 json::array({ { { "id", "core:lib" },
+                                 { "kind", "static_lib" },
+                                 { "owns",
+                                   json::array({ "math", "flat", "deep",
+                                                 "tests", "benchmarks",
+                                                 "src/no_referent" }) } } }) } }
         ).dump(2)
     );
     write_text(

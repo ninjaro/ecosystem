@@ -34,9 +34,9 @@ namespace {
             { "git", "rev-parse", "HEAD" }, provider
         );
         require_true(result.exit_code == 0, result.output);
-        while (
-            !result.output.empty()
-            && (result.output.back() == '\n' || result.output.back() == '\r'))
+        while (!result.output.empty()
+               && (result.output.back() == '\n' || result.output.back() == '\r')
+        )
             result.output.pop_back();
         return result.output;
     }
@@ -396,11 +396,10 @@ void test_source_facade_preserves_shared_and_interface_contracts() {
             );
             auto manifest = json::parse(read_text(provider / "manifest.json"));
             manifest["install_artifacts"] = json::array({ "extra:library" });
-            manifest["artifacts"].push_back(
-                { { "id", "extra:library" },
-                  { "kind", "interface_lib" },
-                  { "owns", json::array({ "extra" }) } }
-            );
+            manifest["artifacts"].push_back({ { "id", "extra:library" },
+                                              { "kind", "interface_lib" },
+                                              { "owns",
+                                                json::array({ "extra" }) } });
             write_text(provider / "manifest.json", manifest.dump(2));
             write_text(
                 provider / "include/extra.hpp",
@@ -415,8 +414,7 @@ void test_source_facade_preserves_shared_and_interface_contracts() {
             additional["id"] = "extra:imported";
             additional["packages"]["external_project"]["artifact"]
                 = "extra:library";
-            manifest["artifacts"][1]["dependencies"].push_back(
-                "extra:imported"
+            manifest["artifacts"][1]["dependencies"].push_back("extra:imported"
             );
             manifest["artifacts"].push_back(additional);
             write_text(consumer / "manifest.json", manifest.dump(2));
@@ -466,9 +464,9 @@ void test_source_facade_reports_provider_failures() {
             if (stage == "cycle") {
                 auto manifest
                     = json::parse(read_text(provider / "manifest.json"));
-                auto recursive = json::parse(
-                    read_text(consumer / "manifest.json")
-                )["artifacts"][0];
+                auto recursive
+                    = json::parse(read_text(consumer / "manifest.json")
+                    )["artifacts"][0];
                 recursive["packages"]["external_project"]["repository"]
                     = provider.string();
                 recursive["packages"]["external_project"]["revision"] = "main";

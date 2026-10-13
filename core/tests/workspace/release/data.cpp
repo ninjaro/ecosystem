@@ -1,6 +1,6 @@
+#include "../../../src/workspace/release/internal.hpp"
 #include "../../suite/test_support.hpp"
 #include "../release.hpp"
-#include "../../../src/workspace/release/internal.hpp"
 
 namespace ecosystem_test_support {
 
@@ -9,11 +9,15 @@ void test_release_tooling_bundle() {
         scoped_env retired("ECOSYSTEM_PACKAGER", "retired identity");
         scoped_env current("MANIFESTO_PACKAGER", "");
         scoped_env external("PACKAGER", "external identity");
-        require_true(ecosystem::release_detail::package_author() == "external identity",
-            "retired internal aliases must not override external PACKAGER");
+        require_true(
+            ecosystem::release_detail::package_author() == "external identity",
+            "retired internal aliases must not override external PACKAGER"
+        );
         scoped_env selected("MANIFESTO_PACKAGER", "current identity");
-        require_true(ecosystem::release_detail::package_author() == "current identity",
-            "the current explicit packager identity must take precedence");
+        require_true(
+            ecosystem::release_detail::package_author() == "current identity",
+            "the current explicit packager identity must take precedence"
+        );
     }
     temp_dir root;
     const auto source = root.path() / "tooling-source";
@@ -27,8 +31,7 @@ void test_release_tooling_bundle() {
     fs::create_directories(source / "assets");
     fs::copy(
         fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates",
-        source / "assets/templates",
-        fs::copy_options::recursive
+        source / "assets/templates", fs::copy_options::recursive
     );
     const auto surface = source / "assets/templates/cmake/surface_prefix.tpl";
     write_text(
@@ -247,9 +250,15 @@ void test_release_asset_intent() {
     );
     write_text(root.path() / "assets/showcase/demo.pdf", "presentation only\n");
     for (const auto* name : { ".cache", ".thumbnail_cache" })
-        for (const auto* file : { "image.svg", "metadata.json", "download.bin" })
-            write_text(root.path() / "assets/sets" / name / file, "transient output");
-    write_text(root.path() / "assets/sets/thumbnail_cache/authored.svg", "authored output");
+        for (const auto* file :
+             { "image.svg", "metadata.json", "download.bin" })
+            write_text(
+                root.path() / "assets/sets" / name / file, "transient output"
+            );
+    write_text(
+        root.path() / "assets/sets/thumbnail_cache/authored.svg",
+        "authored output"
+    );
     ecosystem::prerelease_version version;
     ecosystem::prerelease_artifacts artifacts;
     std::string error;
@@ -286,41 +295,86 @@ void test_release_asset_intent() {
             listing.output, "usr/bin/assets/showcase/",
             "native packages must exclude project presentation media"
         );
-        require_not_contains(listing.output, "/.cache/", "packages must exclude ordinary hidden caches");
-        require_not_contains(listing.output, "/.thumbnail_cache/", "packages must exclude named hidden caches");
-        require_true((listing.output.find("usr/bin/assets/sets/thumbnail_cache/authored.svg")
-                != std::string::npos) == enabled,
-            "packages must preserve similarly named authored directories");
+        require_not_contains(
+            listing.output, "/.cache/",
+            "packages must exclude ordinary hidden caches"
+        );
+        require_not_contains(
+            listing.output, "/.thumbnail_cache/",
+            "packages must exclude named hidden caches"
+        );
+        require_true(
+            (listing.output.find(
+                 "usr/bin/assets/sets/thumbnail_cache/authored.svg"
+             )
+             != std::string::npos)
+                == enabled,
+            "packages must preserve similarly named authored directories"
+        );
     }
 }
 
 void test_release_cache_inventory() {
     temp_dir root;
     const auto source = root.path() / "tooling-source";
-    const auto loaded = ecosystem::load_manifest(fs::path(ECOS_TEST_SOURCE_DIR) / "manifest.json");
+    const auto loaded = ecosystem::load_manifest(
+        fs::path(ECOS_TEST_SOURCE_DIR) / "manifest.json"
+    );
     require_true(loaded.value.has_value(), "tooling manifest must load");
-    const auto selected = ecosystem::resolve_artifact(*loaded.value, std::nullopt);
+    const auto selected
+        = ecosystem::resolve_artifact(*loaded.value, std::nullopt);
     require_true(selected.has_value(), "tooling artifact must resolve");
-    write_text(source / "assets/templates/tracked/.github/actions/native.tpl", "required hidden template\n");
-    write_text(source / "assets/templates/cache/reference.tpl", "authored lookalike\n");
-    write_text(source / "assets/templates/.cache/ignored.tpl", "transient template\n");
-    write_text(source / "assets/templates/nested/.renderer_cache/ignored.svg", "transient artwork\n");
+    write_text(
+        source / "assets/templates/tracked/.github/actions/native.tpl",
+        "required hidden template\n"
+    );
+    write_text(
+        source / "assets/templates/cache/reference.tpl", "authored lookalike\n"
+    );
+    write_text(
+        source / "assets/templates/.cache/ignored.tpl", "transient template\n"
+    );
+    write_text(
+        source / "assets/templates/nested/.renderer_cache/ignored.svg",
+        "transient artwork\n"
+    );
     const auto stage = root.path() / "payload";
     std::string error;
-    require_true(ecosystem::release_detail::stage_tooling_templates(
-            source, *loaded.value, selected->ref, stage, &error), error);
+    require_true(
+        ecosystem::release_detail::stage_tooling_templates(
+            source, *loaded.value, selected->ref, stage, &error
+        ),
+        error
+    );
     const auto bundle = stage / "usr/share/manifesto/templates";
-    require_true(read_text(bundle / "tracked/.github/actions/native.tpl") == "required hidden template\n",
-        "public tooling bundle must retain hidden authored templates");
-    require_true(read_text(bundle / "cache/reference.tpl") == "authored lookalike\n",
-        "public tooling bundle must retain similarly named source directories");
-    require_true(!fs::exists(bundle / ".cache") && !fs::exists(bundle / "nested/.renderer_cache"),
-        "public tooling bundle must exclude reserved caches independently of install_assets");
-    fs::create_symlink("cache/reference.tpl", source / "assets/templates/alias.tpl");
-    require_true(!ecosystem::release_detail::stage_tooling_templates(
-            source, *loaded.value, selected->ref, stage, &error),
-        "tooling bundle's stricter symlink restriction must remain intact");
-    require_contains(error, "unsupported tooling template entry", "retain the original bundle diagnostic");
+    require_true(
+        read_text(bundle / "tracked/.github/actions/native.tpl")
+            == "required hidden template\n",
+        "public tooling bundle must retain hidden authored templates"
+    );
+    require_true(
+        read_text(bundle / "cache/reference.tpl") == "authored lookalike\n",
+        "public tooling bundle must retain similarly named source directories"
+    );
+    require_true(
+        !fs::exists(bundle / ".cache")
+            && !fs::exists(bundle / "nested/.renderer_cache"),
+        "public tooling bundle must exclude reserved caches independently of "
+        "install_assets"
+    );
+    fs::create_symlink(
+        "cache/reference.tpl", source / "assets/templates/alias.tpl"
+    );
+    require_true(
+        !ecosystem::release_detail::stage_tooling_templates(
+            source, *loaded.value, selected->ref, stage, &error
+        ),
+        "tooling bundle's stricter symlink restriction must remain intact"
+    );
+    require_contains(
+        error, "unsupported tooling template entry",
+        "retain the original bundle diagnostic"
+    );
 }
 
 } // namespace ecosystem_test_support

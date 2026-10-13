@@ -370,7 +370,8 @@ android_environment detect_android_environment() {
         );
     if (!environment.qt_arch.empty()
         && std::none_of(
-            architectures.begin(), architectures.end(), [&](const auto& item) {
+            architectures.begin(), architectures.end(),
+            [&](const auto& item) {
                 return item.first == environment.qt_arch
                     && item.second == environment.abi;
             }
@@ -411,8 +412,8 @@ android_environment detect_android_environment() {
     for (const auto& [arch, abi] : architectures)
         if (kit.filename() == arch) {
             if ((!environment.abi.empty() && environment.abi != abi)
-                || (!environment.qt_arch.empty()
-                    && environment.qt_arch != arch))
+                || (!environment.qt_arch.empty() && environment.qt_arch != arch
+                ))
                 environment.errors.push_back(
                     "selected Qt Android kit conflicts with "
                     "ANDROID_ABI/ANDROID_QT_ARCH: "

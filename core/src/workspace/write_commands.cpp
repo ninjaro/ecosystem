@@ -17,47 +17,24 @@ namespace ecosystem {
 
 namespace write_commands_support {
 
-bool load_mutable_manifest(
-    const std::filesystem::path& project_root, manifest* manifest_value,
-    std::ostream& err
-) {
-    int load_status = 0;
-    *manifest_value = command_support::load_current_manifest(
-        project_root, err, &load_status
-    );
-    return load_status == 0;
-}
-
-command_error emit_mutation_report(
-    const std::filesystem::path& project_root, const std::string& actor_name,
-    manifest* manifest_value, const mutation_report& report, std::ostream& out,
-    std::ostream& err
-) {
-    if (!report.errors.empty()) {
-        for (const std::string& message : report.errors) {
-            command_support::print_error(
-                err, command_error::invalid_request, message
-            );
-        }
-        return command_error::invalid_request;
+    bool load_mutable_manifest(
+        const std::filesystem::path& project_root, manifest* manifest_value,
+        std::ostream& err
+    ) {
+        int load_status = 0;
+        *manifest_value = command_support::load_current_manifest(
+            project_root, err, &load_status
+        );
+        return load_status == 0;
     }
 
-    if (!report.written_files.empty()) {
-        const auto discovery_errors
-            = discover_owned_files(manifest_value, project_root);
-        if (!discovery_errors.empty()) {
-            for (const auto& message : discovery_errors)
-                command_support::print_error(
-                    err, command_error::invalid_request, message
-                );
-            return command_error::invalid_request;
-        }
-    }
-
-    if (report.changed_manifest) {
-        const string_list validation_errors = validate_manifest(*manifest_value);
-        if (!validation_errors.empty()) {
-            for (const std::string& message : validation_errors) {
+    command_error emit_mutation_report(
+        const std::filesystem::path& project_root,
+        const std::string& actor_name, manifest* manifest_value,
+        const mutation_report& report, std::ostream& out, std::ostream& err
+    ) {
+        if (!report.errors.empty()) {
+            for (const std::string& message : report.errors) {
                 command_support::print_error(
                     err, command_error::invalid_request, message
                 );
@@ -65,31 +42,57 @@ command_error emit_mutation_report(
             return command_error::invalid_request;
         }
 
-        std::string error_message;
-        if (!save_manifest(
-                project_root / "manifest.json", *manifest_value, &error_message
-            )) {
-            command_support::print_error(
-                err, command_error::task_failed, error_message
-            );
-            return command_error::task_failed;
+        if (!report.written_files.empty()) {
+            const auto discovery_errors
+                = discover_owned_files(manifest_value, project_root);
+            if (!discovery_errors.empty()) {
+                for (const auto& message : discovery_errors)
+                    command_support::print_error(
+                        err, command_error::invalid_request, message
+                    );
+                return command_error::invalid_request;
+            }
         }
-        out << "updated manifest.json\n";
+
+        if (report.changed_manifest) {
+            const string_list validation_errors
+                = validate_manifest(*manifest_value);
+            if (!validation_errors.empty()) {
+                for (const std::string& message : validation_errors) {
+                    command_support::print_error(
+                        err, command_error::invalid_request, message
+                    );
+                }
+                return command_error::invalid_request;
+            }
+
+            std::string error_message;
+            if (!save_manifest(
+                    project_root / "manifest.json", *manifest_value,
+                    &error_message
+                )) {
+                command_support::print_error(
+                    err, command_error::task_failed, error_message
+                );
+                return command_error::task_failed;
+            }
+            out << "updated manifest.json\n";
+        }
+
+        for (const std::filesystem::path& written_file : report.written_files) {
+            out << "wrote "
+                << written_file.lexically_relative(project_root)
+                       .generic_string()
+                << "\n";
+        }
+
+        if (report.changed_manifest) {
+            out << "next: " << actor_name << " sync\n";
+        }
+        return command_error::ok;
     }
 
-    for (const std::filesystem::path& written_file : report.written_files) {
-        out << "wrote "
-            << written_file.lexically_relative(project_root).generic_string()
-            << "\n";
-    }
-
-    if (report.changed_manifest) {
-        out << "next: " << actor_name << " sync\n";
-    }
-    return command_error::ok;
-}
-
-}  // namespace write_commands_support
+} // namespace write_commands_support
 
 command_error run_format(
     const std::filesystem::path& project_root, const manifest& manifest_value,
@@ -480,9 +483,8 @@ command_error run_add_module(
         return command_error::invalid_request;
     }
 
-    const mutation_report report = add_module(
-        project_root, &manifest_value, component_id, module_path
-    );
+    const mutation_report report
+        = add_module(project_root, &manifest_value, component_id, module_path);
     return write_commands_support::emit_mutation_report(
         project_root, actor_name, &manifest_value, report, out, err
     );
@@ -547,8 +549,8 @@ command_error run_set_facade_entry(
 command_error run_build(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::string& profile,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 ) {
     if (profile == "tex") {
         if (requested_artifact) {
@@ -673,10 +675,11 @@ static command_error run_prerelease_attempt(
     const std::string output_name = artifact_output_name(
         manifest_value, *resolved->component_value, *resolved->artifact_value
     );
-    const std::optional<std::filesystem::path> built_path = artifact_output_path(
-        local_build_dir(project_root, "release"), *resolved->artifact_value,
-        output_name
-    );
+    const std::optional<std::filesystem::path> built_path
+        = artifact_output_path(
+            local_build_dir(project_root, "release"), *resolved->artifact_value,
+            output_name
+        );
     if (!built_path.has_value()) {
         command_support::print_error(
             err, command_error::task_failed, "built artifact output is missing"
@@ -740,8 +743,8 @@ static command_error run_prerelease_attempt(
             { "pacman_database",
               artifacts.pacman_db_path.lexically_relative(project_root)
                   .generic_string() } };
-    out << "prerelease " << format_artifact_ref(resolved->ref)
-        << " version " << version.logical_version << "\n";
+    out << "prerelease " << format_artifact_ref(resolved->ref) << " version "
+        << version.logical_version << "\n";
     out << "debian repo: "
         << artifacts.deb_repo_dir.lexically_relative(project_root)
                .generic_string()
@@ -991,8 +994,8 @@ command_error run_run(
     }
 
     status = command_support::run_runnable_binary(
-        local_build_dir(project_root, profile), *binary_path,
-        passthrough_args, err
+        local_build_dir(project_root, profile), *binary_path, passthrough_args,
+        err
     );
     if (status != command_error::ok) {
         return status;
@@ -1004,4 +1007,4 @@ command_error run_run(
     return command_error::ok;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

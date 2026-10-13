@@ -11,8 +11,8 @@
 namespace ecosystem {
 
 command_error run_list(
-    const manifest& manifest_value,
-    const std::optional<std::string>& target, std::ostream& out
+    const manifest& manifest_value, const std::optional<std::string>& target,
+    std::ostream& out
 );
 command_error run_workspace_list(
     const workspace_context& workspace,
@@ -60,4 +60,4 @@ command_error parse_workspace_doctor_request(
     std::ostream& err
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

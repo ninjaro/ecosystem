@@ -5,26 +5,25 @@ namespace ecosystem_test_support {
 
 void test_cli_benchmark_accepts_generic_programs_and_preserves_results() {
     temp_dir root;
-    const json authored = { { "id", "generic_bench" },
-                            { "description", "Generic benchmarks" },
-                            { "facade", "app:app" },
-                            { "artifacts",
-                              json::array(
-                                  { { { "id", "app:app" },
-                                      { "kind", "exe" },
-                                      { "owns", json::array() },
-                                      { "entry", "src/main.cpp" } },
-                                    { { "id", "a_b:c" },
-                                      { "kind", "exe" },
-                                      { "name", "first" },
-                                      { "owns", json::array() },
-                                      { "entry", "benchmarks/first.cpp" } },
-                                    { { "id", "a:b_c" },
-                                      { "kind", "exe" },
-                                      { "name", "second" },
-                                      { "owns", json::array() },
-                                      { "entry", "benchmarks/second.cpp" } } }
-                              ) } };
+    const json authored
+        = { { "id", "generic_bench" },
+            { "description", "Generic benchmarks" },
+            { "facade", "app:app" },
+            { "artifacts",
+              json::array({ { { "id", "app:app" },
+                              { "kind", "exe" },
+                              { "owns", json::array() },
+                              { "entry", "src/main.cpp" } },
+                            { { "id", "a_b:c" },
+                              { "kind", "exe" },
+                              { "name", "first" },
+                              { "owns", json::array() },
+                              { "entry", "benchmarks/first.cpp" } },
+                            { { "id", "a:b_c" },
+                              { "kind", "exe" },
+                              { "name", "second" },
+                              { "owns", json::array() },
+                              { "entry", "benchmarks/second.cpp" } } }) } };
     write_text(root.path() / "manifest.json", authored.dump(2));
     write_text(root.path() / "src/main.cpp", "int main() { return 0; }\n");
     const std::string source = R"cpp(#include <cstdlib>

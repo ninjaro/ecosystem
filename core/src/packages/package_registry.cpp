@@ -348,9 +348,12 @@ const std::vector<package_descriptor>& package_descriptors() {
     return descriptors;
 }
 
-std::span<const package_descriptor> registered_packages() { return package_descriptors(); }
+std::span<const package_descriptor> registered_packages() {
+    return package_descriptors();
+}
 
-std::vector<const package_descriptor*> enabled_packages(const dependency_summary& dependencies) {
+std::vector<const package_descriptor*>
+enabled_packages(const dependency_summary& dependencies) {
     std::vector<const package_descriptor*> descriptors;
     descriptors.reserve(package_descriptors().size());
 
@@ -364,7 +367,8 @@ std::vector<const package_descriptor*> enabled_packages(const dependency_summary
 }
 
 bool has_enabled_packages(const dependency_summary& dependencies) {
-    for (const package_descriptor* descriptor : enabled_packages(dependencies)) {
+    for (const package_descriptor* descriptor :
+         enabled_packages(dependencies)) {
         if (descriptor != nullptr) {
             return true;
         }
@@ -382,4 +386,4 @@ const package_descriptor* find_package_descriptor(const package_kind kind) {
     return nullptr;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

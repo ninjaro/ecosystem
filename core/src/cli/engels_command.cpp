@@ -27,7 +27,7 @@ void emit_manifest_report_errors(
     }
 }
 
-}  // namespace ecosystem::engels_command_support
+} // namespace ecosystem::engels_command_support
 
 namespace ecosystem {
 
@@ -43,8 +43,7 @@ int run_engels_command(
 
     if (engels_command_support::is_marx_command(args.front())) {
         emit_command_error(
-            err,
-            command_error::invalid_request,
+            err, command_error::invalid_request,
             "command '" + args.front() + "' is available via marx; run `marx "
                 + args.front() + "`"
         );
@@ -88,8 +87,7 @@ int run_engels_command(
     if (args[0] == "check") {
         if (args.size() < 2U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 workspace_mode
                     ? engels_command_support::expected_usage(
                           "check <profile> [--project <project>] "
@@ -138,8 +136,7 @@ int run_engels_command(
         }
         if (request->scope_args.size() > 1U) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 engels_command_support::expected_usage(
                     "check <profile> [component:artifact] [--theme <theme>]"
                 )
@@ -152,8 +149,7 @@ int run_engels_command(
             : parse_artifact_ref(request->scope_args.front());
         if (!request->scope_args.empty() && !requested_artifact.has_value()) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 "artifact must use component:artifact form"
             );
             return exit_code(command_error::invalid_request);
@@ -176,7 +172,9 @@ int run_engels_command(
             if (parse_status != command_error::ok) {
                 return exit_code(parse_status);
             }
-            return exit_code(run_workspace_doctor(*workspace, profile, scope, out, err));
+            return exit_code(
+                run_workspace_doctor(*workspace, profile, scope, out, err)
+            );
         }
         std::optional<std::string> profile;
         std::optional<artifact_ref> requested_artifact;
@@ -197,8 +195,7 @@ int run_engels_command(
                 requested_artifact = parse_artifact_ref(args[index]);
                 if (!requested_artifact.has_value()) {
                     emit_command_error(
-                        err,
-                        command_error::invalid_request,
+                        err, command_error::invalid_request,
                         "artifact must use component:artifact form"
                     );
                     return exit_code(command_error::invalid_request);
@@ -257,8 +254,7 @@ int run_engels_command(
                                        : std::nullopt;
         if (report_args.size() == 1U && !requested_artifact.has_value()) {
             emit_command_error(
-                err,
-                command_error::invalid_request,
+                err, command_error::invalid_request,
                 "artifact must use component:artifact form"
             );
             return exit_code(command_error::invalid_request);
@@ -275,4 +271,4 @@ int run_engels_command(
     return exit_code(command_error::invalid_request);
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

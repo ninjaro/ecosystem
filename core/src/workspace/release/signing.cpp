@@ -14,8 +14,7 @@ effective_signing_key(const prerelease_signing_options& options) {
         return prerelease_key;
     }
 
-    const std::string generic_key
-        = trim(env_value("MANIFESTO_GPG_KEY"));
+    const std::string generic_key = trim(env_value("MANIFESTO_GPG_KEY"));
     if (!generic_key.empty()) {
         return generic_key;
     }

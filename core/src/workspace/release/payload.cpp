@@ -10,18 +10,21 @@ namespace ecosystem::release_detail {
 namespace {
 
     bool copy_runtime_files(
-        const fs::path& project_root, const std::vector<std::string>& categories,
-        const fs::path& source_base, const fs::path& destination,
-        std::string* error_message
+        const fs::path& project_root,
+        const std::vector<std::string>& categories, const fs::path& source_base,
+        const fs::path& destination, std::string* error_message
     ) {
         try {
             const auto base = fs::absolute(source_base).lexically_normal();
-            for (const auto& file : runtime_asset_files(project_root, categories)) {
+            for (const auto& file :
+                 runtime_asset_files(project_root, categories)) {
                 const auto output = destination / file.lexically_relative(base);
                 fs::create_directories(output.parent_path());
                 // Materialize safe source aliases, rather than shipping links
                 // which still depend on a source-directory layout.
-                fs::copy_file(file, output, fs::copy_options::overwrite_existing);
+                fs::copy_file(
+                    file, output, fs::copy_options::overwrite_existing
+                );
             }
             return true;
         } catch (const std::exception& error) {
@@ -170,8 +173,10 @@ bool stage_payload(
     if ((resolved.artifact_value->kind == "exe"
          || resolved.artifact_value->kind == "qt_app")
         && install_assets && project_has_assets_dir(project_root)) {
-        if (!copy_runtime_files(project_root, runtime_asset_categories(),
-                project_root / "assets", install_dir / "assets", error_message))
+        if (!copy_runtime_files(
+                project_root, runtime_asset_categories(),
+                project_root / "assets", install_dir / "assets", error_message
+            ))
             return false;
     }
 
@@ -237,7 +242,9 @@ bool stage_tooling_templates(
     for (; iterator != fs::recursive_directory_iterator(); ++iterator) {
         const auto& entry = *iterator;
         if (entry.is_directory()
-            && std::regex_search(entry.path().filename().generic_string(), cache_pattern)) {
+            && std::regex_search(
+                entry.path().filename().generic_string(), cache_pattern
+            )) {
             iterator.disable_recursion_pending();
             continue;
         }
@@ -258,8 +265,9 @@ bool stage_tooling_templates(
     const auto destination = stage_root / "usr/share/manifesto/templates";
     if (!ensure_clean_directory(destination, error_message))
         return false;
-    return copy_runtime_files(project_root, { "templates" }, source,
-        destination, error_message);
+    return copy_runtime_files(
+        project_root, { "templates" }, source, destination, error_message
+    );
 }
 
 } // namespace ecosystem::release_detail

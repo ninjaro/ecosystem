@@ -158,9 +158,7 @@ const ecosystem::component_analysis_summary* find_component_analysis_summary(
     const std::string& component_id
 );
 
-void write_executable_script(
-    const fs::path& path, const std::string& contents
-);
+void write_executable_script(const fs::path& path, const std::string& contents);
 
 std::string current_path_env();
 
@@ -275,9 +273,8 @@ fs::path engels_binary_path();
 
 fs::path marx_binary_path();
 
-cli_result run_engels_cli(
-    const fs::path& working_directory, const std::string& arguments
-);
+cli_result
+run_engels_cli(const fs::path& working_directory, const std::string& arguments);
 
 cli_result
 run_marx_cli(const fs::path& working_directory, const std::string& arguments);

@@ -101,8 +101,7 @@ bool parse_benchmark_log(
 
     benchmark_summary parsed;
     sample_table samples;
-    static const std::regex line_regex(
-        R"(^(\S+).*?\bFLOPs=([\deE+\-\.]+)G/s\b)"
+    static const std::regex line_regex(R"(^(\S+).*?\bFLOPs=([\deE+\-\.]+)G/s\b)"
     );
 
     std::stringstream stream(log);
@@ -187,23 +186,15 @@ json to_json(const benchmark_summary& summary) {
     for (const benchmark_series& entry : summary.series) {
         json points = json::array();
         for (const benchmark_point& point : entry.points) {
-            points.push_back(
-                json::object(
-                    {
-                        { "n", point.n },
-                        { "gflops", point.gflops },
-                    }
-                )
-            );
+            points.push_back(json::object({
+                { "n", point.n },
+                { "gflops", point.gflops },
+            }));
         }
-        series.push_back(
-            json::object(
-                {
-                    { "algorithm", entry.algorithm },
-                    { "points", points },
-                }
-            )
-        );
+        series.push_back(json::object({
+            { "algorithm", entry.algorithm },
+            { "points", points },
+        }));
     }
     report["series"] = series;
     return report;

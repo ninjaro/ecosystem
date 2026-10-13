@@ -30,9 +30,14 @@ struct package_status_section {
     std::vector<package_status_line> packages;
 };
 
-std::optional<cmake_cache_snapshot> load_cmake_cache(const std::filesystem::path& cache_path);
-bool cmake_cache_has_found_value(const cmake_cache_snapshot& cache, const std::string& key);
-bool cmake_cache_flag_enabled(const cmake_cache_snapshot& cache, const std::string& key);
+std::optional<cmake_cache_snapshot>
+load_cmake_cache(const std::filesystem::path& cache_path);
+bool cmake_cache_has_found_value(
+    const cmake_cache_snapshot& cache, const std::string& key
+);
+bool cmake_cache_flag_enabled(
+    const cmake_cache_snapshot& cache, const std::string& key
+);
 
 std::vector<package_section> declared_package_sections(
     const dependency_summary& dependencies, bool kde_enabled_for_profile
@@ -41,4 +46,4 @@ std::vector<package_status_section> configured_package_sections(
     const dependency_summary& dependencies, const cmake_cache_snapshot& cache
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

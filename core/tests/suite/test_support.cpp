@@ -411,19 +411,15 @@ ecosystem::manifest sample_external_project_manifest() {
     external.id = "packing_library";
     external.description = "External packing library.";
     external.root = "core";
-    external.stack = json::object(
-        {
-            { "external_project",
-              json::object(
-                  {
-                      { "repository", "https://github.com/ninjaro/rothko" },
-                      { "revision", "manifesto" },
-                      { "package", "packing" },
-                      { "artifact", "library:core" },
-                  }
-              ) },
-        }
-    );
+    external.stack = json::object({
+        { "external_project",
+          json::object({
+              { "repository", "https://github.com/ninjaro/rothko" },
+              { "revision", "manifesto" },
+              { "package", "packing" },
+              { "artifact", "library:core" },
+          }) },
+    });
     external.artifacts = { ecosystem::artifact {
         "core",
         "static_lib",
@@ -751,12 +747,10 @@ ecosystem::manifest sample_qttest_manifest() {
         = "Sample project with QtTest-only package intent.";
     manifest_value.components.front().stack
         = json::object({ { "qt", json::array({ "Core", "Widgets" }) } });
-    manifest_value.components.front().tests = json::object(
-        {
-            { "selftest", true },
-            { "qttest", true },
-        }
-    );
+    manifest_value.components.front().tests = json::object({
+        { "selftest", true },
+        { "qttest", true },
+    });
     return manifest_value;
 }
 
@@ -765,13 +759,11 @@ ecosystem::manifest sample_dependency_manifest() {
     core.id = "core";
     core.description = "Core library with Qt, JSON, and optional OpenCV.";
     core.root = ".";
-    core.stack = json::object(
-        {
-            { "json", json::array({ "nlohmann_json" }) },
-            { "qt", json::array({ "Core", "Widgets" }) },
-            { "opencv", json::array({ "optional" }) },
-        }
-    );
+    core.stack = json::object({
+        { "json", json::array({ "nlohmann_json" }) },
+        { "qt", json::array({ "Core", "Widgets" }) },
+        { "opencv", json::array({ "optional" }) },
+    });
     core.tests = json::object();
     core.modules = { "sample/core" };
     core.file_units = {};
@@ -792,13 +784,11 @@ ecosystem::manifest sample_dependency_manifest() {
     desktop.id = "desktop";
     desktop.description = "Optional desktop-facing integrations.";
     desktop.root = ".";
-    desktop.stack = json::object(
-        {
-            { "kde", json::array({ "CoreAddons", "KDEGames6" }) },
-            { "jni", json::array({ "required" }) },
-            { "llvm_clang", json::array({ "libclang" }) },
-        }
-    );
+    desktop.stack = json::object({
+        { "kde", json::array({ "CoreAddons", "KDEGames6" }) },
+        { "jni", json::array({ "required" }) },
+        { "llvm_clang", json::array({ "libclang" }) },
+    });
     desktop.tests = json::object();
     desktop.modules = { "desktop/support" };
     desktop.file_units = {};
@@ -1172,8 +1162,8 @@ cli_result run_cli_with_binary(
 
     cli_result result;
     char buffer[256];
-    while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), pipe)
-           != nullptr) {
+    while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), pipe) != nullptr
+    ) {
         result.output += buffer;
     }
     const int status = ::pclose(pipe);
@@ -1278,7 +1268,10 @@ ecosystem::string_list workspace_conformance_errors(const fs::path& root) {
             errors.push_back(label + ": " + error);
         const auto local_paths = ecosystem::ignored_local_surface_paths();
         for (const auto& file : files) {
-            if (std::find(local_paths.begin(), local_paths.end(), file.relative_path) != local_paths.end())
+            if (std::find(
+                    local_paths.begin(), local_paths.end(), file.relative_path
+                )
+                != local_paths.end())
                 continue;
             const auto path = project.root / file.relative_path;
             try {
@@ -1320,23 +1313,21 @@ void write_fake_doxygen_tool(const fs::path& path) {
 void write_doxygen_project(const fs::path& root, const std::string& id) {
     write_text(
         root / "manifest.json",
-        json(
-            { { "id", id },
-              { "description", "Doxygen ownership fixture" },
-              { "version", "2.3.4" },
-              { "facade", "lib:first" },
-              { "artifacts",
-                json::array(
-                    { { { "id", "lib:first" },
-                        { "kind", "static_lib" },
-                        { "root", "first" },
-                        { "owns",
-                          json::array({ "model", "include/extra.hpp" }) } },
-                      { { "id", "lib:second" },
-                        { "kind", "static_lib" },
-                        { "root", "second" },
-                        { "owns", json::array({ "api" }) } } }
-                ) } }
+        json({ { "id", id },
+               { "description", "Doxygen ownership fixture" },
+               { "version", "2.3.4" },
+               { "facade", "lib:first" },
+               { "artifacts",
+                 json::array({ { { "id", "lib:first" },
+                                 { "kind", "static_lib" },
+                                 { "root", "first" },
+                                 { "owns",
+                                   json::array({ "model", "include/extra.hpp" }
+                                   ) } },
+                               { { "id", "lib:second" },
+                                 { "kind", "static_lib" },
+                                 { "root", "second" },
+                                 { "owns", json::array({ "api" }) } } }) } }
         ).dump(2)
     );
     write_text(
@@ -1412,21 +1403,18 @@ void write_runtime_package_project(const fs::path& project) {
 void write_cxx_report_project(const fs::path& root, const std::string& id) {
     write_text(
         root / "manifest.json",
-        json(
-            { { "id", id },
-              { "description", "Artifact-scoped report fixture" },
-              { "facade", "core:app" },
-              { "artifacts",
-                json::array(
-                    { { { "id", "core:app" },
-                        { "kind", "exe" },
-                        { "owns", json::array() },
-                        { "entry", "src/main.cpp" } },
-                      { { "id", "core:other" },
-                        { "kind", "exe" },
-                        { "owns", json::array() },
-                        { "entry", "src/other.cpp" } } }
-                ) } }
+        json({ { "id", id },
+               { "description", "Artifact-scoped report fixture" },
+               { "facade", "core:app" },
+               { "artifacts",
+                 json::array({ { { "id", "core:app" },
+                                 { "kind", "exe" },
+                                 { "owns", json::array() },
+                                 { "entry", "src/main.cpp" } },
+                               { { "id", "core:other" },
+                                 { "kind", "exe" },
+                                 { "owns", json::array() },
+                                 { "entry", "src/other.cpp" } } }) } }
         ).dump(2)
     );
     write_text(root / "src/main.cpp", "int main() { return 0; }\n");

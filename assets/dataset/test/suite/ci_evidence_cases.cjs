@@ -336,7 +336,7 @@ test('cheap, PR, manual and scheduled paths do not consult reuse APIs', async t 
   for (const [event, scope] of [['push', 'cheap'], ['pull_request', 'full'], ['workflow_dispatch', 'full'], ['schedule', 'security']]) {
     f.context.eventName = event;
     await f.select('checks', scope);
-    assert.equal(f.outputs.scope, scope);
+    assert.equal(f.outputs.scope, scope === 'cheap' ? 'full' : scope);
     assert.equal(f.outputs.verified, 'false');
   }
   assert.equal(f.state.calls.length, 0);

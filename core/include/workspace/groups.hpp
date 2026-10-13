@@ -24,17 +24,14 @@ struct workspace_config_report {
     bool has_config = false;
 };
 
-std::filesystem::path workspace_config_path(
-    const std::filesystem::path& workspace_root
-);
+std::filesystem::path
+workspace_config_path(const std::filesystem::path& workspace_root);
 
-workspace_config_report load_workspace_config(
-    const std::filesystem::path& workspace_root
-);
+workspace_config_report
+load_workspace_config(const std::filesystem::path& workspace_root);
 
-const workspace_group* find_workspace_group(
-    const workspace_config& value, const std::string& id
-);
+const workspace_group*
+find_workspace_group(const workspace_config& value, const std::string& id);
 
 json to_json(const workspace_config& value);
 

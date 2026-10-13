@@ -193,11 +193,10 @@ void collect_files(
                 entry
             };
             state.files.emplace(canonical, file);
-            state.report.files.push_back(
-                { { "file", relative.generic_string() },
-                  { "artifact", file.artifact },
-                  { "test", test } }
-            );
+            state.report.files.push_back({ { "file",
+                                             relative.generic_string() },
+                                           { "artifact", file.artifact },
+                                           { "test", test } });
             inspect_name(
                 state, file, relative.stem().string(), "file", 1, 1, false
             );

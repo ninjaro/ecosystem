@@ -82,9 +82,9 @@ void test_release_isolated_install(const fs::path& cache) {
             = required[index].substr(0, required[index].find_first_of("<>= "));
         if (visited.contains(requested))
             continue;
-        const auto installed = ecosystem::capture_command_result(
-            { pacman, "-Q", "--", requested }
-        );
+        const auto installed
+            = ecosystem::capture_command_result({ pacman, "-Q", "--",
+                                                  requested });
         require_true(
             installed.exit_code == 0,
             "cannot resolve installed prerequisite " + requested + ": "
@@ -110,9 +110,9 @@ void test_release_isolated_install(const fs::path& cache) {
             if (!filename.starts_with(name + "-") || filename.ends_with(".sig")
                 || filename.find(".pkg.tar") == std::string::npos)
                 continue;
-            const auto info = ecosystem::capture_command_result(
-                { pacman, "-Qp", "--", entry.path().string() }
-            );
+            const auto info
+                = ecosystem::capture_command_result({ pacman, "-Qp", "--",
+                                                      entry.path().string() });
             inspected += entry.path().filename().string() + " (exit "
                 + std::to_string(info.exit_code) + "): " + info.output;
             if (info.exit_code == 0 && info.output == installed.output) {
@@ -295,9 +295,8 @@ void test_release_isolated_install(const fs::path& cache) {
         "installed Engels must verify the isolated managed project: "
             + result.output
     );
-    result = run_installed(
-        { "/usr/bin/marx", "mutate", "add", "module", "sample:app", "helper" }
-    );
+    result = run_installed({ "/usr/bin/marx", "mutate", "add", "module",
+                             "sample:app", "helper" });
     require_true(
         result.exit_code == 0 && fs::exists(managed / "include/helper.hpp"),
         "installed Marx must mutate using its packaged templates: "

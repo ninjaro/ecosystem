@@ -50,4 +50,4 @@ struct package_status_rule {
     std::string_view profile_disabled_status;
 };
 
-}  // namespace ecosystem
+} // namespace ecosystem

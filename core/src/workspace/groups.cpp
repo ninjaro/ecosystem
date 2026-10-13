@@ -10,100 +10,97 @@ namespace fs = std::filesystem;
 namespace ecosystem {
 namespace workspace_groups_support {
 
-const std::regex group_id_pattern("^[a-z][a-z0-9_]*$");
+    const std::regex group_id_pattern("^[a-z][a-z0-9_]*$");
 
-std::string trim_copy(const std::string& value) {
-    const std::size_t first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) {
-        return {};
+    std::string trim_copy(const std::string& value) {
+        const std::size_t first = value.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) {
+            return {};
+        }
+        const std::size_t last = value.find_last_not_of(" \t\r\n");
+        return value.substr(first, last - first + 1U);
     }
-    const std::size_t last = value.find_last_not_of(" \t\r\n");
-    return value.substr(first, last - first + 1U);
-}
 
-void append_unique_value(
-    string_list* values, const std::string& value
-) {
-    if (std::find(values->begin(), values->end(), value) == values->end()) {
-        values->push_back(value);
+    void append_unique_value(string_list* values, const std::string& value) {
+        if (std::find(values->begin(), values->end(), value) == values->end()) {
+            values->push_back(value);
+        }
     }
-}
 
-string_list parse_project_selectors(
-    const json& value, const std::string& context, string_list* errors
-) {
-    string_list selectors;
-    if (value.is_string()) {
-        const std::string selector = trim_copy(value.get<std::string>());
-        if (selector.empty()) {
-            errors->push_back(context + " must not be empty");
+    string_list parse_project_selectors(
+        const json& value, const std::string& context, string_list* errors
+    ) {
+        string_list selectors;
+        if (value.is_string()) {
+            const std::string selector = trim_copy(value.get<std::string>());
+            if (selector.empty()) {
+                errors->push_back(context + " must not be empty");
+                return selectors;
+            }
+            selectors.push_back(selector);
             return selectors;
         }
-        selectors.push_back(selector);
-        return selectors;
-    }
-    if (!value.is_array()) {
-        errors->push_back(
-            context + " must be a string or an array of project selectors"
-        );
+        if (!value.is_array()) {
+            errors->push_back(
+                context + " must be a string or an array of project selectors"
+            );
+            return selectors;
+        }
+
+        for (std::size_t index = 0U; index < value.size(); ++index) {
+            if (!value.at(index).is_string()) {
+                errors->push_back(
+                    context + "[" + std::to_string(index)
+                    + "] must be a project selector string"
+                );
+                continue;
+            }
+            const std::string selector
+                = trim_copy(value.at(index).get<std::string>());
+            if (selector.empty()) {
+                errors->push_back(
+                    context + "[" + std::to_string(index)
+                    + "] must not be empty"
+                );
+                continue;
+            }
+            append_unique_value(&selectors, selector);
+        }
         return selectors;
     }
 
-    for (std::size_t index = 0U; index < value.size(); ++index) {
-        if (!value.at(index).is_string()) {
+    workspace_group parse_workspace_group(
+        const std::string& id, const json& value, string_list* errors
+    ) {
+        workspace_group group;
+        group.id = trim_copy(id);
+        if (!std::regex_match(group.id, group_id_pattern)) {
             errors->push_back(
-                context + "[" + std::to_string(index)
-                + "] must be a project selector string"
+                "manifesto.workspace.json.groups." + id
+                + " must use snake_case ids"
             );
-            continue;
         }
-        const std::string selector
-            = trim_copy(value.at(index).get<std::string>());
-        if (selector.empty()) {
+        group.project_selectors = parse_project_selectors(
+            value, "manifesto.workspace.json.groups." + id, errors
+        );
+        if (group.project_selectors.empty()) {
             errors->push_back(
-                context + "[" + std::to_string(index) + "] must not be empty"
+                "manifesto.workspace.json.groups." + id
+                + " must contain at least one project selector"
             );
-            continue;
         }
-        append_unique_value(&selectors, selector);
+        return group;
     }
-    return selectors;
-}
-
-workspace_group parse_workspace_group(
-    const std::string& id, const json& value, string_list* errors
-) {
-    workspace_group group;
-    group.id = trim_copy(id);
-    if (!std::regex_match(group.id, group_id_pattern)) {
-        errors->push_back(
-            "manifesto.workspace.json.groups." + id
-            + " must use snake_case ids"
-        );
-    }
-    group.project_selectors = parse_project_selectors(
-        value, "manifesto.workspace.json.groups." + id, errors
-    );
-    if (group.project_selectors.empty()) {
-        errors->push_back(
-            "manifesto.workspace.json.groups." + id
-            + " must contain at least one project selector"
-        );
-    }
-    return group;
-}
 
 } // namespace workspace_groups_support
 
-std::filesystem::path workspace_config_path(
-    const std::filesystem::path& workspace_root
-) {
+std::filesystem::path
+workspace_config_path(const std::filesystem::path& workspace_root) {
     return workspace_root / "manifesto.workspace.json";
 }
 
-workspace_config_report load_workspace_config(
-    const std::filesystem::path& workspace_root
-) {
+workspace_config_report
+load_workspace_config(const std::filesystem::path& workspace_root) {
     workspace_config_report report;
     report.path = workspace_config_path(workspace_root);
 
@@ -147,8 +144,7 @@ workspace_config_report load_workspace_config(
                 );
             } else {
                 for (auto iterator = root.at("groups").begin();
-                     iterator != root.at("groups").end();
-                     ++iterator) {
+                     iterator != root.at("groups").end(); ++iterator) {
                     value.groups.push_back(
                         workspace_groups_support::parse_workspace_group(
                             iterator.key(), iterator.value(), &report.errors
@@ -175,9 +171,8 @@ workspace_config_report load_workspace_config(
     return report;
 }
 
-const workspace_group* find_workspace_group(
-    const workspace_config& value, const std::string& id
-) {
+const workspace_group*
+find_workspace_group(const workspace_config& value, const std::string& id) {
     for (const workspace_group& group : value.groups) {
         if (group.id == id) {
             return &group;

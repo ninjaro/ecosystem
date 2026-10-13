@@ -35,7 +35,8 @@ group_diagnostics(const json& report, const diagnostic_view& view) {
         return 3;
     };
     std::stable_sort(
-        result.begin(), result.end(), [&](const auto& a, const auto& b) {
+        result.begin(), result.end(),
+        [&](const auto& a, const auto& b) {
             return std::tuple(a.category, rank(a.severity), a.severity)
                 < std::tuple(b.category, rank(b.severity), b.severity);
         }

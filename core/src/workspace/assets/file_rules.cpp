@@ -36,8 +36,8 @@ void check_reports(const fs::path& assets) {
             continue;
         const auto name = entry.path().filename().string();
         if (entry.path().parent_path() == reports
-            && (name == ".gitkeep" || name == "index.tsv"
-                || name == "readme.md"))
+            && (name == ".gitkeep" || name == "index.tsv" || name == "readme.md"
+            ))
             continue;
         if (!report_name(entry.path()))
             throw std::runtime_error(

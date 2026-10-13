@@ -132,6 +132,7 @@ void test_ci_selection() {
     require_contains(
         checks->contents,
         "- name: Resolve checked-out changes\n"
+        "        id: changes\n"
         "        if: ${{ needs.select.outputs.scope != 'reuse' }}",
         "fresh checks must bind changes to their own checkout before setup"
     );
@@ -254,12 +255,15 @@ void test_ci_selection() {
     }
     const auto report = root.path() / ".ecosystem/reports/coverage.json";
     write_text(report, "current coverage");
+    write_text(reports / "00-workflow/result.json", "{\"status\":\"passed\"}");
     const auto run_gate = [&](const std::string& outcome,
                               const std::string& status,
                               const std::string& code) {
         return ecosystem::capture_command_result(
             { "bash", "-e", "-o", "pipefail", gate.string() }, root.path(),
-            { { "CHECK_SCOPE", "full" },
+            { { "DIAGNOSTIC_OUTCOME", "success" },
+              { "DIAGNOSTIC_STATUS", "passed" },
+              { "CHECK_SCOPE", "full" },
               { "CHECK_OUTCOME", "success" },
               { "CHECK_STATUS", "passed" },
               { "CHECK_EXIT_CODE", "0" },

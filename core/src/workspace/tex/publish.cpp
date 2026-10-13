@@ -38,10 +38,8 @@ void publish_documents(
                 throw std::runtime_error(
                     "TeX output must be a regular file: " + document.entry.path
                 );
-            state["files"].push_back(
-                { { "path", document.entry.path },
-                  { "had_file", fs::exists(target) } }
-            );
+            state["files"].push_back({ { "path", document.entry.path },
+                                       { "had_file", fs::exists(target) } });
         }
         std::string error;
         if (!write_text_file(

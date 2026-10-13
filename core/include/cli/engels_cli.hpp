@@ -12,4 +12,4 @@ int run_engels_cli(
     const std::vector<std::string>& args, std::ostream& out, std::ostream& err
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem

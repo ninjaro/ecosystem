@@ -70,8 +70,7 @@ void test_source_local_map_selects_mutable_checkouts_and_preserves_facade() {
     const auto map = consumer / "manifesto.local.json";
     write_text(
         map,
-        json(
-            { { "sources", { { provider.string(), local.string() } } } }
+        json({ { "sources", { { provider.string(), local.string() } } } }
         ).dump(2)
     );
     command(consumer, { "git", "init", "-q" });
@@ -120,10 +119,9 @@ void test_source_local_map_selects_mutable_checkouts_and_preserves_facade() {
     // Repository keys match exactly, and unused paths need not exist locally.
     write_text(
         map,
-        json(
-            { { "sources",
-                { { provider.string() + ".git",
-                    (root.path() / "unused").string() } } } }
+        json({ { "sources",
+                 { { provider.string() + ".git",
+                     (root.path() / "unused").string() } } } }
         ).dump()
     );
     expect_answer(consumer, 42);
@@ -191,9 +189,8 @@ void test_source_local_map_rejects_invalid_configuration() {
                               json("relative/path"), json("/bad\npath") }) {
         write_text(
             map,
-            json(
-                { { "sources",
-                    { { "https://example.invalid/numbers.git", path } } } }
+            json({ { "sources",
+                     { { "https://example.invalid/numbers.git", path } } } }
             ).dump()
         );
         reject("absolute path");
@@ -202,10 +199,9 @@ void test_source_local_map_rejects_invalid_configuration() {
          { root.path() / "missing", provider / "include/answer.hpp" }) {
         write_text(
             map,
-            json(
-                { { "sources",
-                    { { "https://example.invalid/numbers.git",
-                        path.string() } } } }
+            json({ { "sources",
+                     { { "https://example.invalid/numbers.git",
+                         path.string() } } } }
             ).dump()
         );
         reject("sources[https://example.invalid/numbers.git]");
@@ -264,11 +260,10 @@ void test_source_local_map_applies_to_recursive_providers() {
     );
     write_text(
         consumer / "manifesto.local.json",
-        json(
-            { { "sources",
-                { { "https://example.invalid/numbers.git", provider.string() },
-                  { "https://example.invalid/foundation.git",
-                    base.string() } } } }
+        json({ { "sources",
+                 { { "https://example.invalid/numbers.git", provider.string() },
+                   { "https://example.invalid/foundation.git",
+                     base.string() } } } }
         ).dump()
     );
     // One consumer-owned map governs the closure; provider/ancestor settings

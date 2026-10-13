@@ -43,7 +43,6 @@ extern const std::regex debian_package_pattern;
 std::string trim(const std::string& value);
 std::string env_value(const char* name);
 
-
 std::string package_token(const std::string& value);
 
 std::string package_description(

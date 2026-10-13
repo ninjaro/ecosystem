@@ -30,8 +30,7 @@ struct dependency_summary {
 const dependency_entry& dependency_entry_for_id(
     const dependency_summary& dependencies, dependency_id id
 );
-dependency_entry& dependency_entry_for_id(
-    dependency_summary& dependencies, dependency_id id
-);
+dependency_entry&
+dependency_entry_for_id(dependency_summary& dependencies, dependency_id id);
 
-}  // namespace ecosystem
+} // namespace ecosystem

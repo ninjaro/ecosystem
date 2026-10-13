@@ -91,7 +91,8 @@ std::vector<tex_detail::document> tex_detail::prepare_documents(
         const auto target = fs::path("assets/showcase") / entry.path;
         check_path(root, target);
         const auto found = std::find_if(
-            entries.begin(), entries.end(), [&](const auto& item) {
+            entries.begin(), entries.end(),
+            [&](const auto& item) {
                 return item.id == entry.id || item.path == entry.path;
             }
         );

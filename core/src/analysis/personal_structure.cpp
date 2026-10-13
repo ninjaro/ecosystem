@@ -136,10 +136,9 @@ namespace structure_support {
                 bodies.push_back(nested[nested.size() - 2]);
         } else if (kind == CXCursor_DoStmt) {
             bodies.push_back(nested.front());
-        } else if (
-            kind == CXCursor_ForStmt || kind == CXCursor_WhileStmt
-            || kind == CXCursor_CXXForRangeStmt || kind == CXCursor_SwitchStmt
-        ) {
+        } else if (kind == CXCursor_ForStmt || kind == CXCursor_WhileStmt
+                   || kind == CXCursor_CXXForRangeStmt
+                   || kind == CXCursor_SwitchStmt) {
             bodies.push_back(nested.back());
         }
         for (const auto body : bodies) {
@@ -363,15 +362,13 @@ void inspect_structure(
                               { "effective_lines", effective },
                               { "estimated_complexity", metrics.branches },
                               { "nesting", metrics.nesting } };
-    state.report.scopes.push_back(
-        { { "file", file.relative.generic_string() },
-          { "artifact", file.artifact },
-          { "line", begin.line },
-          { "column", begin.column },
-          { "entity", entity },
-          { "kind", lambda ? "lambda" : "function" },
-          { "measurements", measurements } }
-    );
+    state.report.scopes.push_back({ { "file", file.relative.generic_string() },
+                                    { "artifact", file.artifact },
+                                    { "line", begin.line },
+                                    { "column", begin.column },
+                                    { "entity", entity },
+                                    { "kind", lambda ? "lambda" : "function" },
+                                    { "measurements", measurements } });
     const auto add = [&](const std::string& rule, const std::string& message,
                          const json& targets) {
         add_finding(
@@ -412,7 +409,8 @@ void finish_structure(inspection& state) {
     }
     for (auto& item : state.report.files) {
         const auto found = std::find_if(
-            state.files.begin(), state.files.end(), [&](const auto& pair) {
+            state.files.begin(), state.files.end(),
+            [&](const auto& pair) {
                 return pair.second.relative.generic_string()
                     == item.at("file").get<std::string>();
             }
@@ -435,11 +433,9 @@ void finish_structure(inspection& state) {
         item["referent"] = ref.id;
         const bool production = !file.test && file_role(file) != "tests"
             && file_role(file) != "benchmarks";
-        ref.files.push_back(
-            { { "file", file.relative.generic_string() },
-              { "artifact", file.artifact },
-              { "production", production } }
-        );
+        ref.files.push_back({ { "file", file.relative.generic_string() },
+                              { "artifact", file.artifact },
+                              { "production", production } });
         if (production) {
             ref.physical += file.physical_lines;
             ref.effective += file.effective_lines.size();
@@ -518,12 +514,10 @@ void finish_structure(inspection& state) {
                                     count_imbalance / 2 + depth_excess / 3
                                         + width_excess / 6 } };
         const json targets { { "depth", ideal }, { "children", soft_width } };
-        state.report.modules.push_back(
-            { { "module", id },
-              { "measurements", measurements },
-              { "targets", targets },
-              { "artifacts", artifacts } }
-        );
+        state.report.modules.push_back({ { "module", id },
+                                         { "measurements", measurements },
+                                         { "targets", targets },
+                                         { "artifacts", artifacts } });
         const auto path = (node.root / "include" / node.directory)
                               .lexically_normal()
                               .generic_string();

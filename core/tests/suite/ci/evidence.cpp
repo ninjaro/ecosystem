@@ -26,6 +26,11 @@ void test_ci_evidence() {
         const auto destination = root.path() / adapter;
         write_text(destination, script->contents);
     }
+    const auto* diagnostics = find_tracked_surface_file(
+        files, ".github/actions/publish-manifesto-report/diagnostics.cjs"
+    );
+    require_true(diagnostics != nullptr, "CI diagnostics must be generated");
+    write_text(root.path() / "diagnostics.cjs", diagnostics->contents);
     for (const auto& [adapter, fixture] :
          std::vector<std::pair<std::string, std::string>> {
              { "changes.cjs", "ci_change_cases.cjs" },
@@ -40,8 +45,8 @@ void test_ci_evidence() {
         const auto destination = root.path() / adapter;
         const auto result = ecosystem::capture_command_result(
             { "node",
-              (fs::path(ECOS_TEST_SOURCE_DIR)
-               / "assets/dataset/test/suite" / fixture)
+              (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/dataset/test/suite"
+               / fixture)
                   .string(),
               destination.string(), engels_binary_path().string(),
               workflow_path.string(), codeql_path.string() },
@@ -53,6 +58,19 @@ void test_ci_evidence() {
                 + result.output
         );
     }
+    const auto diagnostics_result = ecosystem::capture_command_result(
+        { "node",
+          (fs::path(ECOS_TEST_SOURCE_DIR)
+           / "assets/dataset/test/suite/ci_diagnostics_cases.cjs")
+              .string(),
+          (root.path() / "diagnostics.cjs").string(),
+          (root.path() / "evidence.cjs").string() },
+        root.path()
+    );
+    require_true(
+        diagnostics_result.exit_code == 0,
+        "CI skip/report regressions must pass:\n" + diagnostics_result.output
+    );
 }
 
 } // namespace ecosystem_test_support

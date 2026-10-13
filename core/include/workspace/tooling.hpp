@@ -7,18 +7,18 @@
 
 namespace ecosystem {
 
-std::filesystem::path
-local_state_dir(const std::filesystem::path& project_root);
+std::filesystem::path local_state_dir(const std::filesystem::path& project_root
+);
 std::filesystem::path
 local_developer_source_dir(const std::filesystem::path& project_root);
 std::filesystem::path
 local_developer_cmakelists_path(const std::filesystem::path& project_root);
-std::filesystem::path
-local_report_dir(const std::filesystem::path& project_root);
+std::filesystem::path local_report_dir(const std::filesystem::path& project_root
+);
 std::filesystem::path
 local_benchmark_dir(const std::filesystem::path& project_root);
-std::filesystem::path
-local_sphinx_dir(const std::filesystem::path& project_root);
+std::filesystem::path local_sphinx_dir(const std::filesystem::path& project_root
+);
 bool write_text_file(
     const std::filesystem::path& path, const std::string& contents,
     std::string* error_message

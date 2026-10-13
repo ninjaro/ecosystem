@@ -20,4 +20,4 @@ const std::vector<package_surface_block>& package_surface_block_order() {
     return order;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

@@ -11,13 +11,11 @@ void test_native_benchmarks(const fs::path& project) {
         "#include \"api.hpp\"\nint unrelated_implementation() { return 1; }\n"
     );
     auto manifest = json::parse(read_text(project / "manifest.json"));
-    manifest["artifacts"].push_back(
-        { { "id", "bench:speed" },
-          { "kind", "exe" },
-          { "root", "perf" },
-          { "owns", json::array() },
-          { "entry", "benchmarks/main.cpp" } }
-    );
+    manifest["artifacts"].push_back({ { "id", "bench:speed" },
+                                      { "kind", "exe" },
+                                      { "root", "perf" },
+                                      { "owns", json::array() },
+                                      { "entry", "benchmarks/main.cpp" } });
     write_text(project / "manifest.json", manifest.dump(2));
     write_text(project / "perf/benchmarks/main.cpp", R"cpp(#include <iostream>
 #include <string>

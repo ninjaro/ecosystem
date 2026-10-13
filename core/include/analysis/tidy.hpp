@@ -28,4 +28,4 @@ tidy_check_report run_tidy_check(
 
 json to_json(const tidy_check_report& value);
 
-}  // namespace ecosystem
+} // namespace ecosystem

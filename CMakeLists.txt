@@ -216,7 +216,9 @@ endfunction()
 function(ecosystem_stage_assets target_name)
     file(GENERATE
             OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/manifesto_assets_${target_name}_$<CONFIG>.cmake"
-            CONTENT [==[# Runtime ownership is independent of Git: reserved cache directories are never
+            CONTENT [==[# Script mode has its own policy scope; it does not inherit the project policy.
+cmake_minimum_required(VERSION 3.20)
+# Runtime ownership is independent of Git: reserved cache directories are never
 # payloads, while other authored/source-generated files keep their category paths.
 function(_ecosystem_asset_cache_directory path result)
     if ("${path}" MATCHES [=[(^|/)(\.cache|\.[^/]*_cache)(/|$)]=])

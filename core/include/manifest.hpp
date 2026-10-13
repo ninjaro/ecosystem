@@ -112,13 +112,14 @@ string_list discover_owned_files(
 );
 // Project-relative ownership scopes and companion candidates, including entry
 // and QML paths. Does not require files to exist (e.g. deleted change inputs).
-std::vector<std::filesystem::path>
-owned_path_candidates(const component& owner);
+std::vector<std::filesystem::path> owned_path_candidates(const component& owner
+);
 json to_json(const manifest& value);
 
 /// Split a namespace:artifact selector; return no value for invalid syntax.
 /// @param value Selector containing exactly one colon and two nonempty parts.
-/// @return Parsed identity, or std::nullopt when the separator shape is invalid.
+/// @return Parsed identity, or std::nullopt when the separator shape is
+/// invalid.
 std::optional<artifact_ref> parse_artifact_ref(const std::string& value);
 /// Join an artifact identity as namespace:artifact without resolving its owner.
 /// @param value Identity to format.

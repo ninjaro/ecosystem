@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -9,27 +9,26 @@ namespace {
     validate_optional_test_fixture(bool library_facade, bool multiple_owners) {
         temp_dir root;
         const auto project = root.path() / "project";
-        json authored = { { "id", "optional_checks" },
-                          { "description",
-                            "Optional dependency scopes and feature parity" },
-                          { "version", "1.2.3" },
-                          { "facade", library_facade ? "core:lib" : "cli:cli" },
-                          { "artifacts",
-                            json::array(
-                                { { { "id", "core:lib" },
-                                    { "kind", "static_lib" },
-                                    { "owns", { "answer" } },
-                                    { "packages",
-                                      { { "opencv", { "optional" } },
-                                        { "eigen", { "optional" } } } },
-                                    { "tests", { { "gtest", true } } } },
-                                  { { "id", "cli:cli" },
-                                    { "kind", "exe" },
-                                    { "name", "optional_checks" },
-                                    { "owns", { "src/main.cpp" } },
-                                    { "entry", "src/main.cpp" },
-                                    { "dependencies", { "core:lib" } } } }
-                            ) } };
+        json authored
+            = { { "id", "optional_checks" },
+                { "description",
+                  "Optional dependency scopes and feature parity" },
+                { "version", "1.2.3" },
+                { "facade", library_facade ? "core:lib" : "cli:cli" },
+                { "artifacts",
+                  json::array({ { { "id", "core:lib" },
+                                  { "kind", "static_lib" },
+                                  { "owns", { "answer" } },
+                                  { "packages",
+                                    { { "opencv", { "optional" } },
+                                      { "eigen", { "optional" } } } },
+                                  { "tests", { { "gtest", true } } } },
+                                { { "id", "cli:cli" },
+                                  { "kind", "exe" },
+                                  { "name", "optional_checks" },
+                                  { "owns", { "src/main.cpp" } },
+                                  { "entry", "src/main.cpp" },
+                                  { "dependencies", { "core:lib" } } } }) } };
         if (multiple_owners) {
             authored["artifacts"].push_back(
                 { { "id", "extra:lib" },
@@ -301,175 +300,345 @@ void test_owned_check_artifacts_compile_and_execute_all_sources() {
     temp_dir root;
     const auto project = root.path() / "project";
     const json authored = {
-        { "id", "owned_checks" }, { "description", "Owned runnable checks" },
+        { "id", "owned_checks" },
+        { "description", "Owned runnable checks" },
         { "facade", "core:lib" },
-        { "artifacts", json::array({
-            { { "id", "core:lib" }, { "kind", "static_lib" }, { "owns", { "answer" } } },
-            { { "id", "suite:tests" }, { "kind", "exe" },
-              { "name", "owned_suite_tests" },
-              { "owns", { "tests/suite", "benchmarks/test_support.cpp" } }, { "entry", "tests/suite/main.cpp" },
-              { "dependencies", { "core:lib" } } },
-            { { "id", "bench:bench" }, { "kind", "exe" },
-              { "name", "owned_benchmarks" },
-              { "owns", { "benchmarks/suite" } }, { "entry", "benchmarks/suite/main.cpp" } }
-        }) }
+        { "artifacts",
+          json::array({ { { "id", "core:lib" },
+                          { "kind", "static_lib" },
+                          { "owns", { "answer" } } },
+                        { { "id", "suite:tests" },
+                          { "kind", "exe" },
+                          { "name", "owned_suite_tests" },
+                          { "owns",
+                            { "tests/suite", "benchmarks/test_support.cpp" } },
+                          { "entry", "tests/suite/main.cpp" },
+                          { "dependencies", { "core:lib" } } },
+                        { { "id", "bench:bench" },
+                          { "kind", "exe" },
+                          { "name", "owned_benchmarks" },
+                          { "owns", { "benchmarks/suite" } },
+                          { "entry", "benchmarks/suite/main.cpp" } } }) }
     };
     write_text(project / "manifest.json", authored.dump(2));
     write_text(project / "include/answer.hpp", "#pragma once\nint answer();\n");
-    write_text(project / "src/answer.cpp", "#include <answer.hpp>\nint answer() { return 42; }\n");
-    write_text(project / "tests/suite/main.cpp",
+    write_text(
+        project / "src/answer.cpp",
+        "#include <answer.hpp>\nint answer() { return 42; }\n"
+    );
+    write_text(
+        project / "tests/suite/main.cpp",
         "#include <iostream>\nint first(); int second(); int owned_support();\n"
-        "int main() { if(first() != 42 || second() != 43 || owned_support() != 44) return 1; "
-        "std::cout << \"both companions executed\\n\"; return 0; }\n");
-    write_text(project / "tests/suite/first.cpp",
-        "#include <answer.hpp>\nint first() { return answer(); }\n");
-    write_text(project / "tests/suite/second.cpp", "int second() { return 43; }\n");
-    write_text(project / "benchmarks/test_support.cpp", "int owned_support() { return 44; }\n");
-    write_text(project / "tests/unowned.cpp", "#error unowned tests must stay excluded\n");
-    write_text(project / "benchmarks/suite/main.cpp",
-        "int benchmark_companion();\nint main() { return benchmark_companion() == 42 ? 0 : 1; }\n");
-    write_text(project / "benchmarks/suite/companion.cpp", "int benchmark_companion() { return 42; }\n");
+        "int main() { if(first() != 42 || second() != 43 || owned_support() != "
+        "44) return 1; "
+        "std::cout << \"both companions executed\\n\"; return 0; }\n"
+    );
+    write_text(
+        project / "tests/suite/first.cpp",
+        "#include <answer.hpp>\nint first() { return answer(); }\n"
+    );
+    write_text(
+        project / "tests/suite/second.cpp", "int second() { return 43; }\n"
+    );
+    write_text(
+        project / "benchmarks/test_support.cpp",
+        "int owned_support() { return 44; }\n"
+    );
+    write_text(
+        project / "tests/unowned.cpp",
+        "#error unowned tests must stay excluded\n"
+    );
+    write_text(
+        project / "benchmarks/suite/main.cpp",
+        "int benchmark_companion();\nint main() { return benchmark_companion() "
+        "== 42 ? 0 : 1; }\n"
+    );
+    write_text(
+        project / "benchmarks/suite/companion.cpp",
+        "int benchmark_companion() { return 42; }\n"
+    );
     const auto loaded = ecosystem::load_manifest(project / "manifest.json");
     require_true(loaded.errors.empty(), join_lines(loaded.errors));
-    require_true(ecosystem::has_tests_enabled(*loaded.value), "explicit framework-free tests establish capability");
-    require_true(ecosystem::has_benchmarks_enabled(*loaded.value), "explicit framework-free benchmark establishes capability");
+    require_true(
+        ecosystem::has_tests_enabled(*loaded.value),
+        "explicit framework-free tests establish capability"
+    );
+    require_true(
+        ecosystem::has_benchmarks_enabled(*loaded.value),
+        "explicit framework-free benchmark establishes capability"
+    );
     require_sync_success(project, "owned checks must sync");
     const auto developer = root.path() / "developer";
-    const auto generated = ecosystem::generate_developer_cmakelists(*loaded.value, project);
-    require_true(generated == ecosystem::generate_developer_cmakelists(*loaded.value, project), "check generation must be reproducible");
+    const auto generated
+        = ecosystem::generate_developer_cmakelists(*loaded.value, project);
+    require_true(
+        generated
+            == ecosystem::generate_developer_cmakelists(*loaded.value, project),
+        "check generation must be reproducible"
+    );
     write_text(developer / "CMakeLists.txt", generated);
     auto run = [&](const std::vector<std::string>& args) {
-        require_true(ecosystem::run_command(args, root.path()) == 0, "owned check command must succeed");
+        require_true(
+            ecosystem::run_command(args, root.path()) == 0,
+            "owned check command must succeed"
+        );
     };
     for (const auto* profile : { "Debug", "Release" }) {
         const auto build = root.path() / profile;
         run({ "cmake", "-S", developer.string(), "-B", build.string(),
-              "-DECOSYSTEM_PROJECT_ROOT=" + project.string(), "-DCMAKE_BUILD_TYPE=" + std::string(profile),
-              "-DECOSYSTEM_BUILD_TESTS=ON", "-DECOSYSTEM_BUILD_BENCHMARKS=ON", "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE" });
+              "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
+              "-DCMAKE_BUILD_TYPE=" + std::string(profile),
+              "-DECOSYSTEM_BUILD_TESTS=ON", "-DECOSYSTEM_BUILD_BENCHMARKS=ON",
+              "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE" });
         run({ "cmake", "--build", build.string(), "--parallel", "2" });
-        run({ "ctest", "--test-dir", build.string(), "--no-tests=error", "--output-on-failure" });
+        run({ "ctest", "--test-dir", build.string(), "--no-tests=error",
+              "--output-on-failure" });
         run({ (build / "owned_suite_tests").string() });
         run({ (build / "owned_benchmarks").string() });
         const auto database = read_text(build / "compile_commands.json");
-        for (const auto* source : { "tests/suite/main.cpp", "tests/suite/first.cpp", "tests/suite/second.cpp", "benchmarks/test_support.cpp", "benchmarks/suite/companion.cpp" })
-            require_contains(database, source, "every owned translation unit must compile");
-        require_not_contains(database, "tests/unowned.cpp", "unowned tests must not compile");
+        for (const auto* source :
+             { "tests/suite/main.cpp", "tests/suite/first.cpp",
+               "tests/suite/second.cpp", "benchmarks/test_support.cpp",
+               "benchmarks/suite/companion.cpp" })
+            require_contains(
+                database, source, "every owned translation unit must compile"
+            );
+        require_not_contains(
+            database, "tests/unowned.cpp", "unowned tests must not compile"
+        );
     }
     const auto tests = run_engels_cli(project, "check tests");
-    require_true(tests.exit_code == 0, "Engels must run framework-free tests: " + tests.output);
+    require_true(
+        tests.exit_code == 0,
+        "Engels must run framework-free tests: " + tests.output
+    );
     const auto benchmark = run_marx_cli(project, "benchmark");
-    require_true(benchmark.exit_code == 0, "Marx must run the declared framework-free benchmark: " + benchmark.output);
+    require_true(
+        benchmark.exit_code == 0,
+        "Marx must run the declared framework-free benchmark: "
+            + benchmark.output
+    );
     const auto disabled = root.path() / "disabled";
     run({ "cmake", "-S", developer.string(), "-B", disabled.string(),
-          "-DECOSYSTEM_PROJECT_ROOT=" + project.string(), "-DECOSYSTEM_BUILD_TESTS=OFF", "-DECOSYSTEM_BUILD_BENCHMARKS=OFF" });
-    require_not_contains(read_text(disabled / "CTestTestfile.cmake"), "add_test(", "disabled check components must not register tests");
+          "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
+          "-DECOSYSTEM_BUILD_TESTS=OFF", "-DECOSYSTEM_BUILD_BENCHMARKS=OFF" });
+    require_not_contains(
+        read_text(disabled / "CTestTestfile.cmake"), "add_test(",
+        "disabled check components must not register tests"
+    );
 }
 
 void test_framework_dependencies_are_scoped_and_relocatable() {
     temp_dir root;
     const auto project = root.path() / "project";
     json authored = {
-        { "id", "scoped_checks" }, { "description", "Framework dependency isolation" },
+        { "id", "scoped_checks" },
+        { "description", "Framework dependency isolation" },
         { "version", "1.2.3" },
         { "facade", "core:lib" },
-        { "artifacts", json::array({
-            { { "id", "core:lib" }, { "kind", "static_lib" }, { "owns", { "answer", "tests/auto" } }, { "tests", { { "gtest", true } } } },
-            { { "id", "google:tests" }, { "kind", "exe" }, { "owns", { "tests/google" } },
-              { "entry", "tests/google/first.cpp" }, { "dependencies", { "core:lib" } }, { "tests", { { "gtest", true } } } },
-            { { "id", "custom:tests" }, { "kind", "exe" }, { "owns", { "tests/custom" } },
-              { "entry", "tests/custom/main.cpp" }, { "dependencies", { "core:lib" } },
-              { "tests", { { "gtest", true }, { "gtest_main", false } } } },
-            { { "id", "qt:tests" }, { "kind", "exe" }, { "owns", { "tests/qt" } },
-              { "entry", "tests/qt/main.cpp" }, { "tests", { { "qttest", true } } },
-              { "packages", { { "qt", { "Core" } } } } }
-        }) }
+        { "artifacts",
+          json::array({ { { "id", "core:lib" },
+                          { "kind", "static_lib" },
+                          { "owns", { "answer", "tests/auto" } },
+                          { "tests", { { "gtest", true } } } },
+                        { { "id", "google:tests" },
+                          { "kind", "exe" },
+                          { "owns", { "tests/google" } },
+                          { "entry", "tests/google/first.cpp" },
+                          { "dependencies", { "core:lib" } },
+                          { "tests", { { "gtest", true } } } },
+                        { { "id", "custom:tests" },
+                          { "kind", "exe" },
+                          { "owns", { "tests/custom" } },
+                          { "entry", "tests/custom/main.cpp" },
+                          { "dependencies", { "core:lib" } },
+                          { "tests",
+                            { { "gtest", true }, { "gtest_main", false } } } },
+                        { { "id", "qt:tests" },
+                          { "kind", "exe" },
+                          { "owns", { "tests/qt" } },
+                          { "entry", "tests/qt/main.cpp" },
+                          { "tests", { { "qttest", true } } },
+                          { "packages", { { "qt", { "Core" } } } } } }) }
     };
     write_text(project / "manifest.json", authored.dump(2));
     write_text(project / "include/answer.hpp", "#pragma once\nint answer();\n");
-    write_text(project / "src/answer.cpp", "#include <answer.hpp>\nint answer() { return 42; }\n");
+    write_text(
+        project / "src/answer.cpp",
+        "#include <answer.hpp>\nint answer() { return 42; }\n"
+    );
     for (const auto* directory : { "auto", "google", "custom" }) {
         for (const auto* name : { "first", "second" })
-            write_text(project / "tests" / directory / (std::string(name) + ".cpp"),
-                "#include <gtest/gtest.h>\n#include <answer.hpp>\nTEST(" + std::string(directory) + ", " + name + ") { EXPECT_EQ(answer(), 42); }\n");
+            write_text(
+                project / "tests" / directory / (std::string(name) + ".cpp"),
+                "#include <gtest/gtest.h>\n#include <answer.hpp>\nTEST("
+                    + std::string(directory) + ", " + name
+                    + ") { EXPECT_EQ(answer(), 42); }\n"
+            );
     }
-    write_text(project / "tests/custom/main.cpp",
-        "#include <gtest/gtest.h>\nint main(int argc, char** argv) { ::testing::InitGoogleTest(&argc, argv); return RUN_ALL_TESTS(); }\n");
-    write_text(project / "tests/qt/main.cpp",
+    write_text(
+        project / "tests/custom/main.cpp",
+        "#include <gtest/gtest.h>\nint main(int argc, char** argv) { "
+        "::testing::InitGoogleTest(&argc, argv); return RUN_ALL_TESTS(); }\n"
+    );
+    write_text(
+        project / "tests/qt/main.cpp",
         "#include <QtTest>\nint run_companion(int, char**);\n"
-        "class Entry : public QObject { Q_OBJECT private slots: void first() { QCOMPARE(42, 42); } };\n"
-        "int main(int argc, char** argv) { Entry entry; const int result = QTest::qExec(&entry, argc, argv); return result | run_companion(argc, argv); }\n"
-        "#include \"main.moc\"\n");
-    write_text(project / "tests/qt/companion.cpp",
-        "#include <QtTest>\nclass Companion : public QObject { Q_OBJECT private slots: void second() { QCOMPARE(43, 43); } };\n"
-        "int run_companion(int argc, char** argv) { Companion value; return QTest::qExec(&value, argc, argv); }\n#include \"companion.moc\"\n");
+        "class Entry : public QObject { Q_OBJECT private slots: void first() { "
+        "QCOMPARE(42, 42); } };\n"
+        "int main(int argc, char** argv) { Entry entry; const int result = "
+        "QTest::qExec(&entry, argc, argv); return result | run_companion(argc, "
+        "argv); }\n"
+        "#include \"main.moc\"\n"
+    );
+    write_text(
+        project / "tests/qt/companion.cpp",
+        "#include <QtTest>\nclass Companion : public QObject { Q_OBJECT "
+        "private slots: void second() { QCOMPARE(43, 43); } };\n"
+        "int run_companion(int argc, char** argv) { Companion value; return "
+        "QTest::qExec(&value, argc, argv); }\n#include \"companion.moc\"\n"
+    );
     const auto loaded = ecosystem::load_manifest(project / "manifest.json");
     require_true(loaded.errors.empty(), join_lines(loaded.errors));
     require_sync_success(project, "framework checks must sync");
     const auto developer = root.path() / "developer";
-    const auto generated = ecosystem::generate_developer_cmakelists(*loaded.value, project);
+    const auto generated
+        = ecosystem::generate_developer_cmakelists(*loaded.value, project);
     write_text(developer / "CMakeLists.txt", generated);
     auto run = [&](const std::vector<std::string>& args) {
-        require_true(ecosystem::run_command(args, root.path()) == 0, "framework isolation command must succeed");
+        require_true(
+            ecosystem::run_command(args, root.path()) == 0,
+            "framework isolation command must succeed"
+        );
     };
     for (const auto* profile : { "Debug", "Release" }) {
-        const auto production = root.path() / (std::string(profile) + "-production");
-        run({ "cmake", "-S", developer.string(), "-B", production.string(), "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
-              "-DCMAKE_BUILD_TYPE=" + std::string(profile), "-DECOSYSTEM_BUILD_TESTS=OFF", "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE", "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE" });
+        const auto production
+            = root.path() / (std::string(profile) + "-production");
+        run({ "cmake", "-S", developer.string(), "-B", production.string(),
+              "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
+              "-DCMAKE_BUILD_TYPE=" + std::string(profile),
+              "-DECOSYSTEM_BUILD_TESTS=OFF",
+              "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE",
+              "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE" });
         run({ "cmake", "--build", production.string(), "--parallel", "2" });
         const auto build = root.path() / profile;
-        run({ "cmake", "-S", developer.string(), "-B", build.string(), "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
-              "-DCMAKE_BUILD_TYPE=" + std::string(profile), "-DECOSYSTEM_BUILD_TESTS=ON" });
+        run({ "cmake", "-S", developer.string(), "-B", build.string(),
+              "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
+              "-DCMAKE_BUILD_TYPE=" + std::string(profile),
+              "-DECOSYSTEM_BUILD_TESTS=ON" });
         run({ "cmake", "--build", build.string(), "--parallel", "2" });
-        run({ "ctest", "--test-dir", build.string(), "--no-tests=error", "--output-on-failure" });
-        for (const auto* target : { "core__lib__tests", "google_tests", "custom_tests" }) {
-            const auto cases = run_cli_with_binary(build / target, root.path(), "");
-            require_true(cases.exit_code == 0, "all authored GoogleTest cases must run");
-            require_contains(cases.output, "[  PASSED  ] 2 tests.", "both GoogleTest translation units must execute");
+        run({ "ctest", "--test-dir", build.string(), "--no-tests=error",
+              "--output-on-failure" });
+        for (const auto* target :
+             { "core__lib__tests", "google_tests", "custom_tests" }) {
+            const auto cases
+                = run_cli_with_binary(build / target, root.path(), "");
+            require_true(
+                cases.exit_code == 0, "all authored GoogleTest cases must run"
+            );
+            require_contains(
+                cases.output, "[  PASSED  ] 2 tests.",
+                "both GoogleTest translation units must execute"
+            );
         }
-        const auto qt_cases = run_cli_with_binary(build / "qt_tests", root.path(), "");
-        require_true(qt_cases.exit_code == 0, "both QtTest objects must execute");
-        require_contains(qt_cases.output, "Entry::first()", "QtTest entry case must run");
-        require_contains(qt_cases.output, "Companion::second()", "MOC companion case must run");
-        const auto custom_link = build / "CMakeFiles/custom__tests.dir/link.txt";
+        const auto qt_cases
+            = run_cli_with_binary(build / "qt_tests", root.path(), "");
+        require_true(
+            qt_cases.exit_code == 0, "both QtTest objects must execute"
+        );
+        require_contains(
+            qt_cases.output, "Entry::first()", "QtTest entry case must run"
+        );
+        require_contains(
+            qt_cases.output, "Companion::second()",
+            "MOC companion case must run"
+        );
+        const auto custom_link
+            = build / "CMakeFiles/custom__tests.dir/link.txt";
         if (fs::exists(custom_link)) {
-            require_contains(read_text(custom_link), "libgtest", "authored-main executable must link real GoogleTest");
-            require_not_contains(read_text(custom_link), "libgtest_main", "authored main must not link GoogleTest main");
-            require_not_contains(read_text(build / "CMakeFiles/core__lib.dir/link.txt"), "gtest", "production archive link must exclude GoogleTest");
+            require_contains(
+                read_text(custom_link), "libgtest",
+                "authored-main executable must link real GoogleTest"
+            );
+            require_not_contains(
+                read_text(custom_link), "libgtest_main",
+                "authored main must not link GoogleTest main"
+            );
+            require_not_contains(
+                read_text(build / "CMakeFiles/core__lib.dir/link.txt"), "gtest",
+                "production archive link must exclude GoogleTest"
+            );
         }
         const auto prefix = root.path() / (std::string(profile) + "-installed");
-        run({ "cmake", "--install", build.string(), "--prefix", prefix.string() });
-        const auto relocated = root.path() / (std::string(profile) + "-relocated");
+        run({ "cmake", "--install", build.string(), "--prefix",
+              prefix.string() });
+        const auto relocated
+            = root.path() / (std::string(profile) + "-relocated");
         fs::rename(prefix, relocated);
         for (const auto& file : fs::recursive_directory_iterator(relocated))
             if (file.path().extension() == ".cmake") {
                 const auto contents = read_text(file.path());
-                require_not_contains(contents, "GTest", "test-enabled installation must export no GoogleTest requirements");
-                require_not_contains(contents, "Qt6::Test", "test-enabled installation must export no QtTest requirements");
-                require_not_contains(contents, project.string(), "export must not depend on source paths");
+                require_not_contains(
+                    contents, "GTest",
+                    "test-enabled installation must export no GoogleTest "
+                    "requirements"
+                );
+                require_not_contains(
+                    contents, "Qt6::Test",
+                    "test-enabled installation must export no QtTest "
+                    "requirements"
+                );
+                require_not_contains(
+                    contents, project.string(),
+                    "export must not depend on source paths"
+                );
             }
-        const auto consumer = root.path() / (std::string(profile) + "-consumer");
-        write_text(consumer / "CMakeLists.txt",
-            "cmake_minimum_required(VERSION 3.20)\nproject(consumer LANGUAGES CXX)\nfind_package(scoped_checks ${REQUESTED_VERSION} CONFIG REQUIRED)\n"
-            "get_target_property(links scoped_checks::core__lib INTERFACE_LINK_LIBRARIES)\n"
-            "if(links MATCHES \"GTest|Qt6::Test\")\nmessage(FATAL_ERROR \"test dependency leaked\")\nendif()\n"
-            "add_executable(consumer main.cpp)\ntarget_link_libraries(consumer PRIVATE scoped_checks::core__lib)\n");
-        write_text(consumer / "main.cpp", "#include <answer.hpp>\nint main() { return answer() == 42 ? 0 : 1; }\n");
-        run({ "cmake", "-S", consumer.string(), "-B", (consumer / "build").string(), "-DCMAKE_PREFIX_PATH=" + relocated.string(),
-              "-DCMAKE_BUILD_TYPE=" + std::string(profile), "-DREQUESTED_VERSION=1.2.3", "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE", "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE" });
-        run({ "cmake", "--build", (consumer / "build").string(), "--parallel", "2" });
+        const auto consumer
+            = root.path() / (std::string(profile) + "-consumer");
+        write_text(
+            consumer / "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.20)\nproject(consumer LANGUAGES "
+            "CXX)\nfind_package(scoped_checks ${REQUESTED_VERSION} CONFIG "
+            "REQUIRED)\n"
+            "get_target_property(links scoped_checks::core__lib "
+            "INTERFACE_LINK_LIBRARIES)\n"
+            "if(links MATCHES \"GTest|Qt6::Test\")\nmessage(FATAL_ERROR \"test "
+            "dependency leaked\")\nendif()\n"
+            "add_executable(consumer main.cpp)\ntarget_link_libraries(consumer "
+            "PRIVATE scoped_checks::core__lib)\n"
+        );
+        write_text(
+            consumer / "main.cpp",
+            "#include <answer.hpp>\nint main() { return answer() == 42 ? 0 : "
+            "1; }\n"
+        );
+        run({ "cmake", "-S", consumer.string(), "-B",
+              (consumer / "build").string(),
+              "-DCMAKE_PREFIX_PATH=" + relocated.string(),
+              "-DCMAKE_BUILD_TYPE=" + std::string(profile),
+              "-DREQUESTED_VERSION=1.2.3",
+              "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE",
+              "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE" });
+        run({ "cmake", "--build", (consumer / "build").string(), "--parallel",
+              "2" });
         run({ (consumer / "build/consumer").string() });
         for (const auto* incompatible : { "1.2.2", "1.2.4" }) {
-            const auto rejected = ecosystem::capture_command_result({
-                "cmake", "-S", consumer.string(), "-B",
-                (consumer / (std::string("rejected-") + incompatible)).string(),
-                "-DCMAKE_PREFIX_PATH=" + relocated.string(),
-                "-DREQUESTED_VERSION=" + std::string(incompatible),
-                "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE"
-            });
-            require_true(rejected.exit_code != 0,
-                "installed packages must reject noncurrent requested versions");
-            require_contains(rejected.output, "requested version",
-                "rejection must identify the actual package-version mismatch");
+            const auto rejected = ecosystem::capture_command_result(
+                { "cmake", "-S", consumer.string(), "-B",
+                  (consumer / (std::string("rejected-") + incompatible))
+                      .string(),
+                  "-DCMAKE_PREFIX_PATH=" + relocated.string(),
+                  "-DREQUESTED_VERSION=" + std::string(incompatible),
+                  "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE" }
+            );
+            require_true(
+                rejected.exit_code != 0,
+                "installed packages must reject noncurrent requested versions"
+            );
+            require_contains(
+                rejected.output, "requested version",
+                "rejection must identify the actual package-version mismatch"
+            );
         }
     }
 }
@@ -502,12 +671,10 @@ void test_installed_libraries_are_relocatable() {
         if (std::string(kind) == "shared_lib") {
             authored["facade"] = "app:app";
             authored["install_artifacts"] = { "core:lib" };
-            authored["artifacts"].push_back(
-                { { "id", "app:app" },
-                  { "kind", "exe" },
-                  { "owns", json::array() },
-                  { "entry", "src/main.cpp" } }
-            );
+            authored["artifacts"].push_back({ { "id", "app:app" },
+                                              { "kind", "exe" },
+                                              { "owns", json::array() },
+                                              { "entry", "src/main.cpp" } });
             write_text(provider / "src/main.cpp", "int main() { return 0; }\n");
         }
         write_text(provider / "manifest.json", authored.dump(2));
@@ -573,7 +740,9 @@ void test_installed_libraries_are_relocatable() {
                 "installed libraries, including interface dependencies, must "
                 "not export the generic project-version macro"
             );
-            require_not_contains(text, "GTest", "production export must not need GoogleTest");
+            require_not_contains(
+                text, "GTest", "production export must not need GoogleTest"
+            );
             for (const auto& forbidden : { provider, build, prefix })
                 require_not_contains(
                     text, forbidden.string(),

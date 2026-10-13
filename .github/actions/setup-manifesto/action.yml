@@ -62,6 +62,11 @@ runs:
         TOOL_REF: ${{ inputs.manifesto-ref }}
         BUILD_PARALLELISM: ${{ inputs.build-parallelism }}
       run: |
+        report_root="${GITHUB_WORKSPACE:-$PWD}/.ecosystem/github/reports/00-toolchain"
+        mkdir -p "$report_root"
+        cp "${BASH_SOURCE[0]}" "$report_root/paths-command.sh"
+        exec > >(tee "$report_root/paths.log") 2>&1
+        trap 'result=$?; printf "paths\t%s\n" "$result" >> "$report_root/steps.tsv"' EXIT
         case "$BOOTSTRAP" in
           checkout)
             if [ -n "$TOOL_REPOSITORY" ] || [ -n "$TOOL_REF" ]; then
@@ -104,7 +109,7 @@ runs:
 
     - name: Install Qt 6
       if: ${{ inputs.install-project-deps == 'true' }}
-      uses: jurplel/install-qt-action@v4
+      uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730
       with:
         version: '6.8.*'
         target: 'desktop'
@@ -115,6 +120,11 @@ runs:
     - name: Install shared native dependencies
       shell: bash
       run: |
+        report_root="${GITHUB_WORKSPACE:-$PWD}/.ecosystem/github/reports/00-toolchain"
+        mkdir -p "$report_root"
+        cp "${BASH_SOURCE[0]}" "$report_root/native-dependencies-command.sh"
+        exec > >(tee "$report_root/native-dependencies.log") 2>&1
+        trap 'result=$?; printf "native-dependencies\t%s\n" "$result" >> "$report_root/steps.tsv"' EXIT
         packages=(
           clang
           clang-format
@@ -159,6 +169,11 @@ runs:
     - name: Install declared JSON prerequisite
       shell: bash
       run: |
+        report_root="${GITHUB_WORKSPACE:-$PWD}/.ecosystem/github/reports/00-toolchain"
+        mkdir -p "$report_root"
+        cp "${BASH_SOURCE[0]}" "$report_root/json-command.sh"
+        exec > >(tee "$report_root/json.log") 2>&1
+        trap 'result=$?; printf "json\t%s\n" "$result" >> "$report_root/steps.tsv"' EXIT
         prefix="$GITHUB_WORKSPACE/.ecosystem/tooling/prefix"
         cmake -S .ecosystem/tooling/dependencies/json -B .ecosystem/tooling/dependencies/json-build -DJSON_BuildTests=OFF -DCMAKE_INSTALL_PREFIX="$prefix"
         cmake --install .ecosystem/tooling/dependencies/json-build
@@ -168,6 +183,11 @@ runs:
       if: ${{ inputs.install-docs == 'true' }}
       shell: bash
       run: |
+        report_root="${GITHUB_WORKSPACE:-$PWD}/.ecosystem/github/reports/00-toolchain"
+        mkdir -p "$report_root"
+        cp "${BASH_SOURCE[0]}" "$report_root/sphinx-command.sh"
+        exec > >(tee "$report_root/sphinx.log") 2>&1
+        trap 'result=$?; printf "sphinx\t%s\n" "$result" >> "$report_root/steps.tsv"' EXIT
         docs_env="$GITHUB_WORKSPACE/.ecosystem/tooling/docs-venv"
         python3 -m venv "$docs_env"
         "$docs_env/bin/python" -m pip install sphinx breathe myst-parser "${{ inputs.sphinx-theme-package }}"
@@ -183,6 +203,11 @@ runs:
         BUILD_ROOT: ${{ steps.paths.outputs.manifesto-build-root }}
         BUILD_PARALLELISM: ${{ inputs.build-parallelism }}
       run: |
+        report_root="${GITHUB_WORKSPACE:-$PWD}/.ecosystem/github/reports/00-toolchain"
+        mkdir -p "$report_root"
+        cp "${BASH_SOURCE[0]}" "$report_root/build-command.sh"
+        exec > >(tee "$report_root/build.log") 2>&1
+        trap 'result=$?; printf "build\t%s\n" "$result" >> "$report_root/steps.tsv"' EXIT
         checkout_root="$(realpath -e "$CHECKOUT_ROOT")"
         source_root="$(realpath -e "$SOURCE_ROOT")"
         case "$source_root/" in

@@ -16,8 +16,8 @@ namespace {
     bool metadata(const fs::directory_entry& entry) {
         const auto name = entry.path().filename().string();
         return entry.is_regular_file()
-            && (name == "index.tsv" || name == "readme.md"
-                || name == ".gitkeep");
+            && (name == "index.tsv" || name == "readme.md" || name == ".gitkeep"
+            );
     }
 
     void check_branches(const fs::path& assets, const std::string& category) {
@@ -110,7 +110,9 @@ std::vector<fs::path> runtime_asset_files(
     if (!fs::exists(assets) && !fs::is_symlink(assets))
         return {};
     if (!fs::is_directory(assets) || fs::is_symlink(assets))
-        throw std::runtime_error("invalid runtime asset source: " + assets.string());
+        throw std::runtime_error(
+            "invalid runtime asset source: " + assets.string()
+        );
     const auto project = fs::canonical(root);
     const std::regex cache_pattern(runtime_asset_cache_pattern());
     const auto cache = [&](const fs::path& path) {
@@ -119,9 +121,14 @@ std::vector<fs::path> runtime_asset_files(
     const auto resolve = [&](const fs::path& path, const bool directory) {
         const auto real = fs::canonical(path);
         const auto relative = real.lexically_relative(project);
-        if (relative.empty() || relative.is_absolute() || *relative.begin() == "..")
-            throw std::runtime_error("runtime asset escapes its project: " + path.string());
-        return std::pair { real, cache(directory ? relative : relative.parent_path()) };
+        if (relative.empty() || relative.is_absolute()
+            || *relative.begin() == "..")
+            throw std::runtime_error(
+                "runtime asset escapes its project: " + path.string()
+            );
+        return std::pair {
+            real, cache(directory ? relative : relative.parent_path())
+        };
     };
     std::vector<fs::path> files;
     std::function<void(const fs::path&, std::set<fs::path>)> walk;
@@ -130,15 +137,20 @@ std::vector<fs::path> runtime_asset_files(
         if (cached)
             return;
         if (!ancestors.insert(real).second)
-            throw std::runtime_error("cyclic runtime asset directory: " + directory.string());
+            throw std::runtime_error(
+                "cyclic runtime asset directory: " + directory.string()
+            );
         for (const auto& entry : fs::directory_iterator(directory)) {
             if (entry.is_directory()) {
                 if (!cache(entry.path().filename()))
                     walk(entry.path(), ancestors);
             } else {
-                const auto [real_file, file_cached] = resolve(entry.path(), false);
+                const auto [real_file, file_cached]
+                    = resolve(entry.path(), false);
                 if (!fs::is_regular_file(real_file))
-                    throw std::runtime_error("invalid runtime asset file: " + entry.path().string());
+                    throw std::runtime_error(
+                        "invalid runtime asset file: " + entry.path().string()
+                    );
                 if (!file_cached)
                     files.push_back(entry.path());
             }
@@ -146,15 +158,22 @@ std::vector<fs::path> runtime_asset_files(
     };
     const auto allowed = runtime_asset_categories();
     for (const auto& category : categories) {
-        if (std::find(allowed.begin(), allowed.end(), category) == allowed.end())
-            throw std::runtime_error("invalid runtime asset category: " + category);
+        if (std::find(allowed.begin(), allowed.end(), category)
+            == allowed.end())
+            throw std::runtime_error(
+                "invalid runtime asset category: " + category
+            );
         const auto directory = assets / category;
         if (fs::is_symlink(directory))
-            throw std::runtime_error("runtime asset category uses a symlink: " + directory.string());
+            throw std::runtime_error(
+                "runtime asset category uses a symlink: " + directory.string()
+            );
         if (!fs::exists(directory))
             continue;
         if (!fs::is_directory(directory))
-            throw std::runtime_error("invalid runtime asset category: " + directory.string());
+            throw std::runtime_error(
+                "invalid runtime asset category: " + directory.string()
+            );
         walk(directory, { fs::canonical(assets) });
     }
     std::sort(files.begin(), files.end());

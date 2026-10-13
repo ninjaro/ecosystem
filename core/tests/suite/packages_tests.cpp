@@ -1,5 +1,5 @@
-#include "test_support.hpp"
 #include "test_cases.hpp"
+#include "test_support.hpp"
 
 namespace ecosystem_test_support {
 
@@ -34,10 +34,16 @@ void test_component_package_link_targets_include_qttest_target() {
     const ecosystem::component& component_value
         = manifest_value.components.front();
     const std::vector<std::string> targets
-        = ecosystem::component_package_link_targets(component_value, ecosystem::package_dependency_scope::tests);
-    const auto production = ecosystem::component_package_link_targets(component_value);
-    require_true(std::find(production.begin(), production.end(), "Qt6::Test") == production.end(),
-        "default production link scope must exclude test-only QtTest");
+        = ecosystem::component_package_link_targets(
+            component_value, ecosystem::package_dependency_scope::tests
+        );
+    const auto production
+        = ecosystem::component_package_link_targets(component_value);
+    require_true(
+        std::find(production.begin(), production.end(), "Qt6::Test")
+            == production.end(),
+        "default production link scope must exclude test-only QtTest"
+    );
 
     require_true(
         std::find(targets.begin(), targets.end(), "Qt6::Core") != targets.end(),
@@ -72,8 +78,7 @@ void test_component_package_link_targets_follow_descriptor_rules() {
     const ecosystem::manifest manifest_value = sample_dependency_manifest();
 
     const std::vector<std::string> core_targets
-        = ecosystem::component_package_link_targets(
-            manifest_value.components[0]
+        = ecosystem::component_package_link_targets(manifest_value.components[0]
         );
     require_true(
         std::find(
@@ -103,8 +108,7 @@ void test_component_package_link_targets_follow_descriptor_rules() {
     );
 
     const std::vector<std::string> desktop_targets
-        = ecosystem::component_package_link_targets(
-            manifest_value.components[2]
+        = ecosystem::component_package_link_targets(manifest_value.components[2]
         );
     require_true(
         std::find(
@@ -136,7 +140,8 @@ void test_component_package_link_targets_follow_descriptor_rules() {
 
     const std::vector<std::string> test_targets
         = ecosystem::component_package_link_targets(
-            manifest_value.components[3], ecosystem::package_dependency_scope::tests
+            manifest_value.components[3],
+            ecosystem::package_dependency_scope::tests
         );
     require_true(
         std::find(test_targets.begin(), test_targets.end(), "GTest::gtest_main")
@@ -147,7 +152,8 @@ void test_component_package_link_targets_follow_descriptor_rules() {
 
     const std::vector<std::string> benchmark_targets
         = ecosystem::component_package_link_targets(
-            manifest_value.components[4], ecosystem::package_dependency_scope::benchmarks
+            manifest_value.components[4],
+            ecosystem::package_dependency_scope::benchmarks
         );
     require_true(
         std::find(
@@ -388,8 +394,7 @@ void test_package_descriptors_bind_rule_types() {
     const ecosystem::package_descriptor* qt_descriptor
         = ecosystem::find_package_descriptor(ecosystem::package_kind::qt);
     const ecosystem::package_descriptor* benchmark_descriptor
-        = ecosystem::find_package_descriptor(
-            ecosystem::package_kind::benchmark
+        = ecosystem::find_package_descriptor(ecosystem::package_kind::benchmark
         );
     require_true(
         qt_descriptor != nullptr,
@@ -631,7 +636,8 @@ void test_find_package_surface_rule_returns_qt_rule() {
     );
 }
 
-void test_render_package_surface_block_keeps_header_only_json_cross_compilable() {
+void test_render_package_surface_block_keeps_header_only_json_cross_compilable(
+) {
     const ecosystem::dependency_summary dependencies
         = ecosystem::summarize_dependencies(
             sample_dependency_manifest(), std::nullopt
@@ -851,8 +857,7 @@ void test_render_package_surface_block_renders_cxxopts_support() {
         "architecture-independent host cxxopts package"
     );
     require_contains(
-        block,
-        "file(COPY \"${ECOSYSTEM_CXXOPTS_INCLUDE_DIR}/cxxopts.hpp\"",
+        block, "file(COPY \"${ECOSYSTEM_CXXOPTS_INCLUDE_DIR}/cxxopts.hpp\"",
         "Android must stage the host cxxopts header inside the cross-compile "
         "build tree"
     );

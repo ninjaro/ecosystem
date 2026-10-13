@@ -109,8 +109,8 @@ namespace sync_support {
         return is_runnable_kind(artifact_value.kind);
     }
 
-    bool
-    install_surface_is_library_first(const artifact* entry_artifact_value) {
+    bool install_surface_is_library_first(const artifact* entry_artifact_value
+    ) {
         return entry_artifact_value != nullptr
             && is_library_kind(entry_artifact_value->kind);
     }
@@ -247,9 +247,8 @@ namespace sync_support {
         return targets;
     }
 
-    package_dependency_scope artifact_package_scope(
-        const component& owner, const artifact& output
-    ) {
+    package_dependency_scope
+    artifact_package_scope(const component& owner, const artifact& output) {
         if (is_runnable_kind(output.kind) && component_is_test_only(owner))
             return package_dependency_scope::tests;
         if (is_runnable_kind(output.kind) && component_is_benchmark_only(owner))
@@ -273,7 +272,9 @@ namespace sync_support {
         std::string sphinx_theme = "sphinx_rtd_theme";
         std::string sphinx_theme_package = "sphinx-rtd-theme";
         std::string checkout_action = "actions/checkout@v4";
-        std::string install_qt_action = "jurplel/install-qt-action@v4";
+        std::string install_qt_action
+            = "jurplel/"
+              "install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730";
         std::string github_script_action = "actions/github-script@v7";
         std::string codeql_action_ref = "v3";
         std::string upload_artifact_action = "actions/upload-artifact@v4";
@@ -314,8 +315,8 @@ namespace sync_support {
         }
     }
 
-    bool
-    github_actions_use_local_setup_action(const github_actions_vars& vars) {
+    bool github_actions_use_local_setup_action(const github_actions_vars& vars
+    ) {
         return vars.manifesto_setup_action
             == "./.github/actions/setup-manifesto";
     }
@@ -333,6 +334,7 @@ namespace sync_support {
             ".github/actions/select-manifesto-ci/changes.cjs",
             ".github/actions/select-manifesto-ci/evidence.cjs",
             ".github/actions/publish-manifesto-report/action.yml",
+            ".github/actions/publish-manifesto-report/diagnostics.cjs",
             ".github/actions/setup-manifesto/action.yml",
             ".github/actions/setup-ecosystem/action.yml",
             ".github/actions/run-ecosystem-stage/action.yml",
@@ -649,8 +651,8 @@ namespace sync_support {
         return render_required_text_template(relative_path, bindings);
     }
 
-    std::string
-    newline_terminated_lines(const std::vector<std::string>& lines) {
+    std::string newline_terminated_lines(const std::vector<std::string>& lines
+    ) {
         std::ostringstream stream;
         for (const std::string& line : lines) {
             stream << line << "\n";
@@ -1323,9 +1325,8 @@ namespace sync_support {
         std::set<std::string> keys;
         for (const component& component_value : value.components) {
             for (const artifact& artifact_value : component_value.artifacts) {
-                keys.insert(format_artifact_ref(
-                    artifact_ref { component_value.id, artifact_value.id }
-                ));
+                keys.insert(format_artifact_ref(artifact_ref {
+                    component_value.id, artifact_value.id }));
             }
         }
         return keys;
@@ -1468,9 +1469,8 @@ namespace sync_support {
             declarations += "    _manifesto_source(" + cmake_bracket(package)
                 + " " + cmake_bracket(dependency.repository) + " "
                 + cmake_bracket(dependency.revision) + ")\n";
-            identity.push_back(
-                { package, dependency.repository, dependency.revision }
-            );
+            identity.push_back({ package, dependency.repository,
+                                 dependency.revision });
         }
         return render_required_sync_template(
             "cmake/facade_outer.tpl",
@@ -1506,7 +1506,8 @@ namespace sync_support {
     }
 
     manifest package_manifest(
-        const manifest& value, const std::set<std::string>& keys, bool installed,
+        const manifest& value, const std::set<std::string>& keys,
+        bool installed,
         const package_dependency_scope scope = package_dependency_scope::all
     ) {
         auto result = value;
@@ -1526,13 +1527,19 @@ namespace sync_support {
                 continue;
             result.components.push_back(*owner);
             auto& requirements = result.components.back();
-            if (installed || (scope != package_dependency_scope::tests
-                              && !(scope == package_dependency_scope::all
-                                   && component_is_test_only(*owner))))
+            if (installed
+                || (scope != package_dependency_scope::tests
+                    && !(
+                        scope == package_dependency_scope::all
+                        && component_is_test_only(*owner)
+                    )))
                 requirements.tests = json::object();
-            if (installed || (scope != package_dependency_scope::benchmarks
-                              && !(scope == package_dependency_scope::all
-                                   && component_is_benchmark_only(*owner))))
+            if (installed
+                || (scope != package_dependency_scope::benchmarks
+                    && !(
+                        scope == package_dependency_scope::all
+                        && component_is_benchmark_only(*owner)
+                    )))
                 requirements.benchmarks = json::object();
         }
         return result;
@@ -1560,9 +1567,11 @@ namespace sync_support {
             = selected_components(value, selected_artifact_keys);
         const auto export_keys = exported_library_keys(value);
         const dependency_summary dependencies = summarize_dependencies(
-            package_manifest(value, selected_artifact_keys, false,
+            package_manifest(
+                value, selected_artifact_keys, false,
                 developer_surface ? package_dependency_scope::production
-                                  : package_dependency_scope::all),
+                                  : package_dependency_scope::all
+            ),
             std::nullopt
         );
 
@@ -1572,24 +1581,32 @@ namespace sync_support {
         package_options.qt_automation = true;
         package_options.enable_testing
             = developer_surface && has_tests_enabled(value);
-        std::string package_surface = render_package_surface(dependencies, package_options);
+        std::string package_surface
+            = render_package_surface(dependencies, package_options);
         if (developer_surface) {
             auto check_options = package_options;
             check_options.enable_testing = false;
             for (const auto scope : { package_dependency_scope::tests,
                                       package_dependency_scope::benchmarks }) {
                 const auto check_dependencies = summarize_dependencies(
-                    package_manifest(value, selected_artifact_keys, false, scope),
+                    package_manifest(
+                        value, selected_artifact_keys, false, scope
+                    ),
                     std::nullopt, scope
                 );
-                const auto check_packages = render_package_surface(check_dependencies, check_options);
+                const auto check_packages
+                    = render_package_surface(check_dependencies, check_options);
                 if (!check_packages.empty())
-                    package_surface += render_required_sync_template(
-                        "cmake/package_surface/if_block.tpl",
-                        { { "condition", scope == package_dependency_scope::tests
-                                ? "ECOSYSTEM_BUILD_TESTS" : "ECOSYSTEM_BUILD_BENCHMARKS" },
-                          { "body", check_packages } }
-                    ) + "\n";
+                    package_surface
+                        += render_required_sync_template(
+                               "cmake/package_surface/if_block.tpl",
+                               { { "condition",
+                                   scope == package_dependency_scope::tests
+                                       ? "ECOSYSTEM_BUILD_TESTS"
+                                       : "ECOSYSTEM_BUILD_BENCHMARKS" },
+                                 { "body", check_packages } }
+                           )
+                        + "\n";
             }
         }
         const std::string developer_options_block = developer_surface
@@ -1680,7 +1697,8 @@ namespace sync_support {
         );
 
         const bool has_android_app = std::any_of(
-            components.begin(), components.end(), [](const component* owner) {
+            components.begin(), components.end(),
+            [](const component* owner) {
                 return component_has_stack_key(*owner, "android")
                     && std::any_of(
                            owner->artifacts.begin(), owner->artifacts.end(),
@@ -1811,8 +1829,12 @@ namespace sync_support {
                     value, *component_value, *artifact_value
                 );
                 const std::vector<std::string> link_targets
-                    = component_link_targets(*component_value, *artifact_value,
-                        artifact_package_scope(*component_value, *artifact_value));
+                    = component_link_targets(
+                        *component_value, *artifact_value,
+                        artifact_package_scope(
+                            *component_value, *artifact_value
+                        )
+                    );
                 const std::string link_scope
                     = link_scope_for_artifact(*artifact_value);
                 const std::vector<std::string> header_lines
@@ -1824,10 +1846,8 @@ namespace sync_support {
                     stream << render_interface_artifact_block(
                         target_name, indent
                     ) << "\n";
-                } else if (
-                    artifact_value->kind == "static_lib"
-                    || artifact_value->kind == "shared_lib"
-                ) {
+                } else if (artifact_value->kind == "static_lib"
+                           || artifact_value->kind == "shared_lib") {
                     stream << render_library_artifact_block(
                         target_name,
                         artifact_value->kind == "static_lib" ? "STATIC"
@@ -2046,14 +2066,11 @@ namespace sync_support {
                         { { "target_name", cmake_target_name(ref) },
                           { "project_id", value.id } }
                     ) << "\n";
-                } else if (
-                    artifact_installs_target_file(
-                        *artifact_value, is_entry_artifact,
-                        library_first_install_surface
-                    )
-                ) {
-                    stream << render_install_target_block(
-                        cmake_target_name(ref)
+                } else if (artifact_installs_target_file(
+                               *artifact_value, is_entry_artifact,
+                               library_first_install_surface
+                           )) {
+                    stream << render_install_target_block(cmake_target_name(ref)
                     ) << "\n";
                 }
                 if (!exported
@@ -2207,12 +2224,11 @@ namespace sync_support {
                         if (!artifact_is_runnable(artifact_value)) {
                             continue;
                         }
-                        const std::string dependency_target = cmake_target_name(
-                            artifact_ref {
+                        const std::string dependency_target
+                            = cmake_target_name(artifact_ref {
                                 runtime_component->id,
                                 artifact_value.id,
-                            }
-                        );
+                            });
                         if (seen_runtime_dependency_targets
                                 .insert(dependency_target)
                                 .second) {
@@ -2306,8 +2322,10 @@ std::string generate_gitignore() {
     for (const auto& path : ignored_local_surface_paths()) {
         local_rules += "/" + path.generic_string() + "\n";
     }
-    return render_required_text_template("tracked/.gitignore.tpl",
-        { { "ignored_local_surface_rules", local_rules } });
+    return render_required_text_template(
+        "tracked/.gitignore.tpl",
+        { { "ignored_local_surface_rules", local_rules } }
+    );
 }
 
 std::vector<tracked_surface_file> generate_tracked_surface_files(
@@ -2322,18 +2340,14 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
         return files;
     }
 
-    files.push_back(
-        tracked_surface_file {
-            "CMakeLists.txt",
-            generate_cmakelists(value, project_root),
-        }
-    );
-    files.push_back(
-        tracked_surface_file {
-            ".gitignore",
-            generate_gitignore(),
-        }
-    );
+    files.push_back(tracked_surface_file {
+        "CMakeLists.txt",
+        generate_cmakelists(value, project_root),
+    });
+    files.push_back(tracked_surface_file {
+        ".gitignore",
+        generate_gitignore(),
+    });
 
     append_tracked_template_file(
         &files, ".clang-format",
@@ -2379,6 +2393,12 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
         &files, ".github/actions/publish-manifesto-report/action.yml",
         { ".github/actions/publish-manifesto-report/action.yml",
           "tracked/.github/actions/publish-manifesto-report/action.yml.tpl" },
+        workflow_bindings, error_sink
+    );
+    append_tracked_template_file(
+        &files, ".github/actions/publish-manifesto-report/diagnostics.cjs",
+        { "tracked/.github/actions/publish-manifesto-report/"
+          "diagnostics.cjs.tpl" },
         workflow_bindings, error_sink
     );
     if (github_actions_use_local_setup_action(*vars)) {
@@ -2431,7 +2451,9 @@ tracked_surface_drift(const fs::path& project_root, const manifest& value) {
         = generate_tracked_surface_files(value, project_root, &drift);
     const auto local_paths = ignored_local_surface_paths();
     for (const tracked_surface_file& file_value : files) {
-        if (std::find(local_paths.begin(), local_paths.end(), file_value.relative_path)
+        if (std::find(
+                local_paths.begin(), local_paths.end(), file_value.relative_path
+            )
             != local_paths.end()) {
             continue;
         }

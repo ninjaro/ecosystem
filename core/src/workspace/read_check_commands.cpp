@@ -198,7 +198,8 @@ command_error run_check_leaks(
     if (configure_status != command_error::ok) {
         print_error(
             err, configure_status,
-            "cannot configure the leak-check build; this requires Clang and working "
+            "cannot configure the leak-check build; this requires Clang and "
+            "working "
             "AddressSanitizer, UndefinedBehaviorSanitizer and LeakSanitizer "
             "runtimes\n"
                 + error_message
@@ -256,8 +257,8 @@ command_error run_check_leaks(
 
 command_error run_check_tests(
     const fs::path& project_root, const manifest& manifest_value,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 ) {
     if (!has_tests_enabled(manifest_value)) {
         print_error(
@@ -283,7 +284,9 @@ command_error run_check_tests(
     if (status != command_error::ok) {
         return status;
     }
-    status = build_facade_entry_artifact(project_root, manifest_value, "debug", err);
+    status = build_facade_entry_artifact(
+        project_root, manifest_value, "debug", err
+    );
     if (status != command_error::ok) {
         return status;
     }
@@ -489,8 +492,8 @@ command_error run_check_coverage(
 
 command_error run_check_java(
     const fs::path& project_root, const manifest& manifest_value,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 ) {
     if (requested_artifact.has_value()) {
         print_error(
@@ -569,8 +572,8 @@ command_error run_check_java(
 
 command_error run_check_tidy(
     const fs::path& project_root, const manifest& manifest_value,
-    const std::optional<artifact_ref>& requested_artifact,
-    std::ostream& out, std::ostream& err
+    const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
+    std::ostream& err
 ) {
     const std::optional<resolved_artifact> resolved
         = resolve_artifact(manifest_value, requested_artifact);
@@ -803,7 +806,9 @@ command_error run_check_sphinx(
         return command_error::missing_local_tooling;
 
     std::string error_message;
-    if (!write_local_sphinx_conf(project_root, manifest_value.id, &error_message)) {
+    if (!write_local_sphinx_conf(
+            project_root, manifest_value.id, &error_message
+        )) {
         print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
@@ -877,7 +882,8 @@ command_error run_check_repo(
         return command_error::task_failed;
     }
 
-    const string_list drift = tracked_surface_drift(project_root, manifest_value);
+    const string_list drift
+        = tracked_surface_drift(project_root, manifest_value);
     if (!drift.empty()) {
         err << "tracked surfaces out of sync:\n";
         for (const std::string& issue : drift) {
@@ -975,8 +981,8 @@ command_error run_check(
     }
     if (profile == "sphinx") {
         return run_check_sphinx(
-            project_root, manifest_value, requested_artifact, sphinx_theme,
-            out, err
+            project_root, manifest_value, requested_artifact, sphinx_theme, out,
+            err
         );
     }
 
@@ -995,8 +1001,9 @@ command_error run_check(
     }
     if (!requested_artifact.has_value()
         && project_supports_java_check(project_root, manifest_value)) {
-        status
-            = run_check_java(project_root, manifest_value, std::nullopt, out, err);
+        status = run_check_java(
+            project_root, manifest_value, std::nullopt, out, err
+        );
         if (status != command_error::ok) {
             return status;
         }
@@ -1023,7 +1030,8 @@ command_error run_workspace_check(
     const std::optional<std::string>& sphinx_theme, std::ostream& out,
     std::ostream& err
 ) {
-    const command_error validity = validate_workspace_scope(workspace, scope, err);
+    const command_error validity
+        = validate_workspace_scope(workspace, scope, err);
     if (validity != command_error::ok) {
         return validity;
     }
@@ -1116,4 +1124,4 @@ command_error run_workspace_check(
     );
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

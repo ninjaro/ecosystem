@@ -33,8 +33,7 @@ const dependency_entry& package_dependency_entry(
 package_group effective_package_group(
     const package_descriptor& descriptor, bool kde_enabled_for_profile
 );
-std::vector<package_surface_block> enabled_surface_blocks(
-    const dependency_summary& dependencies
-);
+std::vector<package_surface_block>
+enabled_surface_blocks(const dependency_summary& dependencies);
 
-}  // namespace ecosystem
+} // namespace ecosystem

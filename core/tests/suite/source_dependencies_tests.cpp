@@ -12,14 +12,14 @@ namespace {
                                             .get<std::string>();
         write_text(
             consumer / "manifesto.local.json",
-            json(
-                { { "sources", { { repository, provider.string() } } } }
+            json({ { "sources", { { repository, provider.string() } } } }
             ).dump(2)
         );
     }
 }
 
-void test_source_dependency_local_override_builds_and_installs_before_consumer() {
+void test_source_dependency_local_override_builds_and_installs_before_consumer(
+) {
     temp_dir root;
     write_source_dependency_fixture(root.path());
     const auto provider = root.path() / "provider";
@@ -347,7 +347,8 @@ void test_source_dependency_shared_and_interface_usage_requirements() {
     }
 }
 
-void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure() {
+void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure(
+) {
     const std::vector<std::pair<
         std::string, std::function<void(const fs::path&, const fs::path&)>>>
         cases {
@@ -367,7 +368,8 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
                   auto value
                       = json::parse(read_text(consumer / "manifest.json"));
                   value["artifacts"][0]["packages"]["external_project"]
-                       ["artifact"] = "math:absent";
+                       ["artifact"]
+                      = "math:absent";
                   write_text(consumer / "manifest.json", value.dump(2));
               } },
             { "provider artifact missing or kind mismatch",

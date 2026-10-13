@@ -17,36 +17,36 @@ namespace fs = std::filesystem;
 namespace ecosystem {
 namespace tidy_support {
 
-bool path_exists(const fs::path& path) {
-    std::error_code error;
-    return fs::exists(path, error) && !error;
-}
-
-string_list split_nonempty_lines(const std::string& value) {
-    string_list lines;
-    std::stringstream stream(value);
-    std::string line;
-    while (std::getline(stream, line)) {
-        if (!line.empty()) {
-            lines.push_back(line);
-        }
+    bool path_exists(const fs::path& path) {
+        std::error_code error;
+        return fs::exists(path, error) && !error;
     }
-    return lines;
-}
 
-bool has_configuration_error(const string_list& lines) {
-    return std::any_of(
-        lines.begin(), lines.end(),
-        [](const std::string& line) {
-            return (line.find(".clang-tidy:") != std::string::npos
-                    && line.find("error:") != std::string::npos)
-                || (line.find("Error parsing ") != std::string::npos
-                    && line.find(".clang-tidy") != std::string::npos);
+    string_list split_nonempty_lines(const std::string& value) {
+        string_list lines;
+        std::stringstream stream(value);
+        std::string line;
+        while (std::getline(stream, line)) {
+            if (!line.empty()) {
+                lines.push_back(line);
+            }
         }
-    );
-}
+        return lines;
+    }
 
-}  // namespace tidy_support
+    bool has_configuration_error(const string_list& lines) {
+        return std::any_of(
+            lines.begin(), lines.end(),
+            [](const std::string& line) {
+                return (line.find(".clang-tidy:") != std::string::npos
+                        && line.find("error:") != std::string::npos)
+                    || (line.find("Error parsing ") != std::string::npos
+                        && line.find(".clang-tidy") != std::string::npos);
+            }
+        );
+    }
+
+} // namespace tidy_support
 
 using namespace tidy_support;
 
@@ -63,9 +63,11 @@ tidy_check_report run_tidy_check(
     report.analysis.benchmarks_included = include_benchmarks;
 
     const fs::path build_dir = local_build_dir(project_root, profile);
-    const fs::path compilation_database_path = build_dir / "compile_commands.json";
+    const fs::path compilation_database_path
+        = build_dir / "compile_commands.json";
     report.compilation_database = compilation_database_path.string();
-    report.compilation_database_available = path_exists(compilation_database_path);
+    report.compilation_database_available
+        = path_exists(compilation_database_path);
 
     const tool_status clang_tidy = probe_tool("clang-tidy");
     report.clang_tidy_available = clang_tidy.available;
@@ -91,7 +93,8 @@ tidy_check_report run_tidy_check(
         selected, project_root, std::nullopt, include_tests, include_benchmarks
     );
     if (sources.empty()) {
-        report.clang_tidy_skip_reason = "no source files available for clang-tidy";
+        report.clang_tidy_skip_reason
+            = "no source files available for clang-tidy";
         return report;
     }
 
@@ -110,8 +113,8 @@ tidy_check_report run_tidy_check(
             const fs::path directory = entry.at("directory").get<std::string>();
             const fs::path file = entry.at("file").get<std::string>();
             if (!directory.is_absolute()
-                || (!entry.contains("command")
-                    && !entry.contains("arguments"))) {
+                || (!entry.contains("command") && !entry.contains("arguments")
+                )) {
                 report.clang_tidy_skip_reason
                     = "invalid compile_commands.json entry";
                 return report;
@@ -119,8 +122,7 @@ tidy_check_report run_tidy_check(
             configured_sources.insert(fs::weakly_canonical(directory / file));
         }
         for (const auto& source : sources) {
-            if (!configured_sources.contains(
-                    fs::weakly_canonical(source.path)
+            if (!configured_sources.contains(fs::weakly_canonical(source.path)
                 )) {
                 report.clang_tidy_skip_reason
                     = "compile_commands.json has no entry for "
@@ -146,15 +148,15 @@ tidy_check_report run_tidy_check(
     }
     if (configuration.empty()) {
         report.clang_tidy_configuration_error = true;
-        report.clang_tidy_output = {
-            "canonical clang-tidy configuration is unavailable"
-        };
+        report.clang_tidy_output
+            = { "canonical clang-tidy configuration is unavailable" };
         return report;
     }
     const std::string configuration_argument
         = "--config-file=" + configuration.string();
     const captured_command verification = capture_command_result(
-        { clang_tidy.path, "--verify-config", configuration_argument }, project_root
+        { clang_tidy.path, "--verify-config", configuration_argument },
+        project_root
     );
     if (verification.exit_code != 0) {
         report.clang_tidy_configuration_error = true;
@@ -179,7 +181,8 @@ tidy_check_report run_tidy_check(
         command.push_back(source.path.string());
     }
 
-    const captured_command result = capture_command_result(command, project_root);
+    const captured_command result
+        = capture_command_result(command, project_root);
     report.clang_tidy_used = true;
     report.clang_tidy_exit_code = result.exit_code;
     report.clang_tidy_output = split_nonempty_lines(result.output);
@@ -204,4 +207,4 @@ json to_json(const tidy_check_report& value) {
     return report;
 }
 
-}  // namespace ecosystem
+} // namespace ecosystem

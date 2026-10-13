@@ -15,7 +15,8 @@ struct package_surface_options {
 };
 
 std::string render_package_surface(
-    const dependency_summary& dependencies, const package_surface_options& options
+    const dependency_summary& dependencies,
+    const package_surface_options& options
 );
 
-}  // namespace ecosystem
+} // namespace ecosystem
