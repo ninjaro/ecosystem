@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
+from workspace_paths import browser_workspace, screenshot_path
 
 sys.dont_write_bytecode = True
 from presentation.media import image, pdf, video
@@ -18,8 +18,11 @@ site = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.na
 loader.exec_module(site)
 browser = sys.argv[2] if len(sys.argv) > 2 else 'chromium'
 
-with tempfile.TemporaryDirectory(prefix='manifesto-carousel-browser-') as temporary:
-    root = Path(temporary)
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
+def check_browser():
+    root = browser_workspace(PROJECT_ROOT, 'carousel')
+    screenshot = screenshot_path(PROJECT_ROOT, root.name, sys.argv[3] if len(sys.argv) > 3 else None)
     media = root / 'assets/showcase'
     media.mkdir(parents=True)
     image(media / 'frame.png')
@@ -116,7 +119,6 @@ window.addEventListener('load', async () => {
         assert result.returncode == 0, result.stderr
         assert '<output id="browser-result">PASS</output>' in result.stdout, result.stdout[-2500:]
         print('PASS carousel controls, playback, keyboard, resize:', width, 'reduced:', reduced)
-    screenshot = Path(sys.argv[3]) if len(sys.argv) > 3 else root / 'no-js.png'
     source = page.read_text().split('<script id="carousel-test">')[0]
     assert 'carousel-ready' not in source and source.count('class="carousel-slide"') == 3
     # Omit application scripts; Chromium's own headless DOM/screenshot machinery still needs its engine.
@@ -129,3 +131,6 @@ window.addEventListener('load', async () => {
     assert 'carousel-ready' not in result.stdout and result.stdout.count('class="carousel-slide"') == 3
     assert screenshot.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'), 'native fallback render must succeed'
     print('PASS ordered list without JavaScript')
+
+
+check_browser()

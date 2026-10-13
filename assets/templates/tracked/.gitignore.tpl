@@ -39,3 +39,6 @@ Doxyfile
 compile_commands.json
 CMakeLists.txt.user
 CMakeLists.txt.user.*
+
+# Reproducible agent screenshots/simulations; authored assets stay trackable.
+/assets/dumps/test/.agent_cache/

@@ -81,6 +81,21 @@ void test_sync_matches_tracked_surfaces() {
     }
 }
 
+void test_template_root_ignores_retired_environment_name() {
+    temp_dir root;
+    scoped_env no_override("MANIFESTO_TEMPLATE_ROOT", "");
+    const auto canonical = ecosystem::template_root_path();
+    require_true(!canonical.empty(), "current template bundle must be available");
+    const auto retired = root.path() / "retired";
+    write_text(retired / "cmake/surface_prefix.tpl", "# retired override\n");
+    scoped_env old_name("ECOSYSTEM_TEMPLATE_ROOT", retired.string());
+    require_true(ecosystem::template_root_path() == canonical,
+        "retired environment names must not select a different template bundle");
+    scoped_env current_name("MANIFESTO_TEMPLATE_ROOT", retired.string());
+    require_true(ecosystem::template_root_path() == retired,
+        "the current explicit override contract must remain supported");
+}
+
 void test_ignored_local_surfaces_respect_repository_policy() {
     temp_dir root;
     write_sample_build_project(root.path(), "sample");

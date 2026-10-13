@@ -41,8 +41,8 @@ extern const std::regex pacman_version_pattern;
 extern const std::regex debian_package_pattern;
 
 std::string trim(const std::string& value);
+std::string env_value(const char* name);
 
-std::string env_fallback(const char* preferred_name, const char* fallback_name);
 
 std::string package_token(const std::string& value);
 

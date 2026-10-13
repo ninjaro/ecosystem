@@ -166,6 +166,8 @@ int main(int argc, char** argv) {
         { "visitor_facade_rejects_conflicting_output_names",
           test_visitor_facade_rejects_conflicting_output_names },
         { "sync_matches_tracked_surfaces", test_sync_matches_tracked_surfaces },
+        { "template_root_ignores_retired_environment_name",
+          test_template_root_ignores_retired_environment_name },
         { "ignored_local_surfaces_respect_repository_policy", test_ignored_local_surfaces_respect_repository_policy },
         { "ignored_local_rules_match_git", test_ignored_local_rules_match_git },
         { "package_surface_includes_qttest_component",

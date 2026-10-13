@@ -90,21 +90,10 @@ fs::path executable_path() {
 }
 
 fs::path source_template_root() {
-#ifdef MANIFESTO_SOURCE_TEMPLATE_ROOT
     return MANIFESTO_SOURCE_TEMPLATE_ROOT;
-#else
-    // Allows bootstrapping a newly generated build with an older CMake surface.
-    return fs::path(__FILE__)
-               .parent_path()
-               .parent_path()
-               .parent_path()
-               .parent_path()
-        / "assets/templates";
-#endif
 }
 
 fs::path version_template_root() {
-#ifdef MANIFESTO_BUILD_ROOT
     const auto executable = executable_path();
     if (!executable.empty()) {
         std::error_code error;
@@ -117,9 +106,6 @@ fs::path version_template_root() {
             .lexically_normal();
     }
     return {};
-#else
-    return source_template_root();
-#endif
 }
 
 void append_unique_path(std::vector<fs::path> *paths, std::set<std::string> *seen,
@@ -135,9 +121,6 @@ template_root_candidates() {
     std::vector<fs::path> candidates;
     std::set<std::string> seen;
     std::string env_root = env_or_empty("MANIFESTO_TEMPLATE_ROOT");
-    if (env_root.empty()) {
-        env_root = env_or_empty("ECOSYSTEM_TEMPLATE_ROOT");
-    }
     if (!env_root.empty()) {
         append_unique_path(&candidates, &seen, fs::path(env_root));
     }
@@ -208,7 +191,8 @@ std::string render_text_template_candidates(
   }
 
   for (const auto &[name, value] : bindings) {
-    contents = replace_all(contents, "{{" + name + "}}", value);
+    const auto placeholder = std::string("{{").append(name).append("}}");
+    contents = replace_all(contents, placeholder, value);
   }
 
   const std::string unresolved = unresolved_placeholder(contents);

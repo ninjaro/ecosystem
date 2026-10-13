@@ -609,6 +609,15 @@ command_error run_check_tidy(
     out << "tidy report: "
         << report_path.lexically_relative(project_root).generic_string()
         << "\n";
+    if (report.clang_tidy_configuration_error) {
+        for (const auto& line : report.clang_tidy_output)
+            err << line << "\n";
+        print_error(
+            err, command_error::task_failed,
+            "clang-tidy configuration is invalid"
+        );
+        return command_error::task_failed;
+    }
     if (!report.clang_tidy_used) {
         const auto failure = report.clang_tidy_available
             ? command_error::task_failed
@@ -618,15 +627,6 @@ command_error run_check_tidy(
             "required tidy check did not run: " + report.clang_tidy_skip_reason
         );
         return failure;
-    }
-    if (report.clang_tidy_configuration_error) {
-        for (const auto& line : report.clang_tidy_output)
-            err << line << "\n";
-        print_error(
-            err, command_error::task_failed,
-            "clang-tidy configuration is invalid"
-        );
-        return command_error::task_failed;
     }
     if (report.clang_tidy_exit_code != 0) {
         for (const auto& line : report.clang_tidy_output)

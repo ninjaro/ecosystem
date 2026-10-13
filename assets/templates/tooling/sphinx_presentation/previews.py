@@ -6,7 +6,7 @@ import struct
 import subprocess
 import tempfile
 
-from .inputs import require
+from .inputs import require, safe_path
 
 PNG_LIMIT = 8 * 1024 * 1024
 
@@ -18,7 +18,9 @@ def preview(inputs, kind, name, data):
     tool = 'pdftoppm' if kind == 'pdf' else 'ffmpeg'
     command = shutil.which(tool)
     require(command, tool + ' is required for preview: ' + name)
-    with tempfile.TemporaryDirectory(prefix='manifesto-preview-') as temporary:
+    temporary_parent = safe_path(inputs.root, '.ecosystem/tmp/previews')
+    temporary_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='manifesto-preview-', dir=temporary_parent) as temporary:
         root = Path(temporary)
         source = root / ('input' + Path(name).suffix.lower())
         source.write_bytes(data)

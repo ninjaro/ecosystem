@@ -1,6 +1,7 @@
 #include "analysis/tidy.hpp"
 
 #include "workspace/project.hpp"
+#include "workspace/template_text.hpp"
 #include "workspace/tooling.hpp"
 
 #include <algorithm>
@@ -137,6 +138,31 @@ tidy_check_report run_tidy_check(
         return report;
     }
 
+    // Optional local configuration must not make the required check inherit an
+    // unrelated parent's defaults or silently lose the canonical diagnostics.
+    fs::path configuration = project_root / ".clang-tidy";
+    if (!path_exists(configuration)) {
+        configuration = locate_template_path({ "tooling/clang-tidy.tpl" });
+    }
+    if (configuration.empty()) {
+        report.clang_tidy_configuration_error = true;
+        report.clang_tidy_output = {
+            "canonical clang-tidy configuration is unavailable"
+        };
+        return report;
+    }
+    const std::string configuration_argument
+        = "--config-file=" + configuration.string();
+    const captured_command verification = capture_command_result(
+        { clang_tidy.path, "--verify-config", configuration_argument }, project_root
+    );
+    if (verification.exit_code != 0) {
+        report.clang_tidy_configuration_error = true;
+        report.clang_tidy_exit_code = verification.exit_code;
+        report.clang_tidy_output = split_nonempty_lines(verification.output);
+        return report;
+    }
+
     report.analysis = analyze_project_sources(
         selected, project_root, std::nullopt, include_tests, include_benchmarks
     );
@@ -147,6 +173,7 @@ tidy_check_report run_tidy_check(
         "-p",
         build_dir.string(),
         "--warnings-as-errors=*",
+        configuration_argument,
     };
     for (const cxx_analysis_source& source : sources) {
         command.push_back(source.path.string());

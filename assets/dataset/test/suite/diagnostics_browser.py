@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
+from workspace_paths import browser_workspace
 
 sys.dont_write_bytecode = True
 module = Path(sys.argv[1]).absolute()
@@ -17,8 +17,10 @@ loader = SourceFileLoader('manifesto_presentation', str(module))
 site = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(site)
 
-with tempfile.TemporaryDirectory(prefix='manifesto-diagnostics-browser-') as temporary:
-    root = Path(temporary)
+PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
+def check_browser():
+    root = browser_workspace(PROJECT_ROOT, 'diagnostics')
     (root / 'manifest.json').write_text(json.dumps({'id': 'browser', 'description': 'Diagnostic browser fixture',
         'facade': 'core:model', 'artifacts': [
         {'id': 'core:model', 'kind': 'static_lib', 'root': 'core', 'owns': ['model']}]}))
@@ -99,3 +101,6 @@ window.addEventListener('load', () => {
     assert all(html.escape(finding['rule']) in plain.stdout for finding in report['findings']), plain.stdout[-3000:]
     assert 'data-diagnostic-count' in plain.stdout and ' findings</p>' in plain.stdout
     print('PASS native JSON/CI/Pages identity, filters, failures and script-free findings')
+
+
+check_browser()

@@ -370,6 +370,7 @@ void test_framework_dependencies_are_scoped_and_relocatable() {
     const auto project = root.path() / "project";
     json authored = {
         { "id", "scoped_checks" }, { "description", "Framework dependency isolation" },
+        { "version", "1.2.3" },
         { "facade", "core:lib" },
         { "artifacts", json::array({
             { { "id", "core:lib" }, { "kind", "static_lib" }, { "owns", { "answer", "tests/auto" } }, { "tests", { { "gtest", true } } } },
@@ -448,15 +449,28 @@ void test_framework_dependencies_are_scoped_and_relocatable() {
             }
         const auto consumer = root.path() / (std::string(profile) + "-consumer");
         write_text(consumer / "CMakeLists.txt",
-            "cmake_minimum_required(VERSION 3.20)\nproject(consumer LANGUAGES CXX)\nfind_package(scoped_checks CONFIG REQUIRED)\n"
+            "cmake_minimum_required(VERSION 3.20)\nproject(consumer LANGUAGES CXX)\nfind_package(scoped_checks ${REQUESTED_VERSION} CONFIG REQUIRED)\n"
             "get_target_property(links scoped_checks::core__lib INTERFACE_LINK_LIBRARIES)\n"
             "if(links MATCHES \"GTest|Qt6::Test\")\nmessage(FATAL_ERROR \"test dependency leaked\")\nendif()\n"
             "add_executable(consumer main.cpp)\ntarget_link_libraries(consumer PRIVATE scoped_checks::core__lib)\n");
         write_text(consumer / "main.cpp", "#include <answer.hpp>\nint main() { return answer() == 42 ? 0 : 1; }\n");
         run({ "cmake", "-S", consumer.string(), "-B", (consumer / "build").string(), "-DCMAKE_PREFIX_PATH=" + relocated.string(),
-              "-DCMAKE_BUILD_TYPE=" + std::string(profile), "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE", "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE" });
+              "-DCMAKE_BUILD_TYPE=" + std::string(profile), "-DREQUESTED_VERSION=1.2.3", "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE", "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=TRUE" });
         run({ "cmake", "--build", (consumer / "build").string(), "--parallel", "2" });
         run({ (consumer / "build/consumer").string() });
+        for (const auto* incompatible : { "1.2.2", "1.2.4" }) {
+            const auto rejected = ecosystem::capture_command_result({
+                "cmake", "-S", consumer.string(), "-B",
+                (consumer / (std::string("rejected-") + incompatible)).string(),
+                "-DCMAKE_PREFIX_PATH=" + relocated.string(),
+                "-DREQUESTED_VERSION=" + std::string(incompatible),
+                "-DCMAKE_DISABLE_FIND_PACKAGE_GTest=TRUE"
+            });
+            require_true(rejected.exit_code != 0,
+                "installed packages must reject noncurrent requested versions");
+            require_contains(rejected.output, "requested version",
+                "rejection must identify the actual package-version mismatch");
+        }
     }
 }
 

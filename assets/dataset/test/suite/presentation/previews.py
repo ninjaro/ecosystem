@@ -21,6 +21,7 @@ class PreviewTests(PresentationCase):
         data = self.file.read_bytes()
         def convert(args, **kwargs):
             source = Path(args[-2])
+            self.assertTrue(source.is_relative_to(self.root / '.ecosystem/tmp/previews'))
             self.assertNotEqual(source, self.file)
             self.assertEqual(source.read_bytes(), data)
             image(Path(args[-1]).with_suffix('.png'))
@@ -31,6 +32,15 @@ class PreviewTests(PresentationCase):
         self.assertEqual(self.file.read_bytes(), data)
         self.assertEqual(previews.preview(self.inputs, 'pdf', 'copy.pdf', data), name)
         self.assertEqual(self.converter.call_count, 1)
+
+    def test_preview_workspace_rejects_symlink_parent(self):
+        outside = self.root / 'unrelated'
+        outside.mkdir()
+        (self.root / '.ecosystem/tmp').symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, 'symlink'):
+            previews.preview(self.inputs, 'pdf', self.file.name, self.file.read_bytes())
+        self.assertFalse(self.converter.called)
+        self.assertEqual(list(outside.iterdir()), [])
 
     def test_converter_failures(self):
         for result in (subprocess.CompletedProcess([], 4, b'converter failed'),

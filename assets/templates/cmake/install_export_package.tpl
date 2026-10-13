@@ -11,7 +11,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/{{project_id}}Targets.cmake")
 configure_file("${_{{project_id}}_package_dir}/{{project_id}}Config.cmake.in"
                "${_{{project_id}}_package_dir}/{{project_id}}Config.cmake" @ONLY)
 write_basic_package_version_file("${_{{project_id}}_package_dir}/{{project_id}}ConfigVersion.cmake"
-                                VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+                                VERSION ${PROJECT_VERSION} COMPATIBILITY ExactVersion)
 install(EXPORT {{project_id}}Targets NAMESPACE {{project_id}}::
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/{{project_id}}")
 install(FILES "${_{{project_id}}_package_dir}/{{project_id}}Config.cmake"

@@ -39,15 +39,6 @@ std::string env_value(const char* name) {
     return value == nullptr ? std::string() : std::string(value);
 }
 
-std::string
-env_fallback(const char* preferred_name, const char* fallback_name) {
-    std::string value = env_value(preferred_name);
-    if (!value.empty()) {
-        return value;
-    }
-    return env_value(fallback_name);
-}
-
 std::string package_token(const std::string& value) {
     std::string normalized;
     bool last_was_dash = false;
@@ -92,7 +83,7 @@ std::string package_description(
 
 std::string package_author() {
     const std::string packager
-        = trim(env_fallback("MANIFESTO_PACKAGER", "ECOSYSTEM_PACKAGER"));
+        = trim(env_value("MANIFESTO_PACKAGER"));
     if (!packager.empty()) {
         return packager;
     }

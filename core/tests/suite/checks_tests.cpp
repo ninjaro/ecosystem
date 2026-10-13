@@ -663,6 +663,33 @@ void test_cli_check_tidy_honors_full_artifact_identity_and_configuration() {
         result.output, "unselected artifact must not be analyzed",
         "whole-project diagnostics must retain the failing compiler message"
     );
+
+    // With optional local config absent, use the canonical bundle rather than
+    // weakening diagnostics through an unrelated ancestor configuration.
+    fs::remove(project / ".clang-tidy");
+    write_text(root.path() / ".clang-tidy",
+        "Checks: '-*,clang-analyzer-core.NullDereference'\n");
+    write_text(project / "src/main.cpp",
+        "class sample { public: sample() {} };\n"
+        "int main() { sample instance; (void)instance; return 0; }\n");
+    result = run_engels_cli(project, "check tidy core:app");
+    require_true(result.exit_code == 5,
+        "absent local configuration must retain canonical diagnostics");
+    require_contains(result.output, "modernize-use-equals-default",
+        "canonical diagnostics must not be replaced by parent defaults");
+    require_true(!fs::exists(project / ".clang-tidy"),
+        "required tidy must not recreate optional root configuration");
+
+    write_text(project / ".clang-tidy", "Checks: '-*,not-a-real-check'\n");
+    result = run_engels_cli(project, "check tidy core:app");
+    require_true(result.exit_code == 5,
+        "unknown check names must fail configuration validation");
+    require_contains(result.output, "configuration is invalid",
+        "configuration failures must be distinct from source diagnostics");
+    report = json::parse(read_text(report_path));
+    require_true(report.at("clang_tidy_configuration_error").get<bool>()
+        && !report.at("clang_tidy_used").get<bool>(),
+        "failed preflight must not claim source analysis executed");
 }
 
 void test_cli_format_shares_verifier_selection_and_tool() {
@@ -739,20 +766,25 @@ void test_cli_format_shares_verifier_selection_and_tool() {
     );
     const auto format_call = read_text(log);
     require_contains(
-        check_call, "CALL\n--dry-run\n--Werror\n-style=file\n",
+        check_call, "CALL\n--dry-run\n--Werror\n-style=file:",
         "verification must retain strict formatter flags"
     );
     require_contains(
-        format_call, "CALL\n-i\n-style=file\n",
+        format_call, "CALL\n-i\n-style=file:",
         "Marx must use the same formatter configuration"
     );
-    const auto config_end = std::string("-style=file\n");
+    const auto without_mode = [](const std::string& calls) {
+        std::stringstream input(calls);
+        std::string line;
+        std::string result;
+        while (std::getline(input, line))
+            if (line != "--dry-run" && line != "--Werror" && line != "-i")
+                result += line + "\n";
+        return result;
+    };
     require_true(
-        check_call.substr(check_call.find(config_end) + config_end.size())
-            == format_call.substr(
-                format_call.find(config_end) + config_end.size()
-            ),
-        "formatter and verifier must receive exactly the same files"
+        without_mode(check_call) == without_mode(format_call),
+        "formatter and verifier must receive exactly the same files and configurations"
     );
     for (const auto& file : selected) {
         require_contains(
@@ -830,6 +862,26 @@ void test_cli_format_shares_verifier_selection_and_tool() {
             && run_engels_cli(project, "check format core:app").exit_code != 0,
         "invalid formatter policy must fail both operations"
     );
+
+    fs::remove(project / ".clang-format");
+    write_text(root.path() / ".clang-format",
+        "BasedOnStyle: LLVM\nIndentWidth: 8\n");
+    write_text(project / "src/main.cpp",
+        "int main(){int result=1;if(result){result+=2;}return result;}\n");
+    const auto canonical_style = ecosystem::locate_template_path(
+        { "tooling/clang-format.tpl" }
+    );
+    const auto expected = ecosystem::capture_command_result({
+        real_formatter, "-style=file:" + canonical_style.string(),
+        (project / "src/main.cpp").string()
+    });
+    require_true(expected.exit_code == 0, "canonical formatter config must parse");
+    require_true(run_marx_cli(project, "format core:app").exit_code == 0,
+        "optional root config absence must retain canonical formatting");
+    require_true(read_text(project / "src/main.cpp") == expected.output,
+        "unrelated parent style must not replace the canonical fallback");
+    require_true(!fs::exists(project / ".clang-format"),
+        "formatting must not recreate optional root configuration");
 }
 
 void test_cli_workspace_format_respects_selected_projects_and_artifacts() {

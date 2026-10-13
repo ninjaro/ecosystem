@@ -15,6 +15,7 @@
 #include "workspace/release.hpp"
 #include "workspace/repository.hpp"
 #include "workspace/sync.hpp"
+#include "workspace/template_text.hpp"
 #include "workspace/tooling.hpp"
 
 #include <algorithm>
@@ -22,6 +23,7 @@
 #include <chrono>
 #include <fcntl.h>
 #include <filesystem>
+#include <map>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -112,13 +114,43 @@ namespace command_support {
             out << "format: no files\n";
             return command_error::ok;
         }
-        std::vector<std::string> args { tool.path, apply ? "-i" : "--dry-run" };
-        if (!apply)
-            args.push_back("--Werror");
-        args.push_back("-style=file");
-        for (const auto& file : files)
-            args.push_back(file.string());
-        if (run_command(args, project_root) != 0) {
+        std::map<fs::path, std::vector<fs::path>> configured_files;
+        const auto root = fs::absolute(project_root).lexically_normal();
+        for (const auto& file : files) {
+            auto directory = fs::absolute(file).lexically_normal().parent_path();
+            fs::path configuration;
+            while (true) {
+                for (const auto* name : { ".clang-format", "_clang-format" }) {
+                    if (fs::is_regular_file(directory / name)) {
+                        configuration = directory / name;
+                        break;
+                    }
+                }
+                if (!configuration.empty() || directory == root
+                    || directory == directory.parent_path())
+                    break;
+                directory = directory.parent_path();
+            }
+            if (configuration.empty())
+                configuration = locate_template_path({ "tooling/clang-format.tpl" });
+            if (configuration.empty()) {
+                print_error(err, command_error::task_failed,
+                    "canonical clang-format configuration is unavailable");
+                return command_error::task_failed;
+            }
+            configured_files[configuration].push_back(file);
+        }
+        bool failed = false;
+        for (const auto& [configuration, selected_files] : configured_files) {
+            std::vector<std::string> args { tool.path, apply ? "-i" : "--dry-run" };
+            if (!apply)
+                args.push_back("--Werror");
+            args.push_back("-style=file:" + configuration.string());
+            for (const auto& file : selected_files)
+                args.push_back(file.string());
+            failed = run_command(args, project_root) != 0 || failed;
+        }
+        if (failed) {
             print_error(
                 err, command_error::task_failed,
                 apply ? "clang-format failed while formatting selected files"

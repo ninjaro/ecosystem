@@ -5,6 +5,16 @@
 namespace ecosystem_test_support {
 
 void test_release_tooling_bundle() {
+    {
+        scoped_env retired("ECOSYSTEM_PACKAGER", "retired identity");
+        scoped_env current("MANIFESTO_PACKAGER", "");
+        scoped_env external("PACKAGER", "external identity");
+        require_true(ecosystem::release_detail::package_author() == "external identity",
+            "retired internal aliases must not override external PACKAGER");
+        scoped_env selected("MANIFESTO_PACKAGER", "current identity");
+        require_true(ecosystem::release_detail::package_author() == "current identity",
+            "the current explicit packager identity must take precedence");
+    }
     temp_dir root;
     const auto source = root.path() / "tooling-source";
     const auto build = ecosystem::local_build_dir(source, "release");
