@@ -3,6 +3,67 @@
 
 namespace ecosystem_test_support {
 
+void test_ci_analysis_cache_saving_requires_evidence() {
+    temp_dir root;
+    const auto files = ecosystem::generate_tracked_surface_files(
+        sample_manifest(), root.path()
+    );
+    const auto* checks
+        = find_tracked_surface_file(files, ".github/workflows/tests.yml");
+    require_true(checks != nullptr, "Checks must have a generated workflow");
+    require_contains(
+        checks->contents,
+        "- name: Save verified analysis cache\n"
+        "        if: ${{ always() && steps.required.outcome == 'success' && "
+        "github.event_name != 'pull_request' && "
+        "steps.analysis_cache.outputs.available == 'true' }}",
+        "cache saving requires successful verification and actual evidence"
+    );
+    const auto script = root.path() / "cache.sh";
+    const auto outputs = root.path() / "outputs";
+    const auto summary = root.path() / "summary";
+    const auto cache = root.path() / ".ecosystem/cache/verification";
+    write_text(
+        script, ci_shell(checks->contents, "Inspect verified analysis cache", 8)
+    );
+    for (const auto* state : { "missing", "empty", "invalid", "available" }) {
+        if (std::string(state) == "empty")
+            fs::create_directories(cache);
+        if (std::string(state) == "invalid") {
+            fs::create_directory(cache / "directory.json");
+            write_text(cache / "empty.json", "");
+            write_text(root.path() / "external.json", "not cache evidence");
+            fs::create_symlink(
+                root.path() / "external.json", cache / "alias.json"
+            );
+        }
+        if (std::string(state) == "available")
+            write_text(
+                cache / "ast-key.json", R"({"schema":1,"status":"clean"})"
+            );
+        write_text(outputs, "");
+        write_text(summary, "");
+        const auto result = ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail", script.string() }, root.path(),
+            { { "GITHUB_OUTPUT", outputs.string() },
+              { "GITHUB_STEP_SUMMARY", summary.string() } }
+        );
+        const bool available = std::string(state) == "available";
+        require_true(
+            result.exit_code == 0
+                && read_text(outputs)
+                    == (available ? "available=true\n" : "available=false\n"),
+            "absence of clean analysis evidence must not trigger a cache save"
+        );
+        require_contains(
+            read_text(summary),
+            available ? "1 evidence files"
+                      : "no reusable evidence was produced",
+            "cache availability must have an observable reason"
+        );
+    }
+}
+
 void test_ci_selection() {
     temp_dir root;
     const auto files = ecosystem::generate_tracked_surface_files(

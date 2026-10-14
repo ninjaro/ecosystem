@@ -7,6 +7,7 @@
 #include "workspace/template_text.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <optional>
 #include <regex>
@@ -23,10 +24,10 @@ namespace {
     // before deleting old profiles or touching an existing report.
     bool prepare_coverage_outputs(
         const fs::path& root, const fs::path& profiles, const fs::path& report,
-        const fs::path& log, std::string* error
+        const fs::path& log, const fs::path& merge_report, std::string* error
     ) {
         try {
-            for (const auto& target : { profiles, report, log }) {
+            for (const auto& target : { profiles, report, log, merge_report }) {
                 auto path = root;
                 for (const auto& part : target.lexically_relative(root)) {
                     path /= part;
@@ -54,6 +55,7 @@ namespace {
             }
             fs::remove(report);
             fs::remove(log);
+            fs::remove(merge_report);
             fs::remove_all(profiles);
             fs::create_directories(profiles);
             return true;
@@ -351,9 +353,12 @@ command_error run_check_coverage(
     const fs::path report_path
         = local_report_dir(project_root) / "coverage.json";
     const fs::path log_path = local_report_dir(project_root) / "coverage.log";
+    const fs::path merge_report_path
+        = local_report_dir(project_root) / "coverage-merge.json";
     std::string error_message;
     if (!prepare_coverage_outputs(
-            project_root, profile_dir, report_path, log_path, &error_message
+            project_root, profile_dir, report_path, log_path, merge_report_path,
+            &error_message
         )) {
         print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
@@ -408,8 +413,8 @@ command_error run_check_coverage(
         return command_error::task_failed;
     }
 
-    std::vector<std::string> merge_args { profdata_tool.path, "merge",
-                                          "-sparse" };
+    std::vector<std::string> profiles;
+    json profile_inventory = json::array();
     for (const fs::directory_entry& entry :
          fs::directory_iterator(profile_dir)) {
         if (entry.path().extension() == ".profraw") {
@@ -421,10 +426,18 @@ command_error run_check_coverage(
                 );
                 return command_error::task_failed;
             }
-            merge_args.push_back(entry.path().string());
+            const auto path = entry.path().string();
+            if (path.find_first_of("\r\n") != std::string::npos) {
+                print_error(
+                    err, command_error::task_failed,
+                    "coverage profile path cannot contain a line break"
+                );
+                return command_error::task_failed;
+            }
+            profiles.push_back(path);
         }
     }
-    if (merge_args.size() == 3U) {
+    if (profiles.empty()) {
         print_error(
             err, command_error::task_failed,
             "no coverage profiles were generated"
@@ -433,11 +446,70 @@ command_error run_check_coverage(
     }
 
     const fs::path profile_data = profile_dir / "coverage.profdata";
-    merge_args.emplace_back("-o");
-    merge_args.push_back(profile_data.string());
-    if (run_command(merge_args, build_dir) != 0) {
+    const fs::path input_list = profile_dir / "inputs.txt";
+    std::sort(profiles.begin(), profiles.end());
+    std::string inputs;
+    for (const auto& profile : profiles) {
+        inputs.append(profile).append("\n");
+        profile_inventory.push_back({ { "path", profile },
+                                      { "bytes", fs::file_size(profile) } });
+    }
+    if (!write_text_file(input_list, inputs, &error_message)) {
+        print_error(err, command_error::task_failed, error_message);
+        return command_error::task_failed;
+    }
+    // Nested instrumented tools can produce thousands of profiles. Keep the
+    // shell command bounded instead of passing their paths through sh -c.
+    const std::vector<std::string> merge_args { profdata_tool.path,
+                                                "merge",
+                                                "-sparse",
+                                                "--input-files",
+                                                input_list.string(),
+                                                "-o",
+                                                profile_data.string() };
+    const auto compiler = probe_tool("clang++");
+    const auto started = std::chrono::steady_clock::now();
+    const auto merged = capture_command_result(merge_args, build_dir);
+    const json merge_report {
+        { "command", merge_args },
+        { "cwd", build_dir.string() },
+        { "profile_count", profiles.size() },
+        { "profiles", profile_inventory },
+        { "input_list_bytes", inputs.size() },
+        { "compiler",
+          { { "path", compiler.path }, { "version", compiler.version } } },
+        { "llvm_profdata",
+          { { "path", profdata_tool.path },
+            { "version", profdata_tool.version } } },
+        { "llvm_cov",
+          { { "path", cov_tool.path }, { "version", cov_tool.version } } },
+        { "exit_code", merged.exit_code },
+        { "output", merged.output },
+        { "seconds",
+          std::chrono::duration<double>(
+              std::chrono::steady_clock::now() - started
+          )
+              .count() }
+    };
+    out << "coverage profiles: " << profiles.size()
+        << "; llvm-profdata merge exit: " << merged.exit_code << "\n";
+    if (!write_text_file(
+            merge_report_path, merge_report.dump(2) + "\n", &error_message
+        )) {
+        err << merged.output;
+        print_error(err, command_error::task_failed, error_message);
+        return command_error::task_failed;
+    }
+    if (merged.exit_code != 0) {
+        err << merged.output;
+        const auto diagnostic = "llvm-profdata merge failed (exit "
+            + std::to_string(merged.exit_code) + ")\n" + merged.output;
+        if (!write_text_file(log_path, diagnostic, &error_message))
+            err << error_message << "\n";
         print_error(
-            err, command_error::task_failed, "llvm-profdata merge failed"
+            err, command_error::task_failed,
+            "llvm-profdata merge failed (exit "
+                + std::to_string(merged.exit_code) + ")"
         );
         return command_error::task_failed;
     }

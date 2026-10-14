@@ -163,8 +163,28 @@ jobs:
           path: .ecosystem/cache/ccache
           key: ${{ runner.os }}-${{ runner.arch }}-manifesto-ccache-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Save verified analysis cache
+      - name: Inspect verified analysis cache
+        id: analysis_cache
         if: ${{ always() && steps.required.outcome == 'success' && github.event_name != 'pull_request' }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=()
+          for file in .ecosystem/cache/verification/*.json; do
+            if [ -f "$file" ] && [ -s "$file" ] && [ ! -L "$file" ]; then
+              files+=("$file")
+            fi
+          done
+          if [ "${#files[@]}" -gt 0 ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            printf 'Verified analysis cache: %s evidence files available for saving.\n' "${#files[@]}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Verified analysis cache not saved: no reusable evidence was produced; fresh or unknown inputs require execution.' | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Save verified analysis cache
+        if: ${{ always() && steps.required.outcome == 'success' && github.event_name != 'pull_request' && steps.analysis_cache.outputs.available == 'true' }}
         continue-on-error: true
         uses: actions/cache/save@v4
         with:

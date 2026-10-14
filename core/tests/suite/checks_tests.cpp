@@ -22,7 +22,9 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
     write_executable_script(
         bin / "llvm-profdata",
         probe
-            + "if [ \"${COVERAGE_TEST_MERGE_OUTPUT:-yes}\" = yes ]; then\n"
+            + "if [ \"${COVERAGE_TEST_MERGE_EXIT:-0}\" != 0 ]; then\n"
+              "  echo 'error: incompatible test profile' >&2\nfi\n"
+              "if [ \"${COVERAGE_TEST_MERGE_OUTPUT:-yes}\" = yes ]; then\n"
               "  for argument do destination=\"$argument\"; done\n"
               "  printf 'merged profile' > \"$destination\"\nfi\n"
               "exit \"${COVERAGE_TEST_MERGE_EXIT:-0}\"\n"
@@ -44,6 +46,10 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
     const auto log = project / ".ecosystem/reports/coverage.log";
     const auto prepare = [&]() {
         write_text(report, "stale report");
+        write_text(
+            project / ".ecosystem/reports/coverage-merge.json",
+            "stale merge report"
+        );
         write_text(profiles / "old.profraw", "stale profile");
         write_text(profiles / "coverage.profdata", "stale merge");
     };
@@ -51,7 +57,8 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
          std::vector<std::tuple<std::string, std::string, std::string>> {
              { "COVERAGE_TEST_CTEST_EXIT", "8", "coverage test run failed" },
              { "COVERAGE_TEST_PROFILES", "no", "no coverage profiles" },
-             { "COVERAGE_TEST_MERGE_EXIT", "1", "llvm-profdata merge failed" },
+             { "COVERAGE_TEST_MERGE_EXIT", "7",
+               "llvm-profdata merge failed (exit 7)" },
              { "COVERAGE_TEST_MERGE_OUTPUT", "no",
                "no usable coverage profile" },
              { "COVERAGE_TEST_EXPORT_EXIT", "9",
@@ -86,6 +93,21 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
         require_not_contains(
             result.output, "coverage report:", "no false success"
         );
+        if (name == "COVERAGE_TEST_MERGE_EXIT") {
+            const auto merge = json::parse(
+                read_text(project / ".ecosystem/reports/coverage-merge.json")
+            );
+            require_true(
+                merge.at("exit_code") == 7 && merge.at("profile_count") == 1,
+                "retain the native merge exit separately from CLI failure 5"
+            );
+            for (const auto& output : { result.output, read_text(log),
+                                        merge.at("output").get<std::string>() })
+                require_contains(
+                    output, "error: incompatible test profile",
+                    "native merge diagnostics must survive"
+                );
+        }
         if (name == "COVERAGE_TEST_EXPORT"
             || name == "COVERAGE_TEST_EXPORT_EXIT")
             require_true(
@@ -109,13 +131,97 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
     );
 }
 
+void test_cli_check_coverage_merges_large_profile_inventory() {
+    temp_dir root;
+    const auto project = root.path() / "project with spaces";
+    write_sample_leak_check_project(project);
+    const auto ctest = ecosystem::find_command_path("ctest");
+    require_true(
+        !ctest.empty() && ecosystem::command_exists("llvm-profdata")
+            && ecosystem::command_exists("llvm-cov"),
+        "real coverage tools are required for profile-inventory regression"
+    );
+    const auto bin = root.path() / "bin";
+    // Execute the real authored test, then duplicate its real runtime profile
+    // to exercise a large inventory without thousands of test processes.
+    write_executable_script(
+        bin / "ctest",
+        std::string("#!/usr/bin/env python3\n")
+            .append("import os, pathlib, subprocess, sys\n")
+            .append("result = subprocess.run([")
+            .append(json(ctest).dump())
+            .append("] + sys.argv[1:])\n")
+            .append("if result.returncode: sys.exit(result.returncode)\n")
+            .append("if '--version' not in sys.argv and 'LLVM_PROFILE_FILE' in "
+                    "os.environ:\n")
+            .append("    folder = "
+                    "pathlib.Path(os.environ['LLVM_PROFILE_FILE']).parent\n")
+            .append("    data = next(folder.glob('*.profraw')).read_bytes()\n")
+            .append("    for index in range(2048):\n")
+            .append("        (folder / "
+                    "f'copy-{index:05d}.profraw').write_bytes(data)\n")
+            .append("    if os.environ.get('COVERAGE_TEST_CORRUPT_PROFILE'):\n")
+            .append("        (folder / 'broken.profraw').write_bytes(b'not an "
+                    "LLVM profile\\n')\n")
+    );
+    scoped_env path("PATH", bin.string() + ":" + current_path_env());
+    const auto result = run_engels_cli(project, "check coverage");
+    require_true(
+        result.exit_code == 0,
+        "all real profiles must merge without a shell argument limit:\n"
+            + result.output
+    );
+    const auto merge = json::parse(
+        read_text(project / ".ecosystem/reports/coverage-merge.json")
+    );
+    const auto& command = merge.at("command");
+    require_true(
+        merge.at("profile_count") == 2049 && merge.at("exit_code") == 0
+            && merge.at("input_list_bytes").get<std::size_t>() > 131072U
+            && command.size() == 7 && command.at(3) == "--input-files",
+        "merge command stays bounded and preserves every runtime profile"
+    );
+    const auto inputs = read_text(command.at(4).get<std::string>());
+    require_true(
+        static_cast<std::size_t>(std::count(inputs.begin(), inputs.end(), '\n'))
+            == 2049U,
+        "input list must not truncate or drop profiles"
+    );
+    const auto coverage
+        = json::parse(read_text(project / ".ecosystem/reports/coverage.json"));
+    require_true(
+        coverage.at("type") == "llvm.coverage.json.export"
+            && !coverage.at("data").at(0).at("files").empty(),
+        "real llvm-cov export must contain measured authored test data"
+    );
+    scoped_env corrupt("COVERAGE_TEST_CORRUPT_PROFILE", "1");
+    const auto failed = run_engels_cli(project, "check coverage");
+    const auto failed_merge = json::parse(
+        read_text(project / ".ecosystem/reports/coverage-merge.json")
+    );
+    require_true(
+        failed.exit_code == 5 && failed_merge.at("exit_code") == 1
+            && failed_merge.at("profile_count") == 2050
+            && !fs::exists(project / ".ecosystem/reports/coverage.json"),
+        "a bad profile must fail the complete merge, even with valid profiles"
+    );
+    for (const auto& output :
+         { failed.output,
+           read_text(project / ".ecosystem/reports/coverage.log"),
+           failed_merge.at("output").get<std::string>() })
+        require_contains(
+            output, "broken.profraw", "retain actual LLVM profile diagnostics"
+        );
+}
+
 void test_cli_check_coverage_rejects_aliased_service_outputs() {
     for (const auto* relative :
          { ".ecosystem", ".ecosystem/build", ".ecosystem/build/project",
            ".ecosystem/build/project/desktop/debug/coverage",
            ".ecosystem/build/project/desktop/debug/coverage/profiles",
            ".ecosystem/reports", ".ecosystem/reports/coverage.json",
-           ".ecosystem/reports/coverage.log" }) {
+           ".ecosystem/reports/coverage.log",
+           ".ecosystem/reports/coverage-merge.json" }) {
         temp_dir root;
         const auto project = root.path() / "project";
         write_sample_leak_check_project(project);

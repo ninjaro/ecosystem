@@ -7,6 +7,7 @@ namespace ecosystem_test_support {
 
 void test_ci_evidence();
 void test_ci_selection();
+void test_ci_analysis_cache_saving_requires_evidence();
 void test_ci_stage_failures();
 void test_ci_result_gates();
 void test_ci_pages_gates();

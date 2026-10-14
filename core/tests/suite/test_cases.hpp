@@ -58,6 +58,7 @@ void test_build_tree_layout_nests_project_and_probe_profiles();
 
 // Checks.
 void test_cli_check_coverage_requires_fresh_valid_evidence();
+void test_cli_check_coverage_merges_large_profile_inventory();
 void test_cli_check_coverage_rejects_aliased_service_outputs();
 void test_cli_check_leaks_runs_sanitized_tests();
 void test_cli_check_leaks_fails_on_native_sanitizer_findings();
