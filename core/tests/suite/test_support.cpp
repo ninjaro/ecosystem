@@ -1009,7 +1009,7 @@ void write_sample_java_binding_project(const fs::path& project_root) {
 
 void write_sample_sphinx_project(const fs::path& project_root) {
     write_sample_build_project(project_root, "docs_sample");
-    write_text(project_root / "docs/index.md", "# Docs Sample\n");
+    write_text(project_root / "assets/docs/index.md", "# Docs Sample\n");
 }
 
 fs::path first_recursive_file_with_suffix(

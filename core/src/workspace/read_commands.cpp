@@ -189,9 +189,9 @@ namespace command_support {
     }
 
     bool project_has_docs_surface(const fs::path& project_root) {
-        const auto source = sphinx_source_dir(project_root);
-        return path_exists(source / "index.md")
-            || path_exists(source / "index.rst");
+        const auto source = project_root / "assets/docs";
+        return fs::is_regular_file(source / "index.md")
+            || fs::is_regular_file(source / "index.rst");
     }
 
     bool project_supports_java_check(

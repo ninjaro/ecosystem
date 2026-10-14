@@ -117,7 +117,8 @@ std::filesystem::path local_doxygen_dir(
 
 bool write_local_doxygen_config(
     const std::filesystem::path& root, const manifest& value,
-    const std::optional<artifact_ref>& requested, std::string* error_message
+    const std::optional<artifact_ref>& requested, std::string* error_message,
+    bool include_root_readme
 ) {
     namespace fs = std::filesystem;
     error_message->clear();
@@ -132,7 +133,7 @@ bool write_local_doxygen_config(
         auto files = declared_cpp_files(value, root, requested);
         if (files.empty())
             throw template_render_error("no owned C/C++ inputs for Doxygen");
-        if (!requested)
+        if (!requested && include_root_readme)
             for (const auto& name : { "README.md", "readme.md" }) {
                 std::error_code error;
                 if (fs::exists(root / name, error))

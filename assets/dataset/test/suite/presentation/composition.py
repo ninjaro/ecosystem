@@ -4,6 +4,20 @@ from .fixtures import PresentationCase, presentation
 
 
 class CompositionTests(PresentationCase):
+    def test_development_docs_cannot_influence_generated_publication(self):
+        original = presentation.compose(self.root)
+        self.write('docs/index.md', '[invalid](missing.md)')
+        self.write('docs/index.rst', '.. missing-directive::')
+        self.write('docs/sphinx.json', '{malformed')
+        self.write('docs/conf.py', "raise RuntimeError('must not run')")
+        self.write('docs/receipt.json', '{malformed')
+        self.write('docs/findings.json', '{malformed')
+        self.assertEqual(presentation.compose(self.root), original)
+        with self.assertRaisesRegex(ValueError, 'root docs/ is not a publication input'):
+            presentation.compose(self.root, self.root / 'docs')
+        with self.assertRaisesRegex(ValueError, 'root docs/ is not a publication input'):
+            presentation.compose(self.root, diagnostic_snapshot='docs/findings.json')
+
     def test_no_implicit_reports(self):
         self.write('.ecosystem/reports/coverage.json', 'stale unselected coverage')
         body, files, _ = presentation.compose(self.root)

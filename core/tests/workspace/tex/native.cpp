@@ -8,7 +8,7 @@ void test_tex_native() {
     temp_dir root;
     const auto project = root.path() / "TeX project with spaces";
     write_doxygen_project(project, "native_tex");
-    write_text(project / "docs/index.rst", "Native TeX\n==========\n");
+    write_text(project / "assets/docs/index.rst", "Native TeX\n==========\n");
     const auto source = project / "tex/paper draft.tex";
     write_text(source, R"tex(\documentclass{article}
 \usepackage{sample}

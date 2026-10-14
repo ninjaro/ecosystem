@@ -7,7 +7,7 @@ void test_sphinx_native_pipeline() {
     temp_dir root;
     const auto project = root.path() / "native docs with # spaces";
     write_doxygen_project(project, "native_docs");
-    write_text(project / "docs/index.rst", R"rst(Public API
+    write_text(project / "assets/docs/index.rst", R"rst(Public API
 ==========
 
 .. toctree::
@@ -16,23 +16,33 @@ void test_sphinx_native_pipeline() {
    api
 )rst");
     write_text(
-        project / "docs/guide.md", "# User guide\n\nNative Markdown page.\n"
+        project / "assets/docs/guide.md",
+        "# User guide\n\nNative Markdown page.\n"
     );
     write_text(project / "docs/archive/broken.rst", ".. absent-directive::\n");
+    write_text(project / "docs/index.rst", ".. absent-directive::\n");
+    write_text(project / "docs/sphinx.json", "{malformed");
     write_text(
-        project / "docs/sphinx.json",
-        "{\"exclude_patterns\":[\"archive/**\"]}\n"
+        project / "docs/conf.py", "raise RuntimeError('must not run')\n"
     );
-    write_text(project / "docs/api.rst", R"rst(C++ reference
+    write_text(
+        project / "assets/docs/unlisted.rst",
+        "Additional contract\n===================\n"
+    );
+    write_text(
+        project / "assets/docs/sphinx.json",
+        "{\"exclude_patterns\":[\"unlisted.rst\"]}\n"
+    );
+    write_text(project / "assets/docs/api.rst", R"rst(C++ reference
 =============
 
-.. doxygenstruct:: selected_public_type
-   :members:
+The current public API exposes a selected public type.
+Implementation-derived API pages are published separately.
 )rst");
     auto result = run_engels_cli(project, "check sphinx");
     require_true(
         result.exit_code == 0,
-        "native Doxygen/Breathe/Sphinx must build: " + result.output
+        "native Doxygen/Sphinx must build: " + result.output
     );
     const auto directory = ecosystem::local_sphinx_dir(project);
     const auto api = read_text(directory / "html/api.html");
@@ -48,11 +58,17 @@ void test_sphinx_native_pipeline() {
         "No verification evidence was selected",
         "local docs must not claim unselected verification"
     );
+    const auto native_api = read_text(first_recursive_file_with_suffix(
+        directory / "html/_ecosystem/doxygen",
+        "structselected__public__type.html"
+    ));
     require_contains(
-        api, "selected_public_type", "Breathe must render the C++ symbol"
+        native_api, "selected_public_type",
+        "generated API must render the C++ symbol"
     );
     require_contains(
-        api, "Selected public type", "Doxygen comments must reach Sphinx HTML"
+        native_api, "Selected public type",
+        "generated API preserves Doxygen comments"
     );
     require_not_contains(
         api, "unselected_public_type",
@@ -86,21 +102,22 @@ void test_sphinx_native_pipeline() {
     }
 
     write_text(
-        project / "docs/api.rst",
-        "C++ API\n=======\n\n.. doxygenstruct:: absent_public_type\n"
+        project / "assets/docs/api.rst",
+        "C++ API\n=======\n\n:doc:`absent_public_type`\n"
     );
     result = run_engels_cli(project, "check sphinx");
     require_true(
         result.exit_code == 5 && read_text(directory / "html/api.html") == api,
-        "missing Breathe references must fail and preserve the site"
+        "missing authored references must fail and preserve the site"
     );
     require_contains(
         result.output, "absent_public_type",
-        "retain the native Breathe diagnostic"
+        "retain the missing reference diagnostic"
     );
     write_text(
-        project / "docs/api.rst",
-        "C++ API\n=======\n\n.. doxygenstruct:: selected_public_type\n"
+        project / "assets/docs/api.rst",
+        "C++ API\n=======\n\nThe current public API exposes a selected public "
+        "type.\n"
     );
     result = run_engels_cli(
         project, "check sphinx --theme ecosystem_missing_theme"
@@ -113,9 +130,9 @@ void test_sphinx_native_pipeline() {
         result.output, "ecosystem_missing_theme",
         "missing module errors must be actionable"
     );
-    fs::remove(project / "docs/guide.md");
+    fs::remove(project / "assets/docs/guide.md");
     write_text(
-        project / "docs/index.rst",
+        project / "assets/docs/index.rst",
         "Public API\n==========\n\n.. toctree::\n\n   api\n"
     );
     result = run_engels_cli(project, "check sphinx --theme alabaster");

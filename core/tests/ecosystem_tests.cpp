@@ -302,6 +302,8 @@ int main(int argc, char** argv) {
           test_ci_analysis_cache_saving_requires_evidence },
         { "ci_verification_evidence_contract", test_ci_evidence },
         { "sphinx_presentation_contract", test_sphinx_presentation_contract },
+        { "stable_documentation_self_contained",
+          test_stable_documentation_self_contained },
         { "ci_compiler_cache_configuration",
           test_ci_compiler_cache_configuration },
         { "github_bootstrap_vars_validate_explicit_selection",

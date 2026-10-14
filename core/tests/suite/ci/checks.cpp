@@ -241,7 +241,7 @@ void test_ci_optional_checks() {
     temp_dir root;
     const auto project = root.path() / "project";
     write_sample_leak_check_project(project);
-    write_text(project / "docs/index.md", "# Authored documentation\n");
+    write_text(project / "assets/docs/index.md", "# Authored documentation\n");
     write_text(project / "docs/conf.py", "# Authored configuration\n");
     require_true(
         run_marx_cli(project, "sync --then format").exit_code == 0,
@@ -249,7 +249,7 @@ void test_ci_optional_checks() {
     );
     const std::vector<fs::path> preserved {
         "manifest.json",
-        "docs/index.md",
+        "assets/docs/index.md",
         "docs/conf.py",
         ".ecosystem/sphinx/html/index.html",
         ".ecosystem/doxygen/html/index.html",

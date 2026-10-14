@@ -42,6 +42,7 @@ namespace {
             { "doxygen", "doxygen", { "doxy", "sphinx" } },
             { "dot", "Graphviz dot", { "doxy", "sphinx" }, { "-V" } },
             { "sphinx-build", "sphinx-build", { "sphinx" } },
+            { "python3", "python3 (documentation boundary)", { "sphinx" } },
             { "latexmk", "latexmk", { "tex" }, { "-v" } },
             { "pdflatex", "pdflatex", { "tex" } },
             { "llvm-cov", "llvm-cov", { "coverage" } },

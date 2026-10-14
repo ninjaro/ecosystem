@@ -3,6 +3,26 @@
 
 namespace ecosystem_test_support {
 
+void test_stable_documentation_self_contained() {
+    const auto project = fs::path(ECOS_TEST_SOURCE_DIR);
+    const auto validator
+        = project / "assets/templates/tooling/documentation_boundary.py";
+    const auto fixtures = ecosystem::capture_command_result(
+        { "python3",
+          (project / "assets/dataset/test/suite/documentation_boundary_cases.py"
+          )
+              .string(),
+          validator.string() },
+        project
+    );
+    require_true(fixtures.exit_code == 0, fixtures.output);
+    const auto actual = ecosystem::capture_command_result(
+        { "python3", validator.string(), (project / "assets/docs").string() },
+        project
+    );
+    require_true(actual.exit_code == 0, actual.output);
+}
+
 void write_fake_sphinx(const fs::path& path) {
     write_executable_script(path, R"sh(#!/bin/sh
 set -eu
@@ -75,6 +95,10 @@ void test_sphinx_presentation_contract() {
 void test_sphinx_default_config() {
     temp_dir root;
     write_sample_sphinx_project(root.path());
+    write_text(
+        root.path() / "README.md",
+        "# Development overview\n[plan](docs/index.md)\n"
+    );
 
     const fs::path fake_root = root.path() / "fake-tools";
     const fs::path fake_bin = fake_root / "bin";
@@ -93,7 +117,7 @@ void test_sphinx_default_config() {
     const cli_result result = run_cli(root.path(), "check sphinx");
     require_true(
         result.exit_code == 0,
-        "ecos check sphinx must build a conventional docs tree"
+        "ecos check sphinx must build the stable assets/docs tree"
     );
     require_contains(
         result.output, "sphinx generated in .ecosystem/sphinx/html",
@@ -112,8 +136,11 @@ void test_sphinx_default_config() {
         read_text(sphinx_log), "-b html",
         "ecos check sphinx must invoke sphinx-build in html mode"
     );
-    fs::create_directories(root.path() / "assets");
-    fs::rename(root.path() / "docs", root.path() / "assets/docs");
+    require_not_contains(
+        read_text(root.path() / ".ecosystem/doxygen/Doxyfile"), "README.md",
+        "Sphinx API composition must not add the root README as another "
+        "authored source"
+    );
     write_text(
         root.path() / "assets/docs/sphinx.json",
         R"({"exclude_patterns":["readme.md"]})"
@@ -132,23 +159,70 @@ void test_sphinx_default_config() {
         read_text(root.path() / ".ecosystem/sphinx/conf.py"), "readme.md",
         "source selection settings belong to that root"
     );
-    write_text(root.path() / "docs/index.md", "# Conflicting entry\n");
-    bool ambiguous = false;
-    try {
-        static_cast<void>(ecosystem::sphinx_source_dir(root.path()));
-    } catch (const ecosystem::template_render_error& error) {
-        ambiguous = std::string(error.what()).find("ambiguous Sphinx source")
-            != std::string::npos;
-    }
-    require_true(
-        ambiguous,
-        "two authored documentation roots must not be chosen silently"
+    const auto configuration
+        = read_text(root.path() / ".ecosystem/sphinx/conf.py");
+    write_text(
+        root.path() / "docs/index.md",
+        "# Conflicting entry\n[outside](missing.md)\n"
+    );
+    write_text(root.path() / "docs/index.rst", ".. absent-directive::\n");
+    write_text(root.path() / "docs/sphinx.json", "{malformed");
+    write_text(
+        root.path() / "docs/conf.py", "raise RuntimeError('must not run')\n"
     );
     const auto conflict = run_cli(root.path(), "check sphinx");
-    require_true(conflict.exit_code != 0, "ambiguous documentation must fail");
+    require_true(
+        conflict.exit_code == 0,
+        "root docs must not influence Sphinx: " + conflict.output
+    );
+    require_true(
+        read_text(root.path() / ".ecosystem/sphinx/conf.py") == configuration,
+        "conflicting root entry/configuration must not affect generated "
+        "configuration"
+    );
+    fs::remove_all(root.path() / "docs");
+    const auto product = run_cli(root.path(), "check sphinx");
+    require_true(
+        product.exit_code == 0,
+        "product checkout without root docs must work: " + product.output
+    );
+    fs::remove(root.path() / "assets/docs/index.md");
+    write_text(root.path() / "docs/index.md", "# Cannot be a fallback\n");
+    const auto missing = run_cli(root.path(), "check sphinx");
+    require_true(
+        missing.exit_code == 3,
+        "a root docs entry cannot establish Sphinx capability"
+    );
     require_contains(
-        conflict.output, "ambiguous Sphinx source",
-        "the command must explain the competing authored roots"
+        missing.output, "documentation-source error",
+        "missing stable entry must be explicit"
+    );
+    const auto doctor = run_cli(root.path(), "doctor sphinx");
+    require_true(
+        doctor.exit_code == 3, "doctor must reject a missing stable entry"
+    );
+    write_text(
+        root.path() / "assets/docs/index.md",
+        "# Invalid dependency\n[history](../../docs/index.md)\n"
+    );
+    const auto escaping = run_cli(root.path(), "check sphinx");
+    require_true(
+        escaping.exit_code == 5, "actor must enforce the stable unit boundary"
+    );
+    require_contains(
+        escaping.output, "leaves documentation unit",
+        "identify the forbidden dependency"
+    );
+    require_true(
+        read_text(root.path() / ".ecosystem/sphinx/conf.py") == configuration,
+        "a boundary failure must not replace the last generated configuration"
+    );
+    write_text(root.path() / "assets/docs/index.md", "# Stable entry\n");
+    write_text(root.path() / "assets/docs/index.rst", "Duplicate\n=========\n");
+    const auto duplicate = run_cli(root.path(), "check sphinx");
+    require_true(duplicate.exit_code == 5, "two stable entries are ambiguous");
+    require_contains(
+        duplicate.output, "exactly one", "explain the valid entry contract"
     );
 }
 

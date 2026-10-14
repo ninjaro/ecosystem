@@ -11,7 +11,7 @@ std::filesystem::path local_doxygen_dir(
 bool write_local_doxygen_config(
     const std::filesystem::path& project_root, const manifest& value,
     const std::optional<artifact_ref>& requested_artifact,
-    std::string* error_message
+    std::string* error_message, bool include_root_readme = true
 );
 bool prepare_local_doxygen_output(
     const std::filesystem::path& project_root,

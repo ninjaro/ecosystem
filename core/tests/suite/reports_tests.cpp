@@ -454,12 +454,12 @@ void test_cli_doctor_reports_all_profile_requirements_before_configure() {
 void test_cli_doctor_nonbuild_profiles_avoid_unrelated_tools_and_refresh() {
     temp_dir root;
     write_sample_json_project(root.path());
+    write_text(root.path() / "assets/docs/index.md", "# Fixture\n");
     require_sync_success(root.path(), "nonbuild fixture must sync");
-    write_text(root.path() / "docs/index.md", "# Fixture\n");
     const auto bin = root.path() / "bin";
     fs::create_directory(bin);
-    for (const auto* name :
-         { "clang-format", "doxygen", "dot", "sphinx-build", "clang++" })
+    for (const auto* name : { "clang-format", "doxygen", "dot", "sphinx-build",
+                              "python3", "clang++" })
         write_executable_script(
             bin / name, "#!/bin/sh\nprintf 'fixture version 3.2.1\\n'\n"
         );

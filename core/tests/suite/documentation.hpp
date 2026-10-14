@@ -12,6 +12,7 @@ void test_doxygen_output_aliases();
 void test_doxygen_workspace_scope();
 void test_doxygen_config_errors();
 void test_sphinx_presentation_contract();
+void test_stable_documentation_self_contained();
 void test_sphinx_default_config();
 void test_sphinx_theme_override();
 void test_sphinx_output_aliases();

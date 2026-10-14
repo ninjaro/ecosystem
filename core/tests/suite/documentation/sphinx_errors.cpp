@@ -9,6 +9,7 @@ void test_sphinx_output_aliases() {
            ".ecosystem/sphinx",
            ".ecosystem/sphinx/conf.py",
            ".ecosystem/sphinx/ecosystem_presentation.py",
+           ".ecosystem/sphinx/ecosystem_documentation_boundary.py",
            ".ecosystem/sphinx/sphinx_presentation",
            ".ecosystem/sphinx/sphinx_presentation/assets.py",
            ".ecosystem/sphinx/sphinx_presentation/benchmarks.py",
@@ -72,7 +73,8 @@ void test_sphinx_output_aliases() {
                 && read_text(destination / "keep.txt")
                     == "keep authored content\n"
                 && read_text(project / "manifest.json") == authored
-                && read_text(project / "docs/index.md") == "# Docs Sample\n",
+                && read_text(project / "assets/docs/index.md")
+                    == "# Docs Sample\n",
             "rejected output aliases must preserve authored state and avoid "
             "Sphinx"
         );
@@ -116,14 +118,14 @@ void test_sphinx_failure_recovery() {
     );
     for (const auto* invalid : { "{", "[]", R"({"theme":"unknown"})",
                                  "{\"exclude_patterns\":[false]}" }) {
-        write_text(project / "docs/sphinx.json", invalid);
+        write_text(project / "assets/docs/sphinx.json", invalid);
         const auto result = run_engels_cli(project, "check sphinx");
         require_true(
             result.exit_code == 5 && !fs::exists(calls),
             "invalid authored selection must fail before the builder"
         );
         require_contains(
-            result.output, "docs/sphinx.json",
+            result.output, "assets/docs/sphinx.json",
             "invalid selection must name its source"
         );
         require_true(
@@ -131,7 +133,7 @@ void test_sphinx_failure_recovery() {
             "invalid config must preserve published output"
         );
     }
-    fs::remove(project / "docs/sphinx.json");
+    fs::remove(project / "assets/docs/sphinx.json");
     for (const auto* mode : { "fail", "empty", "empty-index", "index-only",
                               "empty-results", "missing-api", "empty-api" }) {
         for (const auto* name : { "index.html", "_ecosystem/index.html",

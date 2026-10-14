@@ -742,7 +742,7 @@ command_error run_check_format(
 command_error run_check_doxy(
     const fs::path& project_root, const manifest& value,
     const std::optional<artifact_ref>& requested, std::ostream& out,
-    std::ostream& err
+    std::ostream& err, const bool include_root_readme = true
 ) {
     if (requested && !resolve_artifact(value, requested)) {
         print_error(
@@ -767,7 +767,9 @@ command_error run_check_doxy(
         return command_error::missing_local_tooling;
     }
     std::string error;
-    if (!write_local_doxygen_config(project_root, value, requested, &error)) {
+    if (!write_local_doxygen_config(
+            project_root, value, requested, &error, include_root_readme
+        )) {
         print_error(err, command_error::task_failed, error);
         return command_error::task_failed;
     }
@@ -861,9 +863,8 @@ command_error run_check_sphinx(
     if (!project_has_docs_surface(project_root)) {
         print_error(
             err, command_error::unsupported_by_manifest,
-            "project does not define index.md or index.rst under assets/docs "
-            "or docs for "
-            "sphinx"
+            "documentation-source error: assets/docs requires index.md or "
+            "index.rst for sphinx; root docs is not an authored source"
         );
         return command_error::unsupported_by_manifest;
     }
@@ -891,8 +892,9 @@ command_error run_check_sphinx(
         print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
-    const auto doxy_status
-        = run_check_doxy(project_root, manifest_value, std::nullopt, out, err);
+    const auto doxy_status = run_check_doxy(
+        project_root, manifest_value, std::nullopt, out, err, false
+    );
     if (doxy_status != command_error::ok)
         return doxy_status;
     if (!prepare_local_sphinx_output(project_root, &error_message)) {

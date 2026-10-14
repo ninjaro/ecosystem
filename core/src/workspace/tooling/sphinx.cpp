@@ -72,11 +72,13 @@ namespace {
         for (const auto& path :
              { local_state_dir(root), directory, directory / "conf.py",
                directory / "ecosystem_presentation.py",
+               directory / "ecosystem_documentation_boundary.py",
                directory / "sphinx.log", directory / "html",
                directory / "html.pending", directory / "html.previous" }) {
             const auto status = inspect(path);
             const bool file = path.filename() == "conf.py"
                 || path.filename() == "ecosystem_presentation.py"
+                || path.filename() == "ecosystem_documentation_boundary.py"
                 || path.filename() == "sphinx.log";
             if (fs::exists(status)
                 && (file ? !fs::is_regular_file(status)
@@ -98,16 +100,20 @@ namespace {
 
 fs::path sphinx_source_dir(const fs::path& project_root) {
     const auto stable = project_root / "assets/docs";
-    const auto development = project_root / "docs";
-    const auto has_entry = [](const fs::path& directory) {
-        return fs::is_regular_file(directory / "index.md")
-            || fs::is_regular_file(directory / "index.rst");
-    };
-    if (has_entry(stable) && has_entry(development))
+    const auto errors = validate_project_paths(
+        project_root,
+        { "assets/docs", "assets/docs/index.md", "assets/docs/index.rst" }
+    );
+    if (!errors.empty())
+        throw template_render_error(errors.front());
+    const bool markdown = fs::is_regular_file(stable / "index.md");
+    const bool rst = fs::is_regular_file(stable / "index.rst");
+    if (markdown == rst)
         throw template_render_error(
-            "ambiguous Sphinx source: both assets/docs and docs have an index"
+            "documentation-source error: assets/docs requires exactly one "
+            "index.md or index.rst; root docs is not an authored source"
         );
-    return has_entry(stable) ? stable : development;
+    return stable;
 }
 
 bool write_local_sphinx_conf(
@@ -115,14 +121,15 @@ bool write_local_sphinx_conf(
     std::string* error_message
 ) {
     error_message->clear();
+    fs::path docs_dir;
     try {
         validate_outputs(project_root);
+        docs_dir = sphinx_source_dir(project_root);
     } catch (const std::exception& error) {
         if (error_message)
             *error_message = error.what();
         return false;
     }
-    const fs::path docs_dir = sphinx_source_dir(project_root);
     json excluded = json::array({ "_build" });
     const auto selection = docs_dir / "sphinx.json";
     try {
@@ -156,6 +163,23 @@ bool write_local_sphinx_conf(
     } catch (const std::exception& error) {
         *error_message = selection.lexically_relative(project_root).string()
             + ": " + error.what();
+        return false;
+    }
+    // The same validator guards the actor and direct sphinx-build invocations.
+    // It lives with generated configuration, never in authored documentation.
+    std::string boundary;
+    const auto boundary_path = local_sphinx_dir(project_root)
+        / "ecosystem_documentation_boundary.py";
+    if (!render_template(
+            "tooling/documentation_boundary.py", {}, &boundary, error_message
+        )
+        || !write_text_file(boundary_path, boundary, error_message))
+        return false;
+    const auto validation = capture_command_result(
+        { "python3", boundary_path.string(), docs_dir.string() }, project_root
+    );
+    if (validation.exit_code != 0) {
+        *error_message = "documentation-source error: " + validation.output;
         return false;
     }
     const bool has_markdown_docs = tree_has_extension(docs_dir, ".md");

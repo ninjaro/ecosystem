@@ -93,9 +93,8 @@ command_error run_doctor(
         if (*profile == "sphinx" && !project_has_docs_surface(project_root)) {
             print_error(
                 err, command_error::unsupported_by_manifest,
-                "project does not define index.md or index.rst under "
-                "assets/docs or docs for "
-                "sphinx"
+                "documentation-source error: assets/docs requires index.md or "
+                "index.rst for sphinx; root docs is not an authored source"
             );
             return command_error::unsupported_by_manifest;
         }

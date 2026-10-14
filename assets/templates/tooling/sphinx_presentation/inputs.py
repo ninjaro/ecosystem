@@ -16,6 +16,8 @@ def safe_path(root, name):
     require(isinstance(name, str) and name and '\\' not in name and ':' not in name
             and all(p not in ('', '.', '..') for p in name.split('/')),
             'unsafe input path: ' + str(name))
+    require(name.split('/')[0] != 'docs',
+            'root docs/ is not a publication input: ' + name)
     current = Path(root)
     for part in name.split('/'):
         current /= part

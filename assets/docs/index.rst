@@ -14,6 +14,5 @@ Engels checks and reports it. Start with the authored manifest and CLI contracts
    reference/public-api
    reference/terminology
 
-The public API page is rendered from the same manifest-owned C++ declarations
-as the standalone Doxygen output. It deliberately selects the artifact identity
-and manifest-loading entry points; internal declarations are outside this selected public reference.
+These maintained specifications define current rules and interfaces. They can be
+read and rendered without planning records, source headers or generated API XML.
