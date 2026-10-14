@@ -9,12 +9,12 @@ effective_signing_key(const prerelease_signing_options& options) {
     }
 
     std::string prerelease_key
-        = trim(env_value("MANIFESTO_PRERELEASE_SIGN_KEY"));
+        = trim(env_value("ECOSYSTEM_PRERELEASE_SIGN_KEY"));
     if (!prerelease_key.empty()) {
         return prerelease_key;
     }
 
-    std::string generic_key = trim(env_value("MANIFESTO_GPG_KEY"));
+    std::string generic_key = trim(env_value("ECOSYSTEM_GPG_KEY"));
     if (!generic_key.empty()) {
         return generic_key;
     }

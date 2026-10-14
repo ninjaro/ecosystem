@@ -2,25 +2,25 @@
 cmake_minimum_required(VERSION 3.20)
 
 # Only the inner configure owns the consumer's package and target graph.
-if(NOT MANIFESTO_FACADE_INNER)
+if(NOT ECOSYSTEM_FACADE_INNER)
     project({{project_id}} VERSION {{project_version}} LANGUAGES NONE)
     include(ExternalProject)
     if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
         set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
     endif()
-    string(SHA256 _manifesto_selection {{provider_identity}})
-    set(_manifesto_state "${CMAKE_CURRENT_BINARY_DIR}/.manifesto-facade/${_manifesto_selection}")
-    file(MAKE_DIRECTORY "${_manifesto_state}")
+    string(SHA256 _ecosystem_selection {{provider_identity}})
+    set(_ecosystem_state "${CMAKE_CURRENT_BINARY_DIR}/.ecosystem-facade/${_ecosystem_selection}")
+    file(MAKE_DIRECTORY "${_ecosystem_state}")
     foreach(name mvp mvp.exe)
-        if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-${name}.owned")
+        if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-${name}.owned")
             file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/${name}"
-                "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-${name}.owned")
+                "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-${name}.owned")
         endif()
     endforeach()
 
     # Preserve user cache values, including lists and package locations, without
     # shell/list re-interpretation or forwarding CMake's private build-tree state.
-    function(_manifesto_bracket result value)
+    function(_ecosystem_bracket result value)
         set(equal "=")
         string(FIND "${value}" "]${equal}]" found)
         while(NOT found EQUAL -1)
@@ -29,112 +29,112 @@ if(NOT MANIFESTO_FACADE_INNER)
         endwhile()
         set(${result} "[${equal}[${value}]${equal}]" PARENT_SCOPE)
     endfunction()
-    get_cmake_property(_manifesto_cache_variables CACHE_VARIABLES)
-    set(_manifesto_cache "")
-    foreach(key IN LISTS _manifesto_cache_variables)
+    get_cmake_property(_ecosystem_cache_variables CACHE_VARIABLES)
+    set(_ecosystem_cache "")
+    foreach(key IN LISTS _ecosystem_cache_variables)
         get_property(type CACHE "${key}" PROPERTY TYPE)
-        if(type MATCHES "^(INTERNAL|STATIC)$" OR key MATCHES "^MANIFESTO_FACADE_")
+        if(type MATCHES "^(INTERNAL|STATIC)$" OR key MATCHES "^ECOSYSTEM_FACADE_")
             continue()
         endif()
         if(type STREQUAL "UNINITIALIZED")
             set(type STRING)
         endif()
-        _manifesto_bracket(name "${key}")
-        _manifesto_bracket(value "${${key}}")
-        string(APPEND _manifesto_cache "set(${name} ${value} CACHE ${type} \"Forwarded by the facade\" FORCE)\n")
+        _ecosystem_bracket(name "${key}")
+        _ecosystem_bracket(value "${${key}}")
+        string(APPEND _ecosystem_cache "set(${name} ${value} CACHE ${type} \"Forwarded by the facade\" FORCE)\n")
     endforeach()
-    file(WRITE "${_manifesto_state}/cache.in" "${_manifesto_cache}")
-    configure_file("${_manifesto_state}/cache.in" "${_manifesto_state}/cache.cmake" COPYONLY)
+    file(WRITE "${_ecosystem_state}/cache.in" "${_ecosystem_cache}")
+    configure_file("${_ecosystem_state}/cache.in" "${_ecosystem_state}/cache.cmake" COPYONLY)
 
 {{provider_setup}}
     # Separate inner trees prevent imported package locations leaking from one
     # configuration into another when a multi-config visitor switches builds.
-    set(_manifesto_configurations "${CMAKE_CONFIGURATION_TYPES}")
-    if(NOT _manifesto_configurations)
-        set(_manifesto_configurations "${CMAKE_BUILD_TYPE}")
+    set(_ecosystem_configurations "${CMAKE_CONFIGURATION_TYPES}")
+    if(NOT _ecosystem_configurations)
+        set(_ecosystem_configurations "${CMAKE_BUILD_TYPE}")
     endif()
-    set(_manifesto_selected_targets "")
-    foreach(config IN LISTS _manifesto_configurations)
+    set(_ecosystem_selected_targets "")
+    foreach(config IN LISTS _ecosystem_configurations)
         string(SHA256 config_id "${config}")
-        set(inner "${_manifesto_state}/${config_id}/consumer")
-        set(target "_manifesto_consumer_${config_id}")
-        set(prefix "${_manifesto_state}/${config_id}/packages")
+        set(inner "${_ecosystem_state}/${config_id}/consumer")
+        set(target "_ecosystem_consumer_${config_id}")
+        set(prefix "${_ecosystem_state}/${config_id}/packages")
         set(providers "")
         set(packages "")
-        foreach(identity IN LISTS _manifesto_providers)
-            set(package "${_manifesto_package_${identity}}")
-            set(provider "_manifesto_provider_${package}_${identity}_${config_id}")
-            set(ancestry "${MANIFESTO_FACADE_ANCESTRY}")
+        foreach(identity IN LISTS _ecosystem_providers)
+            set(package "${_ecosystem_package_${identity}}")
+            set(provider "_ecosystem_provider_${package}_${identity}_${config_id}")
+            set(ancestry "${ECOSYSTEM_FACADE_ANCESTRY}")
             list(APPEND ancestry "${identity}")
-            _manifesto_bracket(ancestry "${ancestry}")
-            file(WRITE "${_manifesto_state}/${config_id}/${identity}-cache.in"
-                "${_manifesto_cache}\nset(MANIFESTO_FACADE_ANCESTRY ${ancestry} CACHE STRING \"Facade provider ancestry\" FORCE)\n")
-            configure_file("${_manifesto_state}/${config_id}/${identity}-cache.in"
-                "${_manifesto_state}/${config_id}/${identity}-cache.cmake" COPYONLY)
+            _ecosystem_bracket(ancestry "${ancestry}")
+            file(WRITE "${_ecosystem_state}/${config_id}/${identity}-cache.in"
+                "${_ecosystem_cache}\nset(ECOSYSTEM_FACADE_ANCESTRY ${ancestry} CACHE STRING \"Facade provider ancestry\" FORCE)\n")
+            configure_file("${_ecosystem_state}/${config_id}/${identity}-cache.in"
+                "${_ecosystem_state}/${config_id}/${identity}-cache.cmake" COPYONLY)
             # Match Marx preparation: static provider archives must also be
             # usable by shared consumers, including recursive provider facades.
             ExternalProject_Add(${provider}
-                PREFIX "${_manifesto_state}/${config_id}/provider-steps/${identity}"
-                SOURCE_DIR "${_manifesto_state}/sources/${identity}"
-                BINARY_DIR "${_manifesto_state}/${config_id}/providers/${identity}"
+                PREFIX "${_ecosystem_state}/${config_id}/provider-steps/${identity}"
+                SOURCE_DIR "${_ecosystem_state}/sources/${identity}"
+                BINARY_DIR "${_ecosystem_state}/${config_id}/providers/${identity}"
                 DOWNLOAD_COMMAND ""
                 UPDATE_COMMAND ""
-                DEPENDS "_manifesto_source_${package}_${identity}"
-                CMAKE_ARGS -C "${_manifesto_state}/${config_id}/${identity}-cache.cmake"
+                DEPENDS "_ecosystem_source_${package}_${identity}"
+                CMAKE_ARGS -C "${_ecosystem_state}/${config_id}/${identity}-cache.cmake"
                     "-DCMAKE_BUILD_TYPE:STRING=${config}"
                     "-DCMAKE_POSITION_INDEPENDENT_CODE:BOOL=ON"
                     "-DCMAKE_INSTALL_PREFIX:PATH=${prefix}"
-                BUILD_COMMAND "${CMAKE_COMMAND}" -E echo "${_manifesto_description_${identity}} (build)"
+                BUILD_COMMAND "${CMAKE_COMMAND}" -E echo "${_ecosystem_description_${identity}} (build)"
                     COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config "${config}"
                 BUILD_ALWAYS TRUE
-                INSTALL_COMMAND "${CMAKE_COMMAND}" -E echo "${_manifesto_description_${identity}} (install)"
+                INSTALL_COMMAND "${CMAKE_COMMAND}" -E echo "${_ecosystem_description_${identity}} (install)"
                     COMMAND "${CMAKE_COMMAND}" --install <BINARY_DIR>
                         --config "${config}" --prefix "${prefix}"
                 EXCLUDE_FROM_ALL TRUE)
             ExternalProject_Add_Step(${provider} identify
-                COMMAND "${CMAKE_COMMAND}" -E echo "${_manifesto_description_${identity}} (configure)"
+                COMMAND "${CMAKE_COMMAND}" -E echo "${_ecosystem_description_${identity}} (configure)"
                 DEPENDEES update DEPENDERS configure)
-            ExternalProject_Add_StepDependencies(${provider} configure "${_manifesto_state}/${config_id}/${identity}-cache.cmake")
+            ExternalProject_Add_StepDependencies(${provider} configure "${_ecosystem_state}/${config_id}/${identity}-cache.cmake")
             list(APPEND providers "${provider}")
-            list(APPEND packages "${_manifesto_package_${identity}}")
+            list(APPEND packages "${_ecosystem_package_${identity}}")
         endforeach()
         # Script arguments carry lists through a cache file, not command argv.
-        _manifesto_bracket(package_names "${packages}")
-        _manifesto_bracket(previous_prefix "${CMAKE_PREFIX_PATH}")
-        file(WRITE "${_manifesto_state}/${config_id}/package-inputs.cmake"
+        _ecosystem_bracket(package_names "${packages}")
+        _ecosystem_bracket(previous_prefix "${CMAKE_PREFIX_PATH}")
+        file(WRITE "${_ecosystem_state}/${config_id}/package-inputs.cmake"
             "set(PACKAGES ${package_names})\nset(PREVIOUS_PREFIX ${previous_prefix})\n")
         ExternalProject_Add(${target}
             SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
             BINARY_DIR "${inner}"
-            PREFIX "${_manifesto_state}/${config_id}/steps"
+            PREFIX "${_ecosystem_state}/${config_id}/steps"
             DOWNLOAD_COMMAND ""
             UPDATE_COMMAND ""
             DEPENDS ${providers}
-            CMAKE_ARGS -C "${_manifesto_state}/cache.cmake"
-                -C "${_manifesto_state}/${config_id}/providers.cmake"
-                "-DMANIFESTO_FACADE_INNER:BOOL=ON"
+            CMAKE_ARGS -C "${_ecosystem_state}/cache.cmake"
+                -C "${_ecosystem_state}/${config_id}/providers.cmake"
+                "-DECOSYSTEM_FACADE_INNER:BOOL=ON"
                 "-DCMAKE_BUILD_TYPE:STRING=${config}"
             BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config "${config}"
             BUILD_ALWAYS TRUE
             INSTALL_COMMAND ""
             EXCLUDE_FROM_ALL TRUE)
         ExternalProject_Add_Step(${target} packages
-            COMMAND "${CMAKE_COMMAND}" "-DINPUTS=${_manifesto_state}/${config_id}/package-inputs.cmake"
-                "-DPREFIX=${prefix}" "-DOUTPUT=${_manifesto_state}/${config_id}/providers.cmake"
-                -P "${_manifesto_state}/packages.cmake"
+            COMMAND "${CMAKE_COMMAND}" "-DINPUTS=${_ecosystem_state}/${config_id}/package-inputs.cmake"
+                "-DPREFIX=${prefix}" "-DOUTPUT=${_ecosystem_state}/${config_id}/providers.cmake"
+                -P "${_ecosystem_state}/packages.cmake"
             DEPENDEES update
             DEPENDERS configure
             ALWAYS TRUE)
-        ExternalProject_Add_StepDependencies(${target} configure "${_manifesto_state}/cache.cmake")
-        list(APPEND _manifesto_selected_targets "$<$<CONFIG:${config}>:${target}>")
+        ExternalProject_Add_StepDependencies(${target} configure "${_ecosystem_state}/cache.cmake")
+        list(APPEND _ecosystem_selected_targets "$<$<CONFIG:${config}>:${target}>")
     endforeach()
-    add_custom_target(_manifesto_facade_{{project_id}} ALL DEPENDS ${_manifesto_selected_targets})
+    add_custom_target(_ecosystem_facade_{{project_id}} ALL DEPENDS ${_ecosystem_selected_targets})
 
     # Follow the inner facade entry rather than its private executable name.
-    file(WRITE "${_manifesto_state}/entry.cmake" [==[
+    file(WRITE "${_ecosystem_state}/entry.cmake" [==[
 foreach(name mvp mvp.exe)
     set(destination "${OUTER}/${name}")
-    set(marker "${OUTER}/CMakeFiles/manifesto-${name}.owned")
+    set(marker "${OUTER}/CMakeFiles/ecosystem-${name}.owned")
     if(EXISTS "${marker}")
         file(REMOVE "${destination}" "${marker}")
     endif()
@@ -150,21 +150,21 @@ foreach(name mvp mvp.exe)
     endif()
 endforeach()
 ]==])
-    file(GENERATE OUTPUT "${_manifesto_state}/entry-$<CONFIG>.cmake"
-        CONTENT "string(SHA256 config_id \"$<CONFIG>\")\nset(INNER \"${_manifesto_state}/\${config_id}/consumer\")\nset(OUTER \"${CMAKE_CURRENT_BINARY_DIR}\")\ninclude(\"${_manifesto_state}/entry.cmake\")\n")
-    add_custom_command(TARGET _manifesto_facade_{{project_id}} POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -P "${_manifesto_state}/entry-$<CONFIG>.cmake"
+    file(GENERATE OUTPUT "${_ecosystem_state}/entry-$<CONFIG>.cmake"
+        CONTENT "string(SHA256 config_id \"$<CONFIG>\")\nset(INNER \"${_ecosystem_state}/\${config_id}/consumer\")\nset(OUTER \"${CMAKE_CURRENT_BINARY_DIR}\")\ninclude(\"${_ecosystem_state}/entry.cmake\")\n")
+    add_custom_command(TARGET _ecosystem_facade_{{project_id}} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -P "${_ecosystem_state}/entry-$<CONFIG>.cmake"
         VERBATIM)
     set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES
         "${CMAKE_CURRENT_BINARY_DIR}/mvp" "${CMAKE_CURRENT_BINARY_DIR}/mvp.exe"
-        "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-mvp.owned"
-        "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-mvp.exe.owned")
+        "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-mvp.owned"
+        "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-mvp.exe.owned")
 
-    file(WRITE "${_manifesto_state}/install.in" [==[
+    file(WRITE "${_ecosystem_state}/install.in" [==[
 string(SHA256 config_id "${CMAKE_INSTALL_CONFIG_NAME}")
 # Installing an outer library must also make its provider closure available to
 # another visitor. Each provider delegates recursively through its own facade.
-file(GLOB providers LIST_DIRECTORIES TRUE "@_manifesto_state@/${config_id}/providers/*")
+file(GLOB providers LIST_DIRECTORIES TRUE "@_ecosystem_state@/${config_id}/providers/*")
 foreach(provider IN LISTS providers)
     execute_process(COMMAND "${CMAKE_COMMAND}" --install "${provider}"
         --config "${CMAKE_INSTALL_CONFIG_NAME}" --prefix "${CMAKE_INSTALL_PREFIX}"
@@ -174,14 +174,14 @@ foreach(provider IN LISTS providers)
     endif()
 endforeach()
 execute_process(COMMAND "${CMAKE_COMMAND}" --install
-    "@_manifesto_state@/${config_id}/consumer"
+    "@_ecosystem_state@/${config_id}/consumer"
     --config "${CMAKE_INSTALL_CONFIG_NAME}" --prefix "${CMAKE_INSTALL_PREFIX}"
     RESULT_VARIABLE result)
 if(NOT result STREQUAL "0")
     message(FATAL_ERROR "Facade consumer installation failed: ${result}")
 endif()
 ]==])
-    configure_file("${_manifesto_state}/install.in" "${_manifesto_state}/install.cmake" @ONLY)
-    install(SCRIPT "${_manifesto_state}/install.cmake")
+    configure_file("${_ecosystem_state}/install.in" "${_ecosystem_state}/install.cmake" @ONLY)
+    install(SCRIPT "${_ecosystem_state}/install.cmake")
     return()
 endif()

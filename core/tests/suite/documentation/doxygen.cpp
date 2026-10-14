@@ -219,7 +219,7 @@ void test_doxygen_workspace_scope() {
         "peer configuration must not be overwritten"
     );
     write_text(
-        root.path() / "manifesto.workspace.json",
+        root.path() / "ecosystem.workspace.json",
         "{\"groups\":{\"docs\":[\"alpha\",\"beta\"]}}\n"
     );
     fs::create_directory(

@@ -7,7 +7,7 @@ const changes = require(path.resolve(process.argv[2]));
 const engels = path.resolve(process.argv[3]);
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-ci-policy-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ecosystem-ci-policy-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const git = (...args) => execFileSync('git', ['-C', root, '-c', 'commit.gpgsign=false', ...args],
     {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();

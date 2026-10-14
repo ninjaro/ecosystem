@@ -20,7 +20,7 @@ def preview(inputs, kind, name, data):
     require(command, tool + ' is required for preview: ' + name)
     temporary_parent = safe_path(inputs.root, '.ecosystem/tmp/previews')
     temporary_parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='manifesto-preview-', dir=temporary_parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix='ecosystem-preview-', dir=temporary_parent) as temporary:
         root = Path(temporary)
         source = root / ('input' + Path(name).suffix.lower())
         source.write_bytes(data)

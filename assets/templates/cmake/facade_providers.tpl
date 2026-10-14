@@ -1,12 +1,12 @@
-    function(_manifesto_source package repository revision)
+    function(_ecosystem_source package repository revision)
         string(SHA256 identity "${package}\n${repository}\n${revision}")
-        if(identity IN_LIST MANIFESTO_FACADE_ANCESTRY)
+        if(identity IN_LIST ECOSYSTEM_FACADE_ANCESTRY)
             message(FATAL_ERROR "Cyclic facade provider selection: ${package}, ${repository} @ ${revision}")
         endif()
-        set(source "${_manifesto_state}/sources/${identity}")
-        set(acquire "_manifesto_source_${package}_${identity}")
+        set(source "${_ecosystem_state}/sources/${identity}")
+        set(acquire "_ecosystem_source_${package}_${identity}")
         ExternalProject_Add(${acquire}
-            PREFIX "${_manifesto_state}/acquire/${identity}"
+            PREFIX "${_ecosystem_state}/acquire/${identity}"
             SOURCE_DIR "${source}"
             GIT_REPOSITORY "${repository}"
             GIT_TAG "${revision}"
@@ -16,14 +16,14 @@
             BUILD_COMMAND ""
             INSTALL_COMMAND ""
             EXCLUDE_FROM_ALL TRUE)
-        list(APPEND _manifesto_providers "${identity}")
-        set(_manifesto_providers "${_manifesto_providers}" PARENT_SCOPE)
-        set(_manifesto_package_${identity} "${package}" PARENT_SCOPE)
-        set(_manifesto_description_${identity} "Provider ${package}: ${repository} @ ${revision}" PARENT_SCOPE)
+        list(APPEND _ecosystem_providers "${identity}")
+        set(_ecosystem_providers "${_ecosystem_providers}" PARENT_SCOPE)
+        set(_ecosystem_package_${identity} "${package}" PARENT_SCOPE)
+        set(_ecosystem_description_${identity} "Provider ${package}: ${repository} @ ${revision}" PARENT_SCOPE)
     endfunction()
 {{provider_declarations}}
     # Validate the installed contract, not a provider's source/build layout.
-    file(WRITE "${_manifesto_state}/packages.cmake" [==[
+    file(WRITE "${_ecosystem_state}/packages.cmake" [==[
 include("${INPUTS}")
 function(bracket result value)
     set(equal "=")

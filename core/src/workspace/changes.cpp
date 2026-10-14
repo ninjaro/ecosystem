@@ -212,8 +212,8 @@ namespace {
 
     std::string global_kind(const fs::path& path) {
         const auto name = path.filename().string();
-        if (name == "manifest.json" || name == "manifesto.github.vars.json"
-            || name == "manifesto.local.json")
+        if (name == "manifest.json" || name == "ecosystem.github.vars.json"
+            || name == "ecosystem.local.json")
             return "manifest";
         if (beneath(".github", path))
             return "workflow";

@@ -7,8 +7,9 @@
 
 namespace ecosystem::asset_detail {
 
-inline constexpr std::array<std::string_view, 7> categories {
-    "brand", "showcase", "reports", "dataset", "dumps", "sets", "templates"
+inline constexpr std::array<std::string_view, 8> categories {
+    "brand", "showcase", "reports",   "dataset",
+    "dumps", "sets",     "templates", "docs"
 };
 
 bool known_category(const std::string& name);

@@ -530,7 +530,7 @@ void test_personal_style_indexes_referents_and_measures_volume_without_size_gate
                 metrics.at("referents") == 3 && metrics.at("children") == 3
                     && module.at("targets").at("children") == 2
                     && metrics.at("width_excess") == 0.5,
-                "flatness must use the manifesto square-root target"
+                "flatness must use the ecosystem square-root target"
             );
         }
         if (module.at("module") == "deep") {

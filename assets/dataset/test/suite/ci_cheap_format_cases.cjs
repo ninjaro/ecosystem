@@ -19,8 +19,8 @@ function program(step, key) {
 }
 const resolveProgram = new Function('require', 'context', 'core', program('Resolve checked-out changes', 'script'));
 const checksProgram = program('Run required local checks', 'shell-command')
-  .replaceAll('${{ steps.manifesto.outputs.engels-binary }}', engels)
-  .replaceAll('${{ steps.manifesto.outputs.marx-binary }}', marx);
+  .replaceAll('${{ steps.ecosystem.outputs.engels-binary }}', engels)
+  .replaceAll('${{ steps.ecosystem.outputs.marx-binary }}', marx);
 assert.ok(!checksProgram.includes('${{'), 'Every generated expression must be bound');
 
 for (const scenario of ['source', 'header', 'docs', 'pull-request', 'selected-drift', 'unknown', 'shallow', 'dirty', 'mismatched-event', 'repository-drift']) {
@@ -54,7 +54,7 @@ for (const scenario of ['source', 'header', 'docs', 'pull-request', 'selected-dr
     }
     const outputs = {};
     resolveProgram(name => {
-      assert.equal(name, './.github/actions/select-manifesto-ci/changes.cjs');
+      assert.equal(name, './.github/actions/select-ecosystem-ci/changes.cjs');
       return {collect: args => changes.collect({...args, root: f.root})};
     }, context, {setOutput: (key, value) => { outputs[key] = value; }, info: () => {}});
     const record = JSON.parse(outputs.changes);

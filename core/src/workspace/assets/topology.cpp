@@ -94,7 +94,7 @@ std::vector<std::string> validate_assets(const fs::path& root) {
 std::vector<std::string> runtime_asset_categories() {
     std::vector<std::string> result;
     for (const auto category : asset_detail::categories)
-        if (category != "showcase")
+        if (category != "showcase" && category != "docs")
             result.emplace_back(category);
     return result;
 }

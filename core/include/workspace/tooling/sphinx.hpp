@@ -5,6 +5,9 @@
 
 namespace ecosystem {
 
+std::filesystem::path
+sphinx_source_dir(const std::filesystem::path& project_root);
+
 bool write_local_sphinx_conf(
     const std::filesystem::path& project_root, const std::string& project_name,
     std::string* error_message

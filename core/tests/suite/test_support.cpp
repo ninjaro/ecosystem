@@ -415,7 +415,7 @@ ecosystem::manifest sample_external_project_manifest() {
         { "external_project",
           json::object({
               { "repository", "https://github.com/ninjaro/rothko" },
-              { "revision", "manifesto" },
+              { "revision", "ecosystem" },
               { "package", "packing" },
               { "artifact", "library:core" },
           }) },
@@ -865,7 +865,7 @@ void write_sample_dual_run_workspace_project(
 
 void write_sample_workspace_config(const fs::path& workspace_root) {
     write_text(
-        workspace_root / "manifesto.workspace.json",
+        workspace_root / "ecosystem.workspace.json",
         "{\n"
         "  \"groups\": {\n"
         "    \"core\": [\"alpha\", \"beta\"],\n"

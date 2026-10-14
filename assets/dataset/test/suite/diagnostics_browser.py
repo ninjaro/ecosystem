@@ -13,7 +13,7 @@ module = Path(sys.argv[1]).absolute()
 engels = Path(sys.argv[2]).absolute()
 browser = sys.argv[3] if len(sys.argv) > 3 else 'chromium'
 sys.path.insert(0, str(module.parent))
-loader = SourceFileLoader('manifesto_presentation', str(module))
+loader = SourceFileLoader('ecosystem_presentation', str(module))
 site = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(site)
 

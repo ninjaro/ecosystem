@@ -4,7 +4,7 @@
 namespace ecosystem_test_support {
 
 void test_cli_report_cxx_preserves_artifact_scope_and_failure_status() {
-    scoped_env progress("MANIFESTO_CI_PROGRESS", "1");
+    scoped_env progress("ECOSYSTEM_CI_PROGRESS", "1");
     temp_dir root;
     scoped_env flags("CXXFLAGS", "-Wno-error=unused-variable");
     write_cxx_report_project(root.path(), "reports");
@@ -93,7 +93,7 @@ void test_cli_report_cxx_preserves_artifact_scope_and_failure_status() {
         failed.path() / ".ecosystem/reports/cxx.json",
         "{\"status\":\"clean\"}\n"
     );
-    scoped_env invalid_flags("CXXFLAGS", "-fmanifesto-invalid-compiler-option");
+    scoped_env invalid_flags("CXXFLAGS", "-fecosystem-invalid-compiler-option");
     result = run_engels_cli(failed.path(), "report cxx core:app --json");
     report
         = json::parse(read_text(failed.path() / ".ecosystem/reports/cxx.json"));
@@ -109,7 +109,7 @@ void test_cli_report_cxx_preserves_artifact_scope_and_failure_status() {
         "failed configuration must also emit one complete JSON object"
     );
     require_contains(
-        report.at("errors").dump(), "-fmanifesto-invalid-compiler-option",
+        report.at("errors").dump(), "-fecosystem-invalid-compiler-option",
         "report must retain captured compiler configuration diagnostics"
     );
     require_contains(

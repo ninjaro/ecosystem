@@ -61,7 +61,7 @@ void inspect_name(
             "naming.words", "name exceeds the word-count bound",
             { { "words", words } }, { { "words", limit } }
         );
-    // The manifesto has not calibrated a character bound for test symbols.
+    // The Manifesto has not calibrated a character bound for test symbols.
     if (!test && name.size() > 25U)
         finding(
             "naming.characters", "name exceeds the character-count bound",

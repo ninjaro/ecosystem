@@ -19,7 +19,7 @@ void test_tex_failures() {
     write_text(root.path() / "tex/a.tex", "New a");
     for (const auto* mode : { "failure", "missing", "invalid", "symlink",
                               "hardlink", "directory", "fifo" }) {
-        scoped_env fail("MANIFESTO_TEX_FIXTURE", mode);
+        scoped_env fail("ECOSYSTEM_TEX_FIXTURE", mode);
         result = run_marx_cli(root.path(), "build tex");
         require_true(
             result.exit_code == 5
@@ -67,7 +67,7 @@ void test_tex_rollback() {
     write_text(root.path() / "tex/a.tex", "Replacement");
     write_text(root.path() / "tex/b.tex", "New document");
     for (const auto* mode : { "index-lock", "metadata-error" }) {
-        scoped_env fail("MANIFESTO_TEX_FIXTURE", mode);
+        scoped_env fail("ECOSYSTEM_TEX_FIXTURE", mode);
         result = run_marx_cli(root.path(), "build tex");
         require_true(
             result.exit_code == 5
@@ -108,7 +108,7 @@ void test_tex_rollback() {
         fs::remove_all(root.path() / name);
     }
     {
-        scoped_env fail("MANIFESTO_TEX_FIXTURE", "output-obstruction");
+        scoped_env fail("ECOSYSTEM_TEX_FIXTURE", "output-obstruction");
         result = run_marx_cli(root.path(), "build tex");
         require_true(
             result.exit_code == 5

@@ -70,7 +70,7 @@ void test_ci_selection() {
         sample_manifest(), root.path()
     );
     const auto* action = find_tracked_surface_file(
-        files, ".github/actions/select-manifesto-ci/action.yml"
+        files, ".github/actions/select-ecosystem-ci/action.yml"
     );
     const auto* checks
         = find_tracked_surface_file(files, ".github/workflows/tests.yml");
@@ -225,7 +225,7 @@ void test_ci_selection() {
         "fresh checks must bind changes to their own checkout before setup"
     );
     const auto* setup = find_tracked_surface_file(
-        files, ".github/actions/setup-manifesto/action.yml"
+        files, ".github/actions/setup-ecosystem/action.yml"
     );
     require_true(setup != nullptr, "local dependency setup must exist");
     require_contains(
@@ -303,7 +303,7 @@ void test_ci_selection() {
     for (const auto* actor : { "engels", "marx" })
         program = ci_bind(
             program,
-            "steps.manifesto.outputs." + std::string(actor) + "-binary",
+            "steps.ecosystem.outputs." + std::string(actor) + "-binary",
             (root.path() / actor).string()
         );
     const auto command = root.path() / "checks.sh";

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import manifesto_presentation as presentation
+import ecosystem_presentation as presentation
 from .media import image
 
 
@@ -24,7 +24,7 @@ def preview_converter(case):
 
 class PresentationCase(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='manifesto-presentation-')
+        self.temporary = tempfile.TemporaryDirectory(prefix='ecosystem-presentation-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.write('manifest.json', json.dumps({'id': 'example', 'artifacts': [{'id': 'bench:speed'}]}))

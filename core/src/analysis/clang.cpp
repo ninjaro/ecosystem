@@ -470,7 +470,7 @@ cxx_analysis_report analyze_project_sources(
             }
             auto [analysis, execution] = pending[offset].get();
             report.execution.push_back(execution);
-            if (std::getenv("MANIFESTO_CI_PROGRESS") != nullptr
+            if (std::getenv("ECOSYSTEM_CI_PROGRESS") != nullptr
                 && verification_detail::input_batch::active() != nullptr)
                 std::clog << "[clang] " << execution.dump() << std::endl;
             if (analysis.error_count > 0)

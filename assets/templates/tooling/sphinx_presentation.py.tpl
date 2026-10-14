@@ -9,7 +9,7 @@ from sphinx_presentation.benchmarks import benchmarks
 from sphinx_presentation.assets import asset_pages
 from sphinx_presentation.diagnostics import diagnostics
 
-PAGE = "_manifesto/index"
+PAGE = "_ecosystem/index"
 
 
 def compose(root, evidence=None, diagnostic_snapshot=None):
@@ -37,11 +37,11 @@ def compose(root, evidence=None, diagnostic_snapshot=None):
 
 
 def collect_pages(app):
-    require(not any(n == '_manifesto' or n.startswith('_manifesto/') for n in app.env.found_docs), 'docs/_manifesto is reserved for generated presentation')
+    require(not any(n == '_ecosystem' or n.startswith('_ecosystem/') for n in app.env.found_docs), '_ecosystem/ in the selected documentation root is reserved for generated presentation')
     root = Path(app.confdir).parent.parent
-    body, files, pages = compose(root, os.environ.get('MANIFESTO_SPHINX_EVIDENCE'),
-                                os.environ.get('MANIFESTO_SPHINX_DIAGNOSTICS'))
-    destination = Path(app.outdir) / '_manifesto'
+    body, files, pages = compose(root, os.environ.get('ECOSYSTEM_SPHINX_EVIDENCE'),
+                                os.environ.get('ECOSYSTEM_SPHINX_DIAGNOSTICS'))
+    destination = Path(app.outdir) / '_ecosystem'
     require(not destination.exists(), 'generated presentation output already exists')
     destination.mkdir()
     for name, data in files.items():

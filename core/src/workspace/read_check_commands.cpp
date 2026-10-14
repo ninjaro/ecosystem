@@ -307,7 +307,7 @@ command_error run_check_tests(
 
     std::vector<std::string> ctest_args {
         ctest_tool.path,
-        std::getenv("MANIFESTO_CI_PROGRESS") != nullptr ? "--verbose"
+        std::getenv("ECOSYSTEM_CI_PROGRESS") != nullptr ? "--verbose"
                                                         : "--output-on-failure",
         "--no-tests=error",
         "-R",
@@ -861,7 +861,8 @@ command_error run_check_sphinx(
     if (!project_has_docs_surface(project_root)) {
         print_error(
             err, command_error::unsupported_by_manifest,
-            "project does not define docs/index.md or docs/index.rst for "
+            "project does not define index.md or index.rst under assets/docs "
+            "or docs for "
             "sphinx"
         );
         return command_error::unsupported_by_manifest;
@@ -904,7 +905,7 @@ command_error run_check_sphinx(
     const auto result = capture_command_result(
         { tools.at("sphinx-build").at("path").get<std::string>(), "-b", "html",
           "-E", "-a", "-W", "--keep-going", "-c", directory.string(),
-          (project_root / "docs").string(),
+          sphinx_source_dir(project_root).string(),
           (directory / "html.pending").string() },
         project_root, sphinx_environment(sphinx_theme)
     );

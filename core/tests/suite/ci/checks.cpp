@@ -178,7 +178,7 @@ void test_check_failure_propagation() {
     );
 
     const auto ctest = ecosystem::find_command_path("ctest");
-    scoped_env real_ctest("MANIFESTO_TEST_REAL_CTEST", ctest);
+    scoped_env real_ctest("ECOSYSTEM_TEST_REAL_CTEST", ctest);
     write_executable_script(
         bin / "ctest",
         "#!/bin/sh\n"
@@ -186,7 +186,7 @@ void test_check_failure_propagation() {
         "  printf '# deliberately missing test registration\\n' > "
         "CTestTestfile.cmake\n"
         "fi\n"
-        "exec \"$MANIFESTO_TEST_REAL_CTEST\" \"$@\"\n"
+        "exec \"$ECOSYSTEM_TEST_REAL_CTEST\" \"$@\"\n"
     );
     for (const auto* request :
          { "check tests", "check coverage", "check ci" }) {
@@ -273,12 +273,12 @@ void test_ci_optional_checks() {
         write_executable_script(
             bin / name,
             "#!/bin/sh\n"
-            "printf '%s\\n' \"$0 $*\" >> \"$MANIFESTO_TEST_OPTIONAL_LOG\"\n"
+            "printf '%s\\n' \"$0 $*\" >> \"$ECOSYSTEM_TEST_OPTIONAL_LOG\"\n"
             "echo 'optional tool deliberately unavailable' >&2\n"
             "exit 97\n"
         );
     scoped_env path("PATH", bin.string() + ":" + current_path_env());
-    scoped_env log("MANIFESTO_TEST_OPTIONAL_LOG", invocations.string());
+    scoped_env log("ECOSYSTEM_TEST_OPTIONAL_LOG", invocations.string());
     auto result = run_engels_cli(project, "check ci");
     require_true(
         result.exit_code == 0,

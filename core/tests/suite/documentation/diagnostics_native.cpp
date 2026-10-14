@@ -8,14 +8,14 @@ void test_native_diagnostics(const fs::path& project) {
     require_true(result.exit_code == 0, result.output);
     const auto source = project / ".ecosystem/reports/style.json";
     const auto snapshot = read_text(source);
-    const auto site = ecosystem::local_sphinx_dir(project) / "html/_manifesto";
+    const auto site = ecosystem::local_sphinx_dir(project) / "html/_ecosystem";
     require_contains(
         read_text(site / "index.html"), "No diagnostic snapshot was selected",
         "native Pages must select diagnostic inputs explicitly"
     );
     {
         scoped_env selection(
-            "MANIFESTO_SPHINX_DIAGNOSTICS", ".ecosystem/reports/style.json"
+            "ECOSYSTEM_SPHINX_DIAGNOSTICS", ".ecosystem/reports/style.json"
         );
         result = run_engels_cli(project, "check sphinx --theme alabaster");
         require_true(result.exit_code == 0, result.output);

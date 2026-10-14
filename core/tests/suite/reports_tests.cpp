@@ -6,10 +6,10 @@ namespace ecosystem_test_support {
 void test_cli_report_matrix() {
     const cli_result result
         = run_cli(fs::path(ECOS_TEST_SOURCE_DIR), "report matrix");
-    require_true(result.exit_code == 0, "manifesto report matrix must succeed");
+    require_true(result.exit_code == 0, "ecosystem report matrix must succeed");
     const json report = json::parse(result.output);
     require_true(
-        report.at("project").get<std::string>() == "manifesto",
+        report.at("project").get<std::string>() == "ecosystem",
         "matrix report project id must match"
     );
     require_true(

@@ -13,15 +13,18 @@ class AssetsTests(PresentationCase):
                    'id\tpath\ttype\tdescription\tdatetime\n' + rows)
 
     def test_category_pages_and_files(self):
-        self.index('sets', 'page\tindex.html\tdata\tStored page\t\n')
-        self.write('assets/sets/index.html', 'Selected runtime data')
-        self.write('assets/sets/unselected.txt', 'Not selected')
-        body, files, pages = presentation.compose(self.root)
-        self.assertIn('catalog/sets/index.html', body)
-        self.assertEqual(files['assets/sets/index.html'], b'Selected runtime data')
-        self.assertEqual(pages[0][0], '_manifesto/catalog/sets/index')
-        self.assertIn('../../assets/sets/index.html', pages[0][1]['body'])
-        self.assertNotIn('assets/sets/unselected.txt', files)
+        for category in ('sets', 'docs'):
+            with self.subTest(category=category):
+                self.index(category, 'page\tindex.html\tdata\tStored page\t\n')
+                self.write(f'assets/{category}/index.html', 'Selected authored data')
+                self.write(f'assets/{category}/unselected.txt', 'Not selected')
+                body, files, pages = presentation.compose(self.root)
+                self.assertIn(f'catalog/{category}/index.html', body)
+                self.assertEqual(files[f'assets/{category}/index.html'], b'Selected authored data')
+                names = [name for name, _, _ in pages]
+                index = names.index(f'_ecosystem/catalog/{category}/index')
+                self.assertIn(f'../../assets/{category}/index.html', pages[index][1]['body'])
+                self.assertNotIn(f'assets/{category}/unselected.txt', files)
 
     def test_video_and_carousel_controls(self):
         self.index('showcase', 'video\tdemo.webm\tvideo\tDemo & notes\t2026\n'

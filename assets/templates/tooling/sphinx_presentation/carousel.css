@@ -1,17 +1,17 @@
-.manifesto-carousel {
+.ecosystem-carousel {
     margin-block: 1.5rem;
     max-width: 100%;
 }
-.manifesto-carousel .carousel-controls {
+.ecosystem-carousel .carousel-controls {
     align-items: center;
     gap: 1rem;
     justify-content: space-between;
     margin-block-end: .75rem;
 }
-.manifesto-carousel .carousel-controls:not([hidden]) {
+.ecosystem-carousel .carousel-controls:not([hidden]) {
     display: flex;
 }
-.manifesto-carousel button {
+.ecosystem-carousel button {
     border: 1px solid currentColor;
     border-radius: .25rem;
     color: inherit;
@@ -20,20 +20,20 @@
     font: inherit;
     padding: .5rem .75rem;
 }
-.manifesto-carousel button:disabled {
+.ecosystem-carousel button:disabled {
     cursor: default;
     opacity: .45;
 }
-.manifesto-carousel :focus-visible {
+.ecosystem-carousel :focus-visible {
     outline: 3px solid currentColor;
     outline-offset: 3px;
 }
-.manifesto-carousel .carousel-track {
+.ecosystem-carousel .carousel-track {
     list-style: none;
     margin: 0;
     padding: 0;
 }
-.manifesto-carousel .carousel-ready {
+.ecosystem-carousel .carousel-ready {
     display: grid;
     grid-auto-columns: 100%;
     grid-auto-flow: column;
@@ -41,28 +41,28 @@
     overscroll-behavior-inline: contain;
     scroll-snap-type: x mandatory;
 }
-.manifesto-carousel .carousel-slide {
+.ecosystem-carousel .carousel-slide {
     box-sizing: border-box;
     margin: 0;
     min-width: 0;
     padding: .25rem;
     scroll-snap-align: start;
 }
-.manifesto-carousel figure {
+.ecosystem-carousel figure {
     margin: 0;
 }
-.manifesto-carousel img,
-.manifesto-carousel video {
+.ecosystem-carousel img,
+.ecosystem-carousel video {
     display: block;
     max-height: 30rem;
     max-width: 100%;
     object-fit: contain;
     margin-inline: auto;
 }
-.manifesto-carousel figcaption {
+.ecosystem-carousel figcaption {
     padding-block: .75rem;
 }
 @media print {
-    .manifesto-carousel .carousel-controls { display: none !important; }
-    .manifesto-carousel .carousel-ready { display: block; overflow: visible; }
+    .ecosystem-carousel .carousel-controls { display: none !important; }
+    .ecosystem-carousel .carousel-ready { display: block; overflow: visible; }
 }

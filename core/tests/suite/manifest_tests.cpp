@@ -89,7 +89,7 @@ void test_self_manifest_loads() {
         *report.value, fs::path(ECOS_TEST_SOURCE_DIR)
     );
     require_not_contains(
-        cmake, "add_executable(manifesto",
+        cmake, "add_executable(ecosystem",
         "no third runtime target may be generated"
     );
     require_contains(

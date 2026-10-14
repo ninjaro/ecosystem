@@ -18,7 +18,7 @@ project = Path.cwd().parent
 with (project / 'tex_calls.jsonl').open('a') as log:
     log.write(json.dumps({'args': sys.argv[1:], 'cwd': str(Path.cwd())}) + '\n')
 source = Path(sys.argv[-1])
-mode = os.environ.get('MANIFESTO_TEX_FIXTURE', '')
+mode = os.environ.get('ECOSYSTEM_TEX_FIXTURE', '')
 if mode == 'failure' and source.name.startswith('b'):
     print('fixture TeX compilation failed')
     sys.exit(7)

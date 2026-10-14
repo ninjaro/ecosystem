@@ -34,7 +34,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: selection
-        uses: ./.github/actions/select-manifesto-ci
+        uses: ./.github/actions/select-ecosystem-ci
         with:
           kind: checks
 
@@ -43,7 +43,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ci-changes-manifesto-checks
+          name: ci-changes-ecosystem-checks
           path: ${{ steps.selection.outputs.changes-file }}
           include-hidden-files: true
           if-no-files-found: error
@@ -53,7 +53,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ci-reports-manifesto-checks
+          name: ci-reports-ecosystem-checks
           path: ${{ steps.selection.outputs.reports }}
           include-hidden-files: true
           if-no-files-found: error
@@ -79,17 +79,17 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            require('./.github/actions/select-manifesto-ci/changes.cjs').collect({context, core});
+            require('./.github/actions/select-ecosystem-ci/changes.cjs').collect({context, core});
 
-      - name: Setup manifesto tool
+      - name: Setup ecosystem tool
         if: ${{ needs.select.outputs.scope != 'reuse' }}
-        id: manifesto
-        uses: ./.github/actions/setup-manifesto
+        id: ecosystem
+        uses: ./.github/actions/setup-ecosystem
         with:
           bootstrap: "checkout"
           source-path: "."
-          manifesto-repository: ""
-          manifesto-ref: ""
+          ecosystem-repository: ""
+          ecosystem-ref: ""
           build-parallelism: 2
           install-project-deps: ${{ needs.select.outputs.scope == 'full' }}
 
@@ -98,17 +98,17 @@ jobs:
         id: classification
         uses: actions/github-script@v7
         env:
-          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          ENGELS_BINARY: ${{ steps.ecosystem.outputs.engels-binary }}
         with:
           script: |
-            require('./.github/actions/select-manifesto-ci/changes.cjs').classify({core, binary: process.env.ENGELS_BINARY});
+            require('./.github/actions/select-ecosystem-ci/changes.cjs').classify({core, binary: process.env.ENGELS_BINARY});
 
       - name: Upload change classification
         if: ${{ steps.classification.outcome == 'success' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ci-classification-manifesto-checks
+          name: ci-classification-ecosystem-checks
           path: |
             .ecosystem/github/changes.json
             .ecosystem/github/classification.json
@@ -121,35 +121,35 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .ecosystem/cache/verification
-          key: ${{ runner.os }}-${{ runner.arch }}-manifesto-analysis-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-manifesto-analysis-v1-
+          key: ${{ runner.os }}-${{ runner.arch }}-ecosystem-analysis-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-ecosystem-analysis-v1-
 
       - name: Run required local checks
         if: ${{ needs.select.outputs.scope != 'reuse' }}
         id: required
         env:
           CHECK_SCOPE: ${{ needs.select.outputs.scope }}
-          MANIFESTO_CI_PROGRESS: '1'
-          MANIFESTO_REUSE_VERIFICATION: ${{ steps.classification.outputs.incremental == 'true' && '1' || '0' }}
-        uses: ./.github/actions/run-manifesto-stage
+          ECOSYSTEM_CI_PROGRESS: '1'
+          ECOSYSTEM_REUSE_VERIFICATION: ${{ steps.classification.outputs.incremental == 'true' && '1' || '0' }}
+        uses: ./.github/actions/run-ecosystem-stage
         with:
           stage-id: 01-required-checks
           stage-label: Required local checks
           shell-command: |
             case "$CHECK_SCOPE" in
               cheap)
-                "${{ steps.manifesto.outputs.engels-binary }}" check repo
-                "${{ steps.manifesto.outputs.engels-binary }}" check format --changes
+                "${{ steps.ecosystem.outputs.engels-binary }}" check repo
+                "${{ steps.ecosystem.outputs.engels-binary }}" check format --changes
                 ;;
               full)
-                "${{ steps.manifesto.outputs.engels-binary }}" check ci
+                "${{ steps.ecosystem.outputs.engels-binary }}" check ci
                 ;;
               *) echo '::error::Missing or invalid verification scope.'; exit 1 ;;
             esac
           skipped-exit-codes: ''
 
       - name: Record compiler cache statistics
-        if: ${{ always() && steps.manifesto.outcome == 'success' && needs.select.outputs.scope != 'reuse' }}
+        if: ${{ always() && steps.ecosystem.outcome == 'success' && needs.select.outputs.scope != 'reuse' }}
         shell: bash
         run: |
           mkdir -p .ecosystem/github/reports/compiler-cache
@@ -161,7 +161,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .ecosystem/cache/ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-manifesto-ccache-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ecosystem-ccache-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Inspect verified analysis cache
         id: analysis_cache
@@ -189,17 +189,17 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .ecosystem/cache/verification
-          key: ${{ runner.os }}-${{ runner.arch }}-manifesto-analysis-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-ecosystem-analysis-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Run full verification coverage
         if: ${{ needs.select.outputs.scope == 'full' && steps.required.outputs.status == 'passed' }}
         id: coverage
-        uses: ./.github/actions/run-manifesto-stage
+        uses: ./.github/actions/run-ecosystem-stage
         with:
           stage-id: 02-coverage-check
           stage-label: Coverage check
           shell-command: |
-            "${{ steps.manifesto.outputs.engels-binary }}" check coverage
+            "${{ steps.ecosystem.outputs.engels-binary }}" check coverage
           skipped-exit-codes: 3
 
       - name: Record execution diagnosis
@@ -213,7 +213,7 @@ jobs:
           DIAGNOSTIC_STEPS: ${{ toJSON(steps) }}
         with:
           script: |
-            await require('./.github/actions/publish-manifesto-report/diagnostics.cjs').snapshot({core,
+            await require('./.github/actions/publish-ecosystem-report/diagnostics.cjs').snapshot({core,
               kind: process.env.DIAGNOSTIC_KIND, scope: process.env.DIAGNOSTIC_SCOPE,
               selectionResult: process.env.DIAGNOSTIC_SELECTION, steps: JSON.parse(process.env.DIAGNOSTIC_STEPS)});
 
@@ -222,7 +222,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ci-reports-manifesto-checks
+          name: ci-reports-ecosystem-checks
           path: |
             .ecosystem/github/reports
             .ecosystem/github/changes.json
@@ -288,8 +288,8 @@ jobs:
         env:
           EVIDENCE_KIND: checks
           VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}
-          TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
-          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          TOOL_SOURCE_ROOT: ${{ steps.ecosystem.outputs.ecosystem-source-root }}
+          ENGELS_BINARY: ${{ steps.ecosystem.outputs.engels-binary }}
           CHECK_OUTCOME: ${{ steps.required.outcome }}
           CHECK_STATUS: ${{ steps.required.outputs.status }}
           CHECK_EXIT_CODE: ${{ steps.required.outputs.exit-code }}
@@ -298,7 +298,7 @@ jobs:
           COVERAGE_EXIT_CODE: ${{ steps.coverage.outputs.exit-code }}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').record({github, context, core});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').record({github, context, core});
 
       - name: Upload verification evidence
         if: ${{ steps.evidence.outputs.name != '' }}
@@ -326,7 +326,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          pattern: ci-reports-manifesto-checks
+          pattern: ci-reports-ecosystem-checks
           path: .ecosystem
           merge-multiple: true
 
@@ -334,9 +334,9 @@ jobs:
         id: published
         if: ${{ always() }}
         continue-on-error: true
-        uses: ./.github/actions/publish-manifesto-report
+        uses: ./.github/actions/publish-ecosystem-report
         with:
-          project-id: manifesto
+          project-id: ecosystem
           report-key: checks
           report-title: Checks
           report-directory: .ecosystem/github/reports
@@ -350,7 +350,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ci-diagnosis-manifesto-checks
+          name: ci-diagnosis-ecosystem-checks
           path: .ecosystem/github/reports
           include-hidden-files: true
           if-no-files-found: error

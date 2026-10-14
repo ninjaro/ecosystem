@@ -243,7 +243,7 @@ void test_doxygen_config_errors() {
     scoped_env path("PATH", bin.string() + ":" + current_path_env());
     scoped_env tool_log("DOXYGEN_TEST_LOG", log.string());
     const auto overrides = root.path() / "templates";
-    scoped_env templates("MANIFESTO_TEMPLATE_ROOT", overrides.string());
+    scoped_env templates("ECOSYSTEM_TEMPLATE_ROOT", overrides.string());
     const auto config = ecosystem::local_doxygen_dir(project) / "Doxyfile";
     write_text(project / "Doxyfile", "# root config must remain untouched\n");
     write_text(config, "# stale configuration\n");

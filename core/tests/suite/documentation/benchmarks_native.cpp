@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     const auto original = read_text(report / "bench_plot.svg");
     result = run_engels_cli(project, "check sphinx --theme alabaster");
     require_true(result.exit_code == 0, result.output);
-    const auto site = ecosystem::local_sphinx_dir(project) / "html/_manifesto";
+    const auto site = ecosystem::local_sphinx_dir(project) / "html/_ecosystem";
     const auto page = read_text(site / "index.html");
     require_contains(
         page, "GFLOPs/s versus n for bench:speed",

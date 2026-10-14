@@ -7,13 +7,13 @@ namespace ecosystem_test_support {
 void test_release_tooling_bundle() {
     {
         scoped_env retired("ECOSYSTEM_PACKAGER", "retired identity");
-        scoped_env current("MANIFESTO_PACKAGER", "");
+        scoped_env current("ECOSYSTEM_PACKAGER", "");
         scoped_env external("PACKAGER", "external identity");
         require_true(
             ecosystem::release_detail::package_author() == "external identity",
             "retired internal aliases must not override external PACKAGER"
         );
-        scoped_env selected("MANIFESTO_PACKAGER", "current identity");
+        scoped_env selected("ECOSYSTEM_PACKAGER", "current identity");
         require_true(
             ecosystem::release_detail::package_author() == "current identity",
             "the current explicit packager identity must take precedence"
@@ -56,7 +56,7 @@ void test_release_tooling_bundle() {
             "{{wrong_template_version}}\n"
         );
         scoped_env override_path(
-            "MANIFESTO_TEMPLATE_ROOT", override_root.string()
+            "ECOSYSTEM_TEMPLATE_ROOT", override_root.string()
         );
         const auto status = ecosystem::create_prerelease_packages(
             source, *loaded.value, *selected, build / "marx", "1.0.0", {},
@@ -77,7 +77,7 @@ void test_release_tooling_bundle() {
     require_true(
         std::find(
             files.begin(), files.end(),
-            "usr/share/manifesto/templates/tracked/.github/workflows/"
+            "usr/share/ecosystem/templates/tracked/.github/workflows/"
             "tests.yml.tpl"
         ) != files.end(),
         "package metadata must account for hidden runtime template files"
@@ -106,11 +106,11 @@ void test_release_tooling_bundle() {
         root.path()
     );
     fs::rename(source, root.path() / "unavailable-tooling-source");
-    scoped_env no_override("MANIFESTO_TEMPLATE_ROOT", "");
+    scoped_env no_override("ECOSYSTEM_TEMPLATE_ROOT", "");
     scoped_env no_legacy_override("ECOSYSTEM_TEMPLATE_ROOT", "");
     scoped_env no_library_override("LD_LIBRARY_PATH", "");
     for (const auto& prefix : { pacman, debian }) {
-        const auto bundle = prefix / "usr/share/manifesto/templates";
+        const auto bundle = prefix / "usr/share/ecosystem/templates";
         require_true(
             fs::is_regular_file(
                 bundle / "tracked/.github/workflows/tests.yml.tpl"
@@ -171,7 +171,7 @@ void test_release_tooling_bundle() {
 void test_release_tooling_errors() {
     temp_dir root;
     auto value = sample_dual_run_manifest();
-    value.id = "manifesto";
+    value.id = "ecosystem";
     value.install_artifacts = { "tool:cli" };
     value.components.front().artifacts.front().name = "marx";
     value.components.back().artifacts.front().name = "engels";
@@ -346,7 +346,7 @@ void test_release_cache_inventory() {
         ),
         error
     );
-    const auto bundle = stage / "usr/share/manifesto/templates";
+    const auto bundle = stage / "usr/share/ecosystem/templates";
     require_true(
         read_text(bundle / "tracked/.github/actions/native.tpl")
             == "required hidden template\n",

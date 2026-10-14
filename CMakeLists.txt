@@ -2,7 +2,7 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(manifesto VERSION 0.1.0 LANGUAGES C CXX)
+project(ecosystem VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -215,7 +215,7 @@ endfunction()
 
 function(ecosystem_stage_assets target_name)
     file(GENERATE
-            OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/manifesto_assets_${target_name}_$<CONFIG>.cmake"
+            OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ecosystem_assets_${target_name}_$<CONFIG>.cmake"
             CONTENT [==[# Script mode has its own policy scope; it does not inherit the project policy.
 cmake_minimum_required(VERSION 3.20)
 # Runtime ownership is independent of Git: reserved cache directories are never
@@ -391,13 +391,13 @@ endif ()
     # A new staging policy must take effect even if application sources did not
     # change. Native Make/Ninja link rules depend on the generated script.
     set_property(TARGET ${target_name} APPEND PROPERTY LINK_DEPENDS
-            "${CMAKE_CURRENT_BINARY_DIR}/manifesto_assets_${target_name}_$<CONFIG>.cmake")
+            "${CMAKE_CURRENT_BINARY_DIR}/ecosystem_assets_${target_name}_$<CONFIG>.cmake")
     add_custom_command(
             TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND}
             "-Dasset_source=${CMAKE_CURRENT_SOURCE_DIR}/assets"
             "-Dasset_destination=$<TARGET_FILE_DIR:${target_name}>/assets"
-            -P "${CMAKE_CURRENT_BINARY_DIR}/manifesto_assets_${target_name}_$<CONFIG>.cmake"
+            -P "${CMAKE_CURRENT_BINARY_DIR}/ecosystem_assets_${target_name}_$<CONFIG>.cmake"
             VERBATIM
     )
 endfunction()
@@ -405,30 +405,30 @@ endfunction()
 
 
 # Runtime data belongs to the tooling install, independently of project assets.
-file(RELATIVE_PATH MANIFESTO_INSTALL_TEMPLATE_PATH
+file(RELATIVE_PATH ECOSYSTEM_INSTALL_TEMPLATE_PATH
      "${CMAKE_INSTALL_FULL_BINDIR}"
-     "${CMAKE_INSTALL_FULL_DATADIR}/manifesto/templates")
+     "${CMAKE_INSTALL_FULL_DATADIR}/ecosystem/templates")
 set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/template_text.cpp"
              APPEND PROPERTY COMPILE_DEFINITIONS
-             "MANIFESTO_BUILD_ROOT=\"$<TARGET_FILE_DIR:marx__marx>\""
-             "MANIFESTO_SOURCE_TEMPLATE_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/templates\""
-             "MANIFESTO_INSTALL_TEMPLATE_PATH=\"${MANIFESTO_INSTALL_TEMPLATE_PATH}\"")
+             "ECOSYSTEM_BUILD_ROOT=\"$<TARGET_FILE_DIR:marx__marx>\""
+             "ECOSYSTEM_SOURCE_TEMPLATE_ROOT=\"${CMAKE_CURRENT_SOURCE_DIR}/assets/templates\""
+             "ECOSYSTEM_INSTALL_TEMPLATE_PATH=\"${ECOSYSTEM_INSTALL_TEMPLATE_PATH}\"")
 if (COMMAND _ecosystem_runtime_asset_files AND IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets/templates")
-    _ecosystem_runtime_asset_files("${CMAKE_CURRENT_SOURCE_DIR}/assets" manifesto_templates templates)
-    foreach (source IN LISTS manifesto_templates)
+    _ecosystem_runtime_asset_files("${CMAKE_CURRENT_SOURCE_DIR}/assets" ecosystem_templates templates)
+    foreach (source IN LISTS ecosystem_templates)
         file(RELATIVE_PATH relative "${CMAKE_CURRENT_SOURCE_DIR}/assets/templates" "${source}")
         get_filename_component(parent "${relative}" DIRECTORY)
         get_filename_component(name "${source}" NAME)
         get_filename_component(real_source "${source}" REALPATH)
         install(FILES "${real_source}"
-                DESTINATION "${CMAKE_INSTALL_DATADIR}/manifesto/templates/${parent}"
+                DESTINATION "${CMAKE_INSTALL_DATADIR}/ecosystem/templates/${parent}"
                 RENAME "${name}")
     endforeach ()
 else ()
     install(CODE "message(FATAL_ERROR \"Missing tooling template bundle: ${CMAKE_CURRENT_SOURCE_DIR}/assets/templates\")")
 endif ()
 
-set(MANIFESTO_CORE_CORE_HEADERS
+set(ECOSYSTEM_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/clang.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/diagnostic.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/analysis/diagnostic_view.hpp
@@ -488,7 +488,7 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/release.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/tex.hpp
 )
-set(MANIFESTO_CORE_CORE_SOURCES
+set(ECOSYSTEM_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_markdown.cpp
@@ -554,7 +554,7 @@ set(MANIFESTO_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/workspace_scope.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/write_commands.cpp
 )
-set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
+set(ECOSYSTEM_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/diagnostic_markdown.cpp
@@ -620,69 +620,69 @@ set(MANIFESTO_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/workspace_scope.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/write_commands.cpp
 )
-set(MANIFESTO_FRONTEND_SUPPORT_CLI_SUPPORT_HEADERS
+set(ECOSYSTEM_FRONTEND_SUPPORT_CLI_SUPPORT_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/actor_cli.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/common_args.hpp
 )
-set(MANIFESTO_FRONTEND_SUPPORT_CLI_SUPPORT_SOURCES
+set(ECOSYSTEM_FRONTEND_SUPPORT_CLI_SUPPORT_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/actor_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/common_args.cpp
 )
-set(MANIFESTO_FRONTEND_SUPPORT_CLI_SUPPORT_RUNTIME_SOURCES
+set(ECOSYSTEM_FRONTEND_SUPPORT_CLI_SUPPORT_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/actor_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/common_args.cpp
 )
-set(MANIFESTO_ENGELS_CLI_HEADERS
+set(ECOSYSTEM_ENGELS_CLI_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/engels_args.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/engels_cli.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/engels_command.hpp
 )
-set(MANIFESTO_ENGELS_CLI_SOURCES
+set(ECOSYSTEM_ENGELS_CLI_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_command.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_report_args.cpp
 )
-set(MANIFESTO_ENGELS_CLI_RUNTIME_SOURCES
+set(ECOSYSTEM_ENGELS_CLI_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_command.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_report_args.cpp
 )
-set(MANIFESTO_ENGELS_ENGELS_HEADERS
+set(ECOSYSTEM_ENGELS_ENGELS_HEADERS
 )
-set(MANIFESTO_ENGELS_ENGELS_SOURCES
+set(ECOSYSTEM_ENGELS_ENGELS_SOURCES
 )
-set(MANIFESTO_ENGELS_ENGELS_RUNTIME_SOURCES
+set(ECOSYSTEM_ENGELS_ENGELS_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_main.cpp
 )
-set(MANIFESTO_MARX_CLI_HEADERS
+set(ECOSYSTEM_MARX_CLI_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/marx_args.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/marx_cli.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/marx_command.hpp
 )
-set(MANIFESTO_MARX_CLI_SOURCES
+set(ECOSYSTEM_MARX_CLI_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command/assets.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command.cpp
 )
-set(MANIFESTO_MARX_CLI_RUNTIME_SOURCES
+set(ECOSYSTEM_MARX_CLI_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_args.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command/assets.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_command.cpp
 )
-set(MANIFESTO_MARX_MARX_HEADERS
+set(ECOSYSTEM_MARX_MARX_HEADERS
 )
-set(MANIFESTO_MARX_MARX_SOURCES
+set(ECOSYSTEM_MARX_MARX_SOURCES
 )
-set(MANIFESTO_MARX_MARX_RUNTIME_SOURCES
+set(ECOSYSTEM_MARX_MARX_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/marx_main.cpp
 )
 add_library(core__core STATIC
-    ${MANIFESTO_CORE_CORE_HEADERS}
-    ${MANIFESTO_CORE_CORE_SOURCES}
+    ${ECOSYSTEM_CORE_CORE_HEADERS}
+    ${ECOSYSTEM_CORE_CORE_SOURCES}
 )
 
 target_compile_features(core__core PUBLIC cxx_std_20)
@@ -696,14 +696,14 @@ target_link_libraries(core__core PUBLIC
     ecosystem_llvm_clang_support
 )
 
-set_target_properties(core__core PROPERTIES OUTPUT_NAME manifesto_core)
+set_target_properties(core__core PROPERTIES OUTPUT_NAME ecosystem_core)
 
 ecosystem_apply_defaults(core__core)
 
 
 add_library(frontend_support__cli_support STATIC
-    ${MANIFESTO_FRONTEND_SUPPORT_CLI_SUPPORT_HEADERS}
-    ${MANIFESTO_FRONTEND_SUPPORT_CLI_SUPPORT_SOURCES}
+    ${ECOSYSTEM_FRONTEND_SUPPORT_CLI_SUPPORT_HEADERS}
+    ${ECOSYSTEM_FRONTEND_SUPPORT_CLI_SUPPORT_SOURCES}
 )
 
 target_compile_features(frontend_support__cli_support PUBLIC cxx_std_20)
@@ -717,14 +717,14 @@ target_link_libraries(frontend_support__cli_support PUBLIC
     core__core
 )
 
-set_target_properties(frontend_support__cli_support PROPERTIES OUTPUT_NAME manifesto_frontend_support)
+set_target_properties(frontend_support__cli_support PROPERTIES OUTPUT_NAME ecosystem_frontend_support)
 
 ecosystem_apply_defaults(frontend_support__cli_support)
 
 
 add_library(engels__cli STATIC
-    ${MANIFESTO_ENGELS_CLI_HEADERS}
-    ${MANIFESTO_ENGELS_CLI_SOURCES}
+    ${ECOSYSTEM_ENGELS_CLI_HEADERS}
+    ${ECOSYSTEM_ENGELS_CLI_SOURCES}
 )
 
 target_compile_features(engels__cli PUBLIC cxx_std_20)
@@ -745,8 +745,8 @@ ecosystem_apply_defaults(engels__cli)
 
 
 add_executable(engels__engels
-    ${MANIFESTO_ENGELS_ENGELS_HEADERS}
-    ${MANIFESTO_ENGELS_ENGELS_RUNTIME_SOURCES}
+    ${ECOSYSTEM_ENGELS_ENGELS_HEADERS}
+    ${ECOSYSTEM_ENGELS_ENGELS_RUNTIME_SOURCES}
 )
 
 target_compile_features(engels__engels PRIVATE cxx_std_20)
@@ -767,8 +767,8 @@ ecosystem_stage_assets(engels__engels)
 
 
 add_library(marx__cli STATIC
-    ${MANIFESTO_MARX_CLI_HEADERS}
-    ${MANIFESTO_MARX_CLI_SOURCES}
+    ${ECOSYSTEM_MARX_CLI_HEADERS}
+    ${ECOSYSTEM_MARX_CLI_SOURCES}
 )
 
 target_compile_features(marx__cli PUBLIC cxx_std_20)
@@ -789,8 +789,8 @@ ecosystem_apply_defaults(marx__cli)
 
 
 add_executable(marx__marx
-    ${MANIFESTO_MARX_MARX_HEADERS}
-    ${MANIFESTO_MARX_MARX_RUNTIME_SOURCES}
+    ${ECOSYSTEM_MARX_MARX_HEADERS}
+    ${ECOSYSTEM_MARX_MARX_RUNTIME_SOURCES}
 )
 
 target_compile_features(marx__marx PRIVATE cxx_std_20)
@@ -813,21 +813,21 @@ ecosystem_stage_assets(marx__marx)
 # The visitor name is generated state; the selected target keeps its identity.
 # Retire a previous link/copy before a new selection can build at the same path.
 foreach(facade_name mvp mvp.exe)
-    if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-${facade_name}.owned")
+    if(EXISTS "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-${facade_name}.owned")
         file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/${facade_name}"
-                    "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-${facade_name}.owned")
+                    "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-${facade_name}.owned")
     endif()
 endforeach()
 
-get_target_property(MANIFESTO_FACADE_TYPE marx__marx TYPE)
-if(MANIFESTO_FACADE_TYPE STREQUAL "EXECUTABLE" AND NOT ANDROID)
+get_target_property(ECOSYSTEM_FACADE_TYPE marx__marx TYPE)
+if(ECOSYSTEM_FACADE_TYPE STREQUAL "EXECUTABLE" AND NOT ANDROID)
     if(WIN32)
-        set(MANIFESTO_FACADE_NAME mvp.exe)
+        set(ECOSYSTEM_FACADE_NAME mvp.exe)
     else()
-        set(MANIFESTO_FACADE_NAME mvp)
+        set(ECOSYSTEM_FACADE_NAME mvp)
     endif()
     file(GENERATE
-        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-facade-$<CONFIG>.cmake"
+        OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-facade-$<CONFIG>.cmake"
         CONTENT [=[
 set(source "$<TARGET_FILE:marx__marx>")
 set(destination "${FACADE_DIR}/${FACADE_NAME}")
@@ -840,18 +840,18 @@ else()
     file(RELATIVE_PATH relative "${FACADE_DIR}" "${source}")
     file(CREATE_LINK "${relative}" "${destination}" SYMBOLIC)
 endif()
-file(WRITE "${FACADE_DIR}/CMakeFiles/manifesto-${FACADE_NAME}.owned" "generated\n")
+file(WRITE "${FACADE_DIR}/CMakeFiles/ecosystem-${FACADE_NAME}.owned" "generated\n")
 ]=])
-    add_custom_target(_manifesto_visitor_facade_manifesto ALL
+    add_custom_target(_ecosystem_visitor_facade_ecosystem ALL
         COMMAND "${CMAKE_COMMAND}"
             "-DFACADE_DIR=${CMAKE_CURRENT_BINARY_DIR}"
-            "-DFACADE_NAME=${MANIFESTO_FACADE_NAME}"
-            -P "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-facade-$<CONFIG>.cmake"
+            "-DFACADE_NAME=${ECOSYSTEM_FACADE_NAME}"
+            -P "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-facade-$<CONFIG>.cmake"
         DEPENDS marx__marx
         VERBATIM)
     set_property(DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES
-        "${CMAKE_CURRENT_BINARY_DIR}/${MANIFESTO_FACADE_NAME}"
-        "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/manifesto-${MANIFESTO_FACADE_NAME}.owned")
+        "${CMAKE_CURRENT_BINARY_DIR}/${ECOSYSTEM_FACADE_NAME}"
+        "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-${ECOSYSTEM_FACADE_NAME}.owned")
 endif()
 
 install(TARGETS engels__engels

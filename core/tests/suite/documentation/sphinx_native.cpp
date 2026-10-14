@@ -37,14 +37,14 @@ void test_sphinx_native_pipeline() {
     const auto directory = ecosystem::local_sphinx_dir(project);
     const auto api = read_text(directory / "html/api.html");
     require_contains(
-        api, "_manifesto/index.html", "public pages must link project results"
+        api, "_ecosystem/index.html", "public pages must link project results"
     );
     require_true(
-        fs::is_regular_file(directory / "html/_manifesto/doxygen/index.html"),
+        fs::is_regular_file(directory / "html/_ecosystem/doxygen/index.html"),
         "standalone Doxygen HTML must be available from the same site"
     );
     require_contains(
-        read_text(directory / "html/_manifesto/index.html"),
+        read_text(directory / "html/_ecosystem/index.html"),
         "No verification evidence was selected",
         "local docs must not claim unselected verification"
     );
@@ -103,14 +103,14 @@ void test_sphinx_native_pipeline() {
         "C++ API\n=======\n\n.. doxygenstruct:: selected_public_type\n"
     );
     result = run_engels_cli(
-        project, "check sphinx --theme manifesto_missing_theme"
+        project, "check sphinx --theme ecosystem_missing_theme"
     );
     require_true(
         result.exit_code == 5 && read_text(directory / "html/api.html") == api,
         "missing theme must fail without replacing the site"
     );
     require_contains(
-        result.output, "manifesto_missing_theme",
+        result.output, "ecosystem_missing_theme",
         "missing module errors must be actionable"
     );
     fs::remove(project / "docs/guide.md");
@@ -146,14 +146,14 @@ void test_sphinx_native_pipeline() {
     result = run_engels_cli(project, "check sphinx --theme alabaster");
     require_true(result.exit_code == 0, result.output);
     require_contains(
-        read_text(directory / "html/_manifesto/index.html"), "Absent image",
+        read_text(directory / "html/_ecosystem/index.html"), "Absent image",
         "indexed showcase must render using the selected Sphinx theme"
     );
     fs::remove_all(project / "assets/showcase");
     result = run_engels_cli(project, "check sphinx --theme alabaster");
     require_true(
         result.exit_code == 0
-            && !fs::exists(directory / "html/_manifesto/showcase/missing.png"),
+            && !fs::exists(directory / "html/_ecosystem/showcase/missing.png"),
         "rebuilding must retire removed showcase output"
     );
     test_native_asset_pages(project);

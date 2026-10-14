@@ -1,5 +1,5 @@
 /* Enhance the ordered list; leave all content available without JavaScript. */
-document.querySelectorAll('.manifesto-carousel').forEach(carousel => {
+document.querySelectorAll('.ecosystem-carousel').forEach(carousel => {
     const track = carousel.querySelector('.carousel-track');
     if (track.classList.contains('carousel-ready')) return;
     const slides = [...track.children];

@@ -186,7 +186,7 @@ void test_release_provider_runtime() {
         write_text(project / "manifest.json", authored.dump(2));
     }
     write_text(
-        consumer / "manifesto.local.json",
+        consumer / "ecosystem.local.json",
         json({ { "sources",
                  { { "https://example.invalid/numbers.git",
                      provider.string() } } } }
@@ -236,7 +236,7 @@ void test_release_provider_runtime() {
     require_true(unpacked.exit_code == 0, "provider package must extract");
     for (const auto& entry : fs::recursive_directory_iterator(prefix)) {
         require_true(
-            entry.path().filename() != "manifesto.local.json",
+            entry.path().filename() != "ecosystem.local.json",
             "release payload must exclude machine-local source mappings"
         );
     }

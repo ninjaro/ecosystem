@@ -262,13 +262,13 @@ namespace sync_support {
     }
 
     struct github_actions_vars {
-        std::string manifesto_bootstrap = "repository";
-        std::string manifesto_repository;
-        std::string manifesto_ref;
-        std::string manifesto_source_path = ".";
-        std::string manifesto_setup_action
-            = "./.github/actions/setup-manifesto";
-        std::string manifesto_build_parallelism = "2";
+        std::string ecosystem_bootstrap = "repository";
+        std::string ecosystem_repository;
+        std::string ecosystem_ref;
+        std::string ecosystem_source_path = ".";
+        std::string ecosystem_setup_action
+            = "./.github/actions/setup-ecosystem";
+        std::string ecosystem_build_parallelism = "2";
         std::string sphinx_theme = "sphinx_rtd_theme";
         std::string sphinx_theme_package = "sphinx-rtd-theme";
         std::string checkout_action = "actions/checkout@v4";
@@ -286,7 +286,7 @@ namespace sync_support {
     };
 
     fs::path github_actions_vars_path(const fs::path& project_root) {
-        return project_root / "manifesto.github.vars.json";
+        return project_root / "ecosystem.github.vars.json";
     }
 
     void assign_string_field(
@@ -298,7 +298,7 @@ namespace sync_support {
         }
         if (!object.at(key).is_string()) {
             errors->push_back(
-                key + " must be a string in manifesto.github.vars.json"
+                key + " must be a string in ecosystem.github.vars.json"
             );
             return;
         }
@@ -310,15 +310,15 @@ namespace sync_support {
     ) {
         if (value.empty()) {
             errors->push_back(
-                key + " must not be empty in manifesto.github.vars.json"
+                key + " must not be empty in ecosystem.github.vars.json"
             );
         }
     }
 
     bool github_actions_use_local_setup_action(const github_actions_vars& vars
     ) {
-        return vars.manifesto_setup_action
-            == "./.github/actions/setup-manifesto";
+        return vars.ecosystem_setup_action
+            == "./.github/actions/setup-ecosystem";
     }
 
     std::vector<fs::path> tracked_surface_owned_paths() {
@@ -329,16 +329,13 @@ namespace sync_support {
             ".clang-tidy",
             ".github/SECURITY.md",
             ".github/renovate.json",
-            ".github/actions/run-manifesto-stage/action.yml",
-            ".github/actions/select-manifesto-ci/action.yml",
-            ".github/actions/select-manifesto-ci/changes.cjs",
-            ".github/actions/select-manifesto-ci/evidence.cjs",
-            ".github/actions/publish-manifesto-report/action.yml",
-            ".github/actions/publish-manifesto-report/diagnostics.cjs",
-            ".github/actions/setup-manifesto/action.yml",
-            ".github/actions/setup-ecosystem/action.yml",
             ".github/actions/run-ecosystem-stage/action.yml",
+            ".github/actions/select-ecosystem-ci/action.yml",
+            ".github/actions/select-ecosystem-ci/changes.cjs",
+            ".github/actions/select-ecosystem-ci/evidence.cjs",
             ".github/actions/publish-ecosystem-report/action.yml",
+            ".github/actions/publish-ecosystem-report/diagnostics.cjs",
+            ".github/actions/setup-ecosystem/action.yml",
             ".github/workflows/tests.yml",
             ".github/workflows/codeql.yml",
             ".github/workflows/html.yml",
@@ -463,34 +460,34 @@ namespace sync_support {
             root = json::parse(contents);
         } catch (const std::exception& error) {
             errors->push_back(
-                "invalid manifesto.github.vars.json: "
+                "invalid ecosystem.github.vars.json: "
                 + std::string(error.what())
             );
             return std::nullopt;
         }
         if (!root.is_object()) {
             errors->emplace_back(
-                "manifesto.github.vars.json must contain a JSON object"
+                "ecosystem.github.vars.json must contain a JSON object"
             );
             return std::nullopt;
         }
 
         assign_string_field(
-            root, "manifesto_bootstrap", &vars.manifesto_bootstrap, errors
+            root, "ecosystem_bootstrap", &vars.ecosystem_bootstrap, errors
         );
         assign_string_field(
-            root, "manifesto_repository", &vars.manifesto_repository, errors
+            root, "ecosystem_repository", &vars.ecosystem_repository, errors
         );
         assign_string_field(
-            root, "manifesto_source_path", &vars.manifesto_source_path, errors
+            root, "ecosystem_source_path", &vars.ecosystem_source_path, errors
         );
-        assign_string_field(root, "manifesto_ref", &vars.manifesto_ref, errors);
+        assign_string_field(root, "ecosystem_ref", &vars.ecosystem_ref, errors);
         assign_string_field(
-            root, "manifesto_setup_action", &vars.manifesto_setup_action, errors
+            root, "ecosystem_setup_action", &vars.ecosystem_setup_action, errors
         );
         assign_string_field(
-            root, "manifesto_build_parallelism",
-            &vars.manifesto_build_parallelism, errors
+            root, "ecosystem_build_parallelism",
+            &vars.ecosystem_build_parallelism, errors
         );
         assign_string_field(root, "sphinx_theme", &vars.sphinx_theme, errors);
         assign_string_field(
@@ -525,39 +522,39 @@ namespace sync_support {
         assign_string_field(
             root, "deploy_pages_action", &vars.deploy_pages_action, errors
         );
-        if (vars.manifesto_bootstrap != "checkout"
-            && vars.manifesto_bootstrap != "repository") {
+        if (vars.ecosystem_bootstrap != "checkout"
+            && vars.ecosystem_bootstrap != "repository") {
             errors->emplace_back(
-                "manifesto_bootstrap must be checkout or repository in "
-                "manifesto.github.vars.json"
+                "ecosystem_bootstrap must be checkout or repository in "
+                "ecosystem.github.vars.json"
             );
         }
-        if (vars.manifesto_repository.empty() != vars.manifesto_ref.empty()) {
+        if (vars.ecosystem_repository.empty() != vars.ecosystem_ref.empty()) {
             errors->emplace_back(
-                "manifesto_repository and manifesto_ref must be configured "
-                "together in manifesto.github.vars.json"
+                "ecosystem_repository and ecosystem_ref must be configured "
+                "together in ecosystem.github.vars.json"
             );
         }
-        if (vars.manifesto_bootstrap == "checkout"
-            && (!vars.manifesto_repository.empty()
-                || !vars.manifesto_ref.empty())) {
+        if (vars.ecosystem_bootstrap == "checkout"
+            && (!vars.ecosystem_repository.empty()
+                || !vars.ecosystem_ref.empty())) {
             errors->emplace_back(
                 "checkout bootstrap uses the revision under review; omit "
-                "manifesto_repository and manifesto_ref"
+                "ecosystem_repository and ecosystem_ref"
             );
         }
-        const fs::path source_path(vars.manifesto_source_path);
+        const fs::path source_path(vars.ecosystem_source_path);
         if (source_path.empty() || source_path.is_absolute()
             || std::find(source_path.begin(), source_path.end(), fs::path(".."))
                 != source_path.end()) {
             errors->emplace_back(
-                "manifesto_source_path must stay within the checkout in "
-                "manifesto.github.vars.json"
+                "ecosystem_source_path must stay within the checkout in "
+                "ecosystem.github.vars.json"
             );
         }
         for (const auto* field :
-             { &vars.manifesto_repository, &vars.manifesto_ref,
-               &vars.manifesto_source_path }) {
+             { &vars.ecosystem_repository, &vars.ecosystem_ref,
+               &vars.ecosystem_source_path }) {
             if (std::any_of(
                     field->begin(), field->end(),
                     [](const unsigned char character) {
@@ -567,29 +564,29 @@ namespace sync_support {
                 || field->find("${{") != std::string::npos) {
                 errors->emplace_back(
                     "bootstrap repository, ref and source path must be literal "
-                    "single-line values in manifesto.github.vars.json"
+                    "single-line values in ecosystem.github.vars.json"
                 );
             }
         }
-        if (vars.manifesto_build_parallelism.empty()
-            || vars.manifesto_build_parallelism.front() == '0'
+        if (vars.ecosystem_build_parallelism.empty()
+            || vars.ecosystem_build_parallelism.front() == '0'
             || !std::all_of(
-                vars.manifesto_build_parallelism.begin(),
-                vars.manifesto_build_parallelism.end(),
+                vars.ecosystem_build_parallelism.begin(),
+                vars.ecosystem_build_parallelism.end(),
                 [](const unsigned char character) {
                     return std::isdigit(character);
                 }
             )) {
             errors->emplace_back(
-                "manifesto_build_parallelism must be a positive integer string "
-                "in manifesto.github.vars.json"
+                "ecosystem_build_parallelism must be a positive integer string "
+                "in ecosystem.github.vars.json"
             );
         }
         require_non_empty_field(
-            "manifesto_setup_action", vars.manifesto_setup_action, errors
+            "ecosystem_setup_action", vars.ecosystem_setup_action, errors
         );
         require_non_empty_field(
-            "manifesto_build_parallelism", vars.manifesto_build_parallelism,
+            "ecosystem_build_parallelism", vars.ecosystem_build_parallelism,
             errors
         );
         require_non_empty_field("sphinx_theme", vars.sphinx_theme, errors);
@@ -1216,13 +1213,13 @@ namespace sync_support {
     ) {
         return {
             { "project_id", value.id },
-            { "manifesto_bootstrap", json(vars.manifesto_bootstrap).dump() },
-            { "manifesto_repository", json(vars.manifesto_repository).dump() },
-            { "manifesto_ref", json(vars.manifesto_ref).dump() },
-            { "manifesto_source_path",
-              json(vars.manifesto_source_path).dump() },
-            { "manifesto_setup_action", vars.manifesto_setup_action },
-            { "manifesto_build_parallelism", vars.manifesto_build_parallelism },
+            { "ecosystem_bootstrap", json(vars.ecosystem_bootstrap).dump() },
+            { "ecosystem_repository", json(vars.ecosystem_repository).dump() },
+            { "ecosystem_ref", json(vars.ecosystem_ref).dump() },
+            { "ecosystem_source_path",
+              json(vars.ecosystem_source_path).dump() },
+            { "ecosystem_setup_action", vars.ecosystem_setup_action },
+            { "ecosystem_build_parallelism", vars.ecosystem_build_parallelism },
             { "sphinx_theme", vars.sphinx_theme },
             { "sphinx_theme_package", vars.sphinx_theme_package },
             { "checkout_action", vars.checkout_action },
@@ -1469,7 +1466,7 @@ namespace sync_support {
         std::string declarations;
         json identity = json::array();
         for (const auto& [package, dependency] : providers) {
-            declarations += "    _manifesto_source(" + cmake_bracket(package)
+            declarations += "    _ecosystem_source(" + cmake_bracket(package)
                 + " " + cmake_bracket(dependency.repository) + " "
                 + cmake_bracket(dependency.revision) + ")\n";
             identity.push_back({ package, dependency.repository,
@@ -1720,7 +1717,7 @@ namespace sync_support {
                     )) } }
             );
 
-        if (value.id == "manifesto") {
+        if (value.id == "ecosystem") {
             const auto runtime_ref
                 = parse_artifact_ref(value.facade_entry_artifact);
             if (!runtime_ref)
@@ -1728,7 +1725,7 @@ namespace sync_support {
                     "tooling runtime needs a valid facade identity"
                 );
             stream << render_required_sync_template(
-                "cmake/manifesto_runtime.tpl",
+                "cmake/ecosystem_runtime.tpl",
                 { { "source_root_expression", source_root_expression },
                   { "runtime_target", cmake_target_name(*runtime_ref) } }
             ) << "\n";
@@ -2371,44 +2368,44 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
     const template_bindings workflow_bindings
         = github_actions_bindings(value, *vars);
     append_tracked_template_file(
-        &files, ".github/actions/select-manifesto-ci/action.yml",
-        { ".github/actions/select-manifesto-ci/action.yml",
-          "tracked/.github/actions/select-manifesto-ci/action.yml.tpl" },
+        &files, ".github/actions/select-ecosystem-ci/action.yml",
+        { ".github/actions/select-ecosystem-ci/action.yml",
+          "tracked/.github/actions/select-ecosystem-ci/action.yml.tpl" },
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
-        &files, ".github/actions/select-manifesto-ci/changes.cjs",
-        { "tracked/.github/actions/select-manifesto-ci/changes.cjs.tpl" },
+        &files, ".github/actions/select-ecosystem-ci/changes.cjs",
+        { "tracked/.github/actions/select-ecosystem-ci/changes.cjs.tpl" },
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
-        &files, ".github/actions/select-manifesto-ci/evidence.cjs",
-        { "tracked/.github/actions/select-manifesto-ci/evidence.cjs.tpl" },
+        &files, ".github/actions/select-ecosystem-ci/evidence.cjs",
+        { "tracked/.github/actions/select-ecosystem-ci/evidence.cjs.tpl" },
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
-        &files, ".github/actions/run-manifesto-stage/action.yml",
-        { ".github/actions/run-manifesto-stage/action.yml",
-          "tracked/.github/actions/run-manifesto-stage/action.yml.tpl" },
+        &files, ".github/actions/run-ecosystem-stage/action.yml",
+        { ".github/actions/run-ecosystem-stage/action.yml",
+          "tracked/.github/actions/run-ecosystem-stage/action.yml.tpl" },
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
-        &files, ".github/actions/publish-manifesto-report/action.yml",
-        { ".github/actions/publish-manifesto-report/action.yml",
-          "tracked/.github/actions/publish-manifesto-report/action.yml.tpl" },
+        &files, ".github/actions/publish-ecosystem-report/action.yml",
+        { ".github/actions/publish-ecosystem-report/action.yml",
+          "tracked/.github/actions/publish-ecosystem-report/action.yml.tpl" },
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
-        &files, ".github/actions/publish-manifesto-report/diagnostics.cjs",
-        { "tracked/.github/actions/publish-manifesto-report/"
+        &files, ".github/actions/publish-ecosystem-report/diagnostics.cjs",
+        { "tracked/.github/actions/publish-ecosystem-report/"
           "diagnostics.cjs.tpl" },
         workflow_bindings, error_sink
     );
     if (github_actions_use_local_setup_action(*vars)) {
         append_tracked_template_file(
-            &files, ".github/actions/setup-manifesto/action.yml",
-            { ".github/actions/setup-manifesto/action.yml",
-              "tracked/.github/actions/setup-manifesto/action.yml.tpl" },
+            &files, ".github/actions/setup-ecosystem/action.yml",
+            { ".github/actions/setup-ecosystem/action.yml",
+              "tracked/.github/actions/setup-ecosystem/action.yml.tpl" },
             workflow_bindings, error_sink
         );
     }

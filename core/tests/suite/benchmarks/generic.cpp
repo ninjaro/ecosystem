@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
         if (std::string(argv[i]).starts_with("--benchmark_")) return 91;
         std::cout << '[' << argv[i] << "]\n";
     }
-    const char* env = std::getenv("MANIFESTO_TEST_BENCHMARK_MODE");
+    const char* env = std::getenv("ECOSYSTEM_TEST_BENCHMARK_MODE");
     const std::string mode = env ? env : "";
     if (mode == "flops") std::cout << "generic/n:32_mean 1 ns FLOPs=1.5G/s\n";
     else if (mode == "malformed") std::cout
@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
     const auto reports = root.path() / ".ecosystem/reports/benchmark";
     const auto report = reports / "a_b/c";
     auto run = [&](const std::string& mode, const std::string& args) {
-        scoped_env env("MANIFESTO_TEST_BENCHMARK_MODE", mode);
+        scoped_env env("ECOSYSTEM_TEST_BENCHMARK_MODE", mode);
         return run_marx_cli(root.path(), "benchmark " + args);
     };
     auto result = run("", "a_b:c -- 'two words' --then marker");
@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
         overrides / "benchmark/plot.svg.tpl", "{{missing_optional_binding}}\n"
     );
     {
-        scoped_env env("MANIFESTO_TEMPLATE_ROOT", overrides.string());
+        scoped_env env("ECOSYSTEM_TEMPLATE_ROOT", overrides.string());
         result = run("flops", "a_b:c");
         require_true(
             result.exit_code == 0,

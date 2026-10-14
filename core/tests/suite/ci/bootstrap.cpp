@@ -6,7 +6,7 @@ namespace ecosystem_test_support {
 void test_ci_compiler_cache_configuration() {
     temp_dir root;
     const auto action = ecosystem::render_required_text_template(
-        "tracked/.github/actions/setup-manifesto/action.yml.tpl",
+        "tracked/.github/actions/setup-ecosystem/action.yml.tpl",
         { { "checkout_action", "actions/checkout@v4" },
           { "install_qt_action", "vendor/qt@pin" } }
     );
@@ -114,25 +114,25 @@ void test_ci_bootstrap_options() {
     temp_dir root;
     const auto generate = [&](const json& config,
                               ecosystem::string_list* errors) {
-        write_text(root.path() / "manifesto.github.vars.json", config.dump());
+        write_text(root.path() / "ecosystem.github.vars.json", config.dump());
         return ecosystem::generate_tracked_surface_files(
             sample_manifest(), root.path(), errors
         );
     };
     for (const auto& config : std::vector<json> {
-             { { "manifesto_bootstrap", "unknown" } },
-             { { "manifesto_repository", "example/tools" } },
-             { { "manifesto_ref", "reviewed-ref" } },
-             { { "manifesto_bootstrap", "checkout" },
-               { "manifesto_repository", "example/tools" },
-               { "manifesto_ref", "old" } },
-             { { "manifesto_source_path", "../tools" } },
-             { { "manifesto_source_path", "/tools" } },
-             { { "manifesto_source_path", "" } },
-             { { "manifesto_source_path", "tools\nnext" } },
-             { { "manifesto_source_path", "${{ github.ref }}" } },
-             { { "manifesto_build_parallelism", "0" } },
-             { { "manifesto_build_parallelism", "2\nnext" } } }) {
+             { { "ecosystem_bootstrap", "unknown" } },
+             { { "ecosystem_repository", "example/tools" } },
+             { { "ecosystem_ref", "reviewed-ref" } },
+             { { "ecosystem_bootstrap", "checkout" },
+               { "ecosystem_repository", "example/tools" },
+               { "ecosystem_ref", "old" } },
+             { { "ecosystem_source_path", "../tools" } },
+             { { "ecosystem_source_path", "/tools" } },
+             { { "ecosystem_source_path", "" } },
+             { { "ecosystem_source_path", "tools\nnext" } },
+             { { "ecosystem_source_path", "${{ github.ref }}" } },
+             { { "ecosystem_build_parallelism", "0" } },
+             { { "ecosystem_build_parallelism", "2\nnext" } } }) {
         ecosystem::string_list errors;
         generate(config, &errors);
         require_true(
@@ -142,13 +142,13 @@ void test_ci_bootstrap_options() {
     }
     for (const auto& config : std::vector<json> {
              json::object(),
-             { { "manifesto_bootstrap", "checkout" } },
-             { { "manifesto_repository", "example/tools" },
-               { "manifesto_ref", "release/preview" },
-               { "manifesto_source_path", "tools/ecosystem" } },
-             { { "manifesto_repository", "example/tools" },
-               { "manifesto_ref", "0123456789abcdef" },
-               { "manifesto_source_path", "tool source/#quoted" } } }) {
+             { { "ecosystem_bootstrap", "checkout" } },
+             { { "ecosystem_repository", "example/tools" },
+               { "ecosystem_ref", "release/preview" },
+               { "ecosystem_source_path", "tools/ecosystem" } },
+             { { "ecosystem_repository", "example/tools" },
+               { "ecosystem_ref", "0123456789abcdef" },
+               { "ecosystem_source_path", "tool source/#quoted" } } }) {
         ecosystem::string_list errors;
         const auto files = generate(config, &errors);
         require_true(
@@ -166,20 +166,20 @@ void test_ci_bootstrap_options() {
                 "no obsolete repository fallback"
             );
             require_not_contains(
-                workflow->contents, "manifesto-ref: master",
+                workflow->contents, "ecosystem-ref: master",
                 "no mutable implicit ref"
             );
             require_contains(
                 workflow->contents,
                 "bootstrap: "
-                    + config.value("manifesto_bootstrap", json("repository"))
+                    + config.value("ecosystem_bootstrap", json("repository"))
                           .dump(),
                 "workflow must forward explicit bootstrap mode as a YAML scalar"
             );
             require_contains(
                 workflow->contents,
                 "source-path: "
-                    + config.value("manifesto_source_path", json(".")).dump(),
+                    + config.value("ecosystem_source_path", json(".")).dump(),
                 "workflow must preserve the selected source layout"
             );
         }
@@ -188,7 +188,7 @@ void test_ci_bootstrap_options() {
 
 void test_ci_bootstrap_layouts() {
     const auto action = ecosystem::render_required_text_template(
-        "tracked/.github/actions/setup-manifesto/action.yml.tpl",
+        "tracked/.github/actions/setup-ecosystem/action.yml.tpl",
         { { "checkout_action", "actions/checkout@v4" },
           { "install_qt_action", "vendor/qt@pin" } }
     );
@@ -327,9 +327,9 @@ void test_ci_bootstrap_layouts() {
         write_text(build_script, build);
         const auto build_env
             = std::vector<std::pair<std::string, std::string>> {
-                  { "CHECKOUT_ROOT", values.at("manifesto-checkout-root") },
-                  { "SOURCE_ROOT", values.at("manifesto-source-root") },
-                  { "BUILD_ROOT", values.at("manifesto-build-root") },
+                  { "CHECKOUT_ROOT", values.at("ecosystem-checkout-root") },
+                  { "SOURCE_ROOT", values.at("ecosystem-source-root") },
+                  { "BUILD_ROOT", values.at("ecosystem-build-root") },
                   { "GITHUB_WORKSPACE", project.string() },
                   { "BUILD_PARALLELISM", "2" }
               };
@@ -393,7 +393,7 @@ void test_ci_bootstrap_layouts() {
 void test_ci_bootstrap_errors() {
     temp_dir root;
     const auto action = ecosystem::render_required_text_template(
-        "tracked/.github/actions/setup-manifesto/action.yml.tpl",
+        "tracked/.github/actions/setup-ecosystem/action.yml.tpl",
         { { "checkout_action", "actions/checkout@v4" },
           { "install_qt_action", "vendor/qt@pin" } }
     );

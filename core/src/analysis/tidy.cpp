@@ -228,7 +228,7 @@ tidy_check_report run_tidy_check(
             report.clang_tidy_output.insert(
                 report.clang_tidy_output.end(), lines.begin(), lines.end()
             );
-            if (std::getenv("MANIFESTO_CI_PROGRESS") != nullptr)
+            if (std::getenv("ECOSYSTEM_CI_PROGRESS") != nullptr)
                 std::clog << "[tidy] " << execution.dump() << std::endl;
         }
     }

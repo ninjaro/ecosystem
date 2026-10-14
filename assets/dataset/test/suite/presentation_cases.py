@@ -8,7 +8,7 @@ import unittest
 sys.dont_write_bytecode = True
 module_path = Path(sys.argv.pop(1))
 sys.path.insert(0, str(module_path.parent))
-loader = SourceFileLoader("manifesto_presentation", str(module_path))
+loader = SourceFileLoader("ecosystem_presentation", str(module_path))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 presentation = importlib.util.module_from_spec(spec)
 sys.modules[loader.name] = presentation

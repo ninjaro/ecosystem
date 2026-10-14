@@ -48,7 +48,7 @@ void test_ci_pages_gates() {
     );
     require_contains(
         content,
-        "MANIFESTO_SPHINX_EVIDENCE: ${{ steps.automatic.outputs.directory || "
+        "ECOSYSTEM_SPHINX_EVIDENCE: ${{ steps.automatic.outputs.directory || "
         "steps.presentation.outputs.directory }}",
         "Sphinx must consume the selected current prerequisite snapshot"
     );
@@ -168,7 +168,7 @@ void test_ci_pages_gates() {
         = root.path() / ".ecosystem/github/presentation/reports/coverage.json";
     const auto site = root.path() / ".ecosystem/sphinx/html/index.html";
     required.push_back(
-        root.path() / ".ecosystem/sphinx/html/_manifesto/index.html"
+        root.path() / ".ecosystem/sphinx/html/_ecosystem/index.html"
     );
     required.push_back(
         root.path() / ".ecosystem/github/presentation/receipt.json"

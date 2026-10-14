@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 from presentation.media import image, pdf, video
 module = Path(sys.argv[1]).absolute()
 sys.path.insert(0, str(module.parent))
-loader = SourceFileLoader('manifesto_presentation', str(module))
+loader = SourceFileLoader('ecosystem_presentation', str(module))
 site = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
 loader.exec_module(site)
 browser = sys.argv[2] if len(sys.argv) > 2 else 'chromium'
@@ -44,10 +44,10 @@ def check_browser():
     if native:
         conf = root / '.ecosystem/sphinx'
         conf.mkdir()
-        shutil.copyfile(module, conf / 'manifesto_presentation.py')
+        shutil.copyfile(module, conf / 'ecosystem_presentation.py')
         shutil.copytree(module.parent / 'sphinx_presentation', conf / 'sphinx_presentation')
         (conf / 'conf.py').write_text('import sys\nsys.path.insert(0, ' + repr(str(conf)) + ')\n'
-                                    'project="Browser"\nextensions=["manifesto_presentation"]\n'
+                                    'project="Browser"\nextensions=["ecosystem_presentation"]\n'
                                     'html_theme=' + repr(sys.argv[4]) + '\n')
         (root / 'docs').mkdir()
         (root / 'docs/index.rst').write_text('Browser fixture\n===============\n')
@@ -66,7 +66,7 @@ window.addEventListener('load', async () => {
     const check = (value, message) => { if (!value) throw Error(message); };
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     try {
-        const carousel = document.querySelector('.manifesto-carousel');
+        const carousel = document.querySelector('.ecosystem-carousel');
         const track = carousel.querySelector('.carousel-track');
         const controls = carousel.querySelector('.carousel-controls');
         const previous = controls.querySelector('[data-step="-1"]');
@@ -101,7 +101,7 @@ window.addEventListener('load', async () => {
     document.body.append(result);
 });
 </script>'''
-    page = output / '_manifesto/index.html' if native else output / 'index.html'
+    page = output / '_ecosystem/index.html' if native else output / 'index.html'
     if native:
         page.write_text(page.read_text().replace('</body>', harness + '</body>'))
     else:

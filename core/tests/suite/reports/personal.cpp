@@ -150,7 +150,7 @@ void test_cli_workspace_personal_reports_keep_all_selected_results() {
         root.path() / "alpha/src/other.cpp", "int main() { return 0; }\n"
     );
     write_text(
-        root.path() / "manifesto.workspace.json",
+        root.path() / "ecosystem.workspace.json",
         "{\"groups\":{\"apps\":[\"alpha\",\"beta\"]}}\n"
     );
     for (const std::string kind : { "naming", "style" }) {

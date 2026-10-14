@@ -17,7 +17,7 @@ test('non-code PR records repository-only CodeQL evidence', async t => {
   assert.deepEqual(receipt.verification, {scope: 'delta', selection: {kind: 'event-delta', tree: f.tree,
     manifest: receipt.policy.manifest, comparison_base: f.base, head: f.head},
   stages: {repository: 'full', build: 'none', analysis: 'none'}});
-  assert.equal(f.outputs.name, 'manifesto-delta-codeql-202-1');
+  assert.equal(f.outputs.name, 'ecosystem-delta-codeql-202-1');
   assert.deepEqual(Object.keys(receipt.files).sort(), evidence.fileNames('codeql', null, 'delta'));
   assert.ok(!Object.keys(receipt.files).some(name => name.includes('02-codeql-build')));
   assert.equal(receipt.coverage, null);

@@ -11,7 +11,7 @@ namespace {
                                         ["external_project"]["repository"]
                                             .get<std::string>();
         write_text(
-            consumer / "manifesto.local.json",
+            consumer / "ecosystem.local.json",
             json({ { "sources", { { repository, provider.string() } } } }
             ).dump(2)
         );
@@ -211,7 +211,7 @@ void test_source_dependency_repository_selection_is_stable_and_explicit() {
                 + result.output
         );
     }
-    fs::remove(consumer / "manifesto.local.json");
+    fs::remove(consumer / "ecosystem.local.json");
     expect(44);
     result = run_marx_cli(consumer, "build debug");
     require_true(
@@ -450,9 +450,9 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
         tools / "cmake",
         "#!/bin/sh\nif [ \"$1\" = --install ]; then\n  echo "
         "provider-install-failed >&2\n  exit 9\nfi\nexec "
-        "\"$MANIFESTO_TEST_REAL_CMAKE\" \"$@\"\n"
+        "\"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\"\n"
     );
-    scoped_env cmake("MANIFESTO_TEST_REAL_CMAKE", real_cmake);
+    scoped_env cmake("ECOSYSTEM_TEST_REAL_CMAKE", real_cmake);
     scoped_env path("PATH", tools.string() + ":" + current_path_env());
     map_provider(consumer, provider);
     const auto result = run_marx_cli(consumer, "build debug");

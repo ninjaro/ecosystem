@@ -82,7 +82,7 @@ std::string package_description(
 }
 
 std::string package_author() {
-    std::string packager = trim(env_value("MANIFESTO_PACKAGER"));
+    std::string packager = trim(env_value("ECOSYSTEM_PACKAGER"));
     if (!packager.empty()) {
         return packager;
     }

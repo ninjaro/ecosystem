@@ -105,7 +105,7 @@ void test_cli_workspace_check_repo_rejects_gitlink_project_scripts();
 
 // Generation.
 void test_sync_matches_tracked_surfaces();
-void test_template_root_ignores_retired_environment_name();
+void test_template_root_obeys_ecosystem_environment();
 void test_ignored_local_surfaces_respect_repository_policy();
 void test_ignored_local_rules_match_git();
 void test_tracked_facade_limits_surface_to_entry_artifact_closure();

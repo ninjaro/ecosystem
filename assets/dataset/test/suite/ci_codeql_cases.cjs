@@ -27,7 +27,7 @@ function eligible(marker, steps) {
 const gate = program('Enforce CodeQL result', 'run', 8);
 const summary = program('Summarize CodeQL analysis', 'run', 8);
 const repository = program('Verify generated tracked surfaces', 'shell-command')
-  .replaceAll('${{ steps.manifesto.outputs.engels-binary }}', engels);
+  .replaceAll('${{ steps.ecosystem.outputs.engels-binary }}', engels);
 const classify = new Function('require', 'core', 'process', program('Classify checked-out changes', 'script'));
 const resolve = new Function('require', 'context', 'core', program('Resolve checked-out changes', 'script'));
 function shell(f, script, env) {
@@ -63,7 +63,7 @@ for (const scenario of ['docs', 'empty', 'source', 'header', 'unknown', 'delete'
     const outputs = {};
     const core = {setOutput: (key, value) => { outputs[key] = value; }, info: () => {}};
     const adapter = name => {
-      assert.equal(name, './.github/actions/select-manifesto-ci/changes.cjs');
+      assert.equal(name, './.github/actions/select-ecosystem-ci/changes.cjs');
       return {collect: args => changes.collect({...args, root: f.root}), classify: args => changes.classify({...args, root: f.root})};
     };
     resolve(adapter, context, core);

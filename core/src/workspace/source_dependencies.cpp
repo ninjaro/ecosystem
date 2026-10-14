@@ -52,7 +52,7 @@ namespace {
     using local_sources = std::map<std::string, std::string>;
 
     local_sources read_local_sources(const fs::path& project) {
-        const auto path = project / "manifesto.local.json";
+        const auto path = project / "ecosystem.local.json";
         try {
             if (!fs::exists(fs::symlink_status(path)))
                 return {};
@@ -147,7 +147,7 @@ namespace {
         const fs::path& project
     ) {
         const auto mapped = sources.find(dependency.repository);
-        const auto origin = (project / "manifesto.local.json").string()
+        const auto origin = (project / "ecosystem.local.json").string()
             + " sources[" + dependency.repository + "]";
         if (mapped == sources.end()) {
             const auto variable = legacy_source_variable(dependency);
@@ -246,7 +246,7 @@ namespace {
                     .empty()) {
             throw std::runtime_error(
                 "managed source checkout changed: " + source.string()
-                + "; use manifesto.local.json for mutable local work"
+                + "; use ecosystem.local.json for mutable local work"
             );
         }
         return source;

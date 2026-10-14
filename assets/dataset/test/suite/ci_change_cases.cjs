@@ -8,7 +8,7 @@ const {test} = require('node:test');
 const changes = require(path.resolve(process.argv[2]));
 
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-ci-changes-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ecosystem-ci-changes-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const git = (...args) => execFileSync('git', ['-C', root, '-c', 'commit.gpgsign=false', ...args],
     {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
@@ -264,7 +264,7 @@ test('incomplete collection emits an explicit reason without raw Git or path out
 
 for (const part of ['.ecosystem', '.ecosystem/github']) test(`report writing rejects a symlink at ${part}`, t => {
   const f = fixture(t);
-  const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-ci-changes-target-'));
+  const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'ecosystem-ci-changes-target-'));
   t.after(() => fs.rmSync(destination, {recursive: true, force: true}));
   const link = path.join(f.root, part);
   fs.mkdirSync(path.dirname(link), {recursive: true});

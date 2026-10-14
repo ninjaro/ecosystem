@@ -25,7 +25,7 @@ async function publicationFixture(t, mode = 'fresh', triggerKind = 'checks') {
       for (const job of state.jobs[pushId]) job.run_id = pushId;
       const job = state.jobs[pushId][1];
       for (const step of job.steps.slice(1)) step.conclusion = 'skipped';
-      for (const name of ['Setup manifesto tool', kind === 'checks' ? 'Run required local checks' : 'Verify generated tracked surfaces'])
+      for (const name of ['Setup ecosystem tool', kind === 'checks' ? 'Run required local checks' : 'Verify generated tracked surfaces'])
         job.steps.push({name, status: 'completed', conclusion: 'skipped'});
     } else {
       f.changeSelection(kind, selection => Object.assign(selection, selected));

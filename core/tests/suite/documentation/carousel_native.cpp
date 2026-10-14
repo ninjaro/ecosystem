@@ -44,7 +44,7 @@ void test_native_asset_pages(const fs::path& project) {
     require_true(result.exit_code == 0, result.output);
     const auto site = ecosystem::local_sphinx_dir(project) / "html";
     const auto page
-        = read_text(site / "_manifesto/catalog/showcase/index.html");
+        = read_text(site / "_ecosystem/catalog/showcase/index.html");
     require_contains(
         page, "<strong>Before</strong>", "paired Markdown must render with MyST"
     );
@@ -72,7 +72,7 @@ void test_native_asset_pages(const fs::path& project) {
     );
     std::size_t previews = 0;
     for (const auto& entry :
-         fs::directory_iterator(site / "_manifesto/previews")) {
+         fs::directory_iterator(site / "_ecosystem/previews")) {
         const auto contents = read_text(entry.path());
         require_true(
             contents.starts_with("\x89PNG\r\n\x1a\n")
@@ -87,14 +87,14 @@ void test_native_asset_pages(const fs::path& project) {
     );
     require_contains(page, "Still &amp; notes", "captions must escape HTML");
     require_true(
-        fs::is_regular_file(site / "_manifesto/carousel.js")
-            && fs::is_regular_file(site / "_manifesto/carousel.css"),
+        fs::is_regular_file(site / "_ecosystem/carousel.js")
+            && fs::is_regular_file(site / "_ecosystem/carousel.css"),
         "controls belong to the site"
     );
     require_true(
-        read_text(site / "_manifesto/assets/sets/index.html")
+        read_text(site / "_ecosystem/assets/sets/index.html")
                 == "Selected runtime page\n"
-            && fs::is_regular_file(site / "_manifesto/catalog/sets/index.html"),
+            && fs::is_regular_file(site / "_ecosystem/catalog/sets/index.html"),
         "selected data and generated navigation must have distinct ownership"
     );
     require_true(
@@ -108,7 +108,7 @@ void test_native_asset_pages(const fs::path& project) {
     result = run_engels_cli(project, "check sphinx --theme alabaster");
     require_true(
         result.exit_code == 5
-            && read_text(site / "_manifesto/catalog/showcase/index.html")
+            && read_text(site / "_ecosystem/catalog/showcase/index.html")
                 == page,
         "conversion failures must preserve the published media and pages"
     );
@@ -123,7 +123,7 @@ void test_native_asset_pages(const fs::path& project) {
         result = run_engels_cli(project, "check sphinx --theme alabaster");
         require_true(
             result.exit_code == 5
-                && read_text(site / "_manifesto/catalog/showcase/index.html")
+                && read_text(site / "_ecosystem/catalog/showcase/index.html")
                     == page,
             "invalid paired metadata must preserve the whole published site"
         );
@@ -134,9 +134,9 @@ void test_native_asset_pages(const fs::path& project) {
     result = run_engels_cli(project, "check sphinx --theme alabaster");
     require_true(
         result.exit_code == 0
-            && !fs::exists(site / "_manifesto/catalog/showcase/index.html")
-            && !fs::exists(site / "_manifesto/carousel.js")
-            && !fs::exists(site / "_manifesto/previews"),
+            && !fs::exists(site / "_ecosystem/catalog/showcase/index.html")
+            && !fs::exists(site / "_ecosystem/carousel.js")
+            && !fs::exists(site / "_ecosystem/previews"),
         "a fresh build must retire removed category pages and controls"
     );
 }

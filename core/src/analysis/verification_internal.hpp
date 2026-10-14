@@ -14,7 +14,7 @@
 namespace ecosystem::verification_detail {
 
 inline bool may_reuse() {
-    const auto* setting = std::getenv("MANIFESTO_REUSE_VERIFICATION");
+    const auto* setting = std::getenv("ECOSYSTEM_REUSE_VERIFICATION");
     return setting != nullptr && std::string(setting) == "1";
 }
 

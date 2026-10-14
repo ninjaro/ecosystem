@@ -511,7 +511,7 @@ void test_prerelease_preserves_published_state_on_late_failures() {
             bin / name,
             std::string("#!/bin/sh\n"
                         "if [ \"$1\" != '--version' ] && [ "
-                        "\"$MANIFESTO_FAIL_RELEASE_TOOL\" = '")
+                        "\"$ECOSYSTEM_FAIL_RELEASE_TOOL\" = '")
                 .append(name)
                 .append("' ] && { [ '")
                 .append(name)
@@ -523,7 +523,7 @@ void test_prerelease_preserves_published_state_on_late_failures() {
                 .append(real)
                 .append(
                     "' \"$@\" || exit $?\n"
-                    "if [ \"$MANIFESTO_FAIL_RELEASE_TOOL\" = cutover ]; then\n"
+                    "if [ \"$ECOSYSTEM_FAIL_RELEASE_TOOL\" = cutover ]; then\n"
                     "  for arg do\n"
                     "    case \"$arg\" in *-prerelease.files)\n"
                     "      repo=$(dirname \"$(dirname \"$arg\")\")\n"
@@ -562,7 +562,7 @@ void test_prerelease_preserves_published_state_on_late_failures() {
         return files;
     };
     {
-        scoped_env failure("MANIFESTO_FAIL_RELEASE_TOOL", "gpg");
+        scoped_env failure("ECOSYSTEM_FAIL_RELEASE_TOOL", "gpg");
         const auto result = run_marx_cli(
             root.path(), "prerelease --version-base 1.2.3 --sign"
         );
@@ -600,7 +600,7 @@ void test_prerelease_preserves_published_state_on_late_failures() {
         "compressed index must preserve all metadata bytes"
     );
     for (const std::string tool : { "gzip", "gpg", "cutover" }) {
-        scoped_env failure("MANIFESTO_FAIL_RELEASE_TOOL", tool);
+        scoped_env failure("ECOSYSTEM_FAIL_RELEASE_TOOL", tool);
         result = run_marx_cli(root.path(), "prerelease --sign");
         require_true(
             result.exit_code == 5,

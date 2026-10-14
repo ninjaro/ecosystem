@@ -129,7 +129,7 @@ discover_workspace(const std::filesystem::path& root) {
             for (const std::string& selector : group.project_selectors) {
                 if (find_workspace_project(workspace, selector) == nullptr) {
                     workspace.errors.push_back(
-                        "manifesto.workspace.json.groups." + group.id
+                        "ecosystem.workspace.json.groups." + group.id
                         + " references unknown project selector: " + selector
                     );
                 }

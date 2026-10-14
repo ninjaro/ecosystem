@@ -47,7 +47,7 @@ for (const [kind, file] of [['checks', process.argv[4]], ['codeql', process.argv
       const outputs = {};
       const core = {setOutput: (key, value) => { outputs[key] = value; }, info: () => {}};
       const requireAdapter = name => {
-        assert.equal(name, './.github/actions/select-manifesto-ci/changes.cjs');
+        assert.equal(name, './.github/actions/select-ecosystem-ci/changes.cjs');
         return {collect: args => changes.collect({...args, root: f.root}),
           classify: args => changes.classify({...args, root: f.root})};
       };

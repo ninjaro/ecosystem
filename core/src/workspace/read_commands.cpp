@@ -189,11 +189,9 @@ namespace command_support {
     }
 
     bool project_has_docs_surface(const fs::path& project_root) {
-        if (!path_exists(project_root / "docs")) {
-            return false;
-        }
-        return path_exists(project_root / "docs" / "index.md")
-            || path_exists(project_root / "docs" / "index.rst");
+        const auto source = sphinx_source_dir(project_root);
+        return path_exists(source / "index.md")
+            || path_exists(source / "index.rst");
     }
 
     bool project_supports_java_check(
@@ -209,7 +207,6 @@ namespace command_support {
             return {};
         }
         return {
-            { "MANIFESTO_SPHINX_THEME", *sphinx_theme },
             { "ECOSYSTEM_SPHINX_THEME", *sphinx_theme },
         };
     }

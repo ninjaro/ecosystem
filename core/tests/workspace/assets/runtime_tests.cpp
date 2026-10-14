@@ -85,7 +85,7 @@ void test_asset_runtime_surface() {
         const auto scripts = fs::directory_iterator(build);
         fs::path stage;
         for (const auto& entry : scripts)
-            if (entry.path().filename().string().starts_with("manifesto_assets_"
+            if (entry.path().filename().string().starts_with("ecosystem_assets_"
                 )
                 && entry.path().extension() == ".cmake")
                 stage = entry.path();
@@ -478,7 +478,7 @@ void test_asset_inventory_paths() {
 void test_asset_tooling_install_policy() {
     temp_dir root;
     const auto project = root.path() / "tooling-install";
-    const json authored { { "id", "manifesto" },
+    const json authored { { "id", "ecosystem" },
                           { "description", "Tooling data install fixture" },
                           { "facade", "tools:marx" },
                           { "install_assets", false },
@@ -521,7 +521,7 @@ void test_asset_tooling_install_policy() {
         const auto result = ecosystem::capture_command_result(args, project);
         require_true(result.exit_code == 0, result.output);
     }
-    const auto bundle = prefix / "share/manifesto/templates";
+    const auto bundle = prefix / "share/ecosystem/templates";
     require_true(
         read_text(bundle / "tracked/.github/required.tpl")
             == "required template\n",

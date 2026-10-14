@@ -263,7 +263,7 @@ void test_cli_check_leaks_runs_sanitized_tests() {
     // This probe deliberately copies only the actor; supply its matching data
     // explicitly.
     scoped_env templates(
-        "MANIFESTO_TEMPLATE_ROOT",
+        "ECOSYSTEM_TEMPLATE_ROOT",
         (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates").string()
     );
     const cli_result result
@@ -379,13 +379,13 @@ void test_cli_check_leaks_preserves_artifact_selection() {
     const auto bin = root.path() / "bin";
     fs::create_directory(bin);
     scoped_env real_ctest(
-        "MANIFESTO_TEST_REAL_CTEST", ecosystem::find_command_path("ctest")
+        "ECOSYSTEM_TEST_REAL_CTEST", ecosystem::find_command_path("ctest")
     );
     write_executable_script(
         bin / "ctest",
         "#!/bin/sh\nif [ \"$1\" != '--version' ]; then\n"
         "  printf '# no selected tests\\n' > CTestTestfile.cmake\nfi\n"
-        "exec \"$MANIFESTO_TEST_REAL_CTEST\" \"$@\"\n"
+        "exec \"$ECOSYSTEM_TEST_REAL_CTEST\" \"$@\"\n"
     );
     scoped_env path("PATH", bin.string() + ":" + current_path_env());
     result = run_engels_cli(root.path(), "check leaks core:selected");
@@ -853,13 +853,13 @@ void test_cli_format_shares_verifier_selection_and_tool() {
         bin / "clang-format",
         "#!/bin/sh\n"
         "if [ \"$1\" != '--version' ]; then\n"
-        "  printf 'CALL\\n' >> \"$MANIFESTO_TEST_FORMAT_LOG\"\n"
-        "  printf '%s\\n' \"$@\" >> \"$MANIFESTO_TEST_FORMAT_LOG\"\n"
+        "  printf 'CALL\\n' >> \"$ECOSYSTEM_TEST_FORMAT_LOG\"\n"
+        "  printf '%s\\n' \"$@\" >> \"$ECOSYSTEM_TEST_FORMAT_LOG\"\n"
         "fi\n"
-        "exec \"$MANIFESTO_TEST_REAL_FORMATTER\" \"$@\"\n"
+        "exec \"$ECOSYSTEM_TEST_REAL_FORMATTER\" \"$@\"\n"
     );
-    scoped_env tool("MANIFESTO_TEST_REAL_FORMATTER", real_formatter);
-    scoped_env output("MANIFESTO_TEST_FORMAT_LOG", log.string());
+    scoped_env tool("ECOSYSTEM_TEST_REAL_FORMATTER", real_formatter);
+    scoped_env output("ECOSYSTEM_TEST_FORMAT_LOG", log.string());
     scoped_env path("PATH", bin.string() + ":" + current_path_env());
     auto verify = run_engels_cli(project, "check format core:lib");
     require_true(verify.exit_code != 0, "format drift must fail verification");
@@ -1198,7 +1198,7 @@ void test_incremental_verification_keeps_strict_diagnostics() {
         project / "src/companion.cpp",
         "#include \"defs.hpp\"\nvoid companion() {}\n"
     );
-    scoped_env cache("MANIFESTO_REUSE_VERIFICATION", "1");
+    scoped_env cache("ECOSYSTEM_REUSE_VERIFICATION", "1");
     const auto check = [&](int expected_reused) {
         const auto result = run_engels_cli(project, "check tidy");
         require_true(result.exit_code == 0, result.output);
@@ -1258,7 +1258,7 @@ void test_incremental_verification_keeps_strict_diagnostics() {
     check(0);
     check(2);
     {
-        scoped_env fresh("MANIFESTO_REUSE_VERIFICATION", "0");
+        scoped_env fresh("ECOSYSTEM_REUSE_VERIFICATION", "0");
         check(0);
     }
     write_text(

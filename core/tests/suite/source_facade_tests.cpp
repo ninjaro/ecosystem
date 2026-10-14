@@ -435,7 +435,7 @@ void test_source_facade_preserves_shared_and_interface_contracts() {
         facade_command(root.path(), { (build / "mvp").string() });
         int checkouts = 0, provider_builds = 0;
         for (const auto& entry :
-             fs::recursive_directory_iterator(build / ".manifesto-facade")) {
+             fs::recursive_directory_iterator(build / ".ecosystem-facade")) {
             if (entry.path().filename() == ".git")
                 ++checkouts;
             if (entry.path().filename() == "CMakeCache.txt"
@@ -570,7 +570,7 @@ void test_source_facade_reports_provider_failures() {
                 const auto hook = root.path() / "observe-top.cmake";
                 write_text(
                     hook,
-                    "if(MANIFESTO_FACADE_INNER)\nfile(WRITE [=["
+                    "if(ECOSYSTEM_FACADE_INNER)\nfile(WRITE [=["
                         + top_configured.string() + "]=] configured)\nendif()\n"
                 );
                 configure = { "cmake",
@@ -612,7 +612,7 @@ void test_source_facade_reports_provider_failures() {
                     const auto control = ecosystem::capture_command_result(
                         { "cmake", "-S", visitor.string(), "-B",
                           (root.path() / "control").string(),
-                          "-DMANIFESTO_FACADE_INNER=ON",
+                          "-DECOSYSTEM_FACADE_INNER=ON",
                           "-DCMAKE_PROJECT_top_INCLUDE="
                               + (root.path() / "observe-top.cmake").string() },
                         root.path()
@@ -627,7 +627,7 @@ void test_source_facade_reports_provider_failures() {
             }
             if (stage != "target") {
                 for (const auto& entry : fs::recursive_directory_iterator(
-                         build / ".manifesto-facade"
+                         build / ".ecosystem-facade"
                      )) {
                     require_true(
                         entry.path().filename() != "CMakeCache.txt"
@@ -669,7 +669,7 @@ void test_external_project_generates_imported_library() {
     const auto inner
         = ecosystem::generate_developer_cmakelists(manifest_value, root.path());
     require_contains(
-        generated_cmake, "if(NOT MANIFESTO_FACADE_INNER)",
+        generated_cmake, "if(NOT ECOSYSTEM_FACADE_INNER)",
         "tracked source consumers separate orchestration from the package graph"
     );
     require_not_contains(

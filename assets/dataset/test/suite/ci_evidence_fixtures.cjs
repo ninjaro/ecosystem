@@ -12,7 +12,7 @@ const runtime = {schema: 1, known: true, image: 'fixture-reviewed-image', node: 
   tools: Object.fromEntries(['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format', 'llvm-cov', 'llvm-profdata'].map(name => [name, 'reviewed'])), dependencies: evidence.hash('fixture-sdk')};
 
 function fixture(t, delta = 'source') {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-ci-evidence-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ecosystem-ci-evidence-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const git = (...args) => execFileSync('git', ['-C', root, '-c', 'commit.gpgsign=false', ...args], {encoding: 'utf8'}).trim();
   const write = (name, data) => {
@@ -22,7 +22,7 @@ function fixture(t, delta = 'source') {
   git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid');
   write('manifest.json', JSON.stringify({id: 'fixture', description: 'Evidence fixture.', facade: 'app:main',
     artifacts: [{id: 'app:main', kind: 'exe', root: '.', owns: [], entry: 'src/main.cpp'}]}));
-  write('manifesto.github.vars.json', '{"manifesto_bootstrap":"checkout"}');
+  write('ecosystem.github.vars.json', '{"ecosystem_bootstrap":"checkout"}');
   write('.github/workflows/tests.yml', 'checks policy');
   write('.github/workflows/codeql.yml', 'codeql policy');
   write('.gitignore', '.ecosystem/\n');

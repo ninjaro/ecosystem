@@ -76,16 +76,16 @@ namespace workspace_groups_support {
         group.id = trim_copy(id);
         if (!std::regex_match(group.id, group_id_pattern)) {
             errors->push_back(
-                "manifesto.workspace.json.groups." + id
+                "ecosystem.workspace.json.groups." + id
                 + " must use snake_case ids"
             );
         }
         group.project_selectors = parse_project_selectors(
-            value, "manifesto.workspace.json.groups." + id, errors
+            value, "ecosystem.workspace.json.groups." + id, errors
         );
         if (group.project_selectors.empty()) {
             errors->push_back(
-                "manifesto.workspace.json.groups." + id
+                "ecosystem.workspace.json.groups." + id
                 + " must contain at least one project selector"
             );
         }
@@ -96,7 +96,7 @@ namespace workspace_groups_support {
 
 std::filesystem::path
 workspace_config_path(const std::filesystem::path& workspace_root) {
-    return workspace_root / "manifesto.workspace.json";
+    return workspace_root / "ecosystem.workspace.json";
 }
 
 workspace_config_report
@@ -125,14 +125,14 @@ load_workspace_config(const std::filesystem::path& workspace_root) {
         const json root = json::parse(file);
         if (!root.is_object()) {
             report.errors.emplace_back(
-                "manifesto.workspace.json must be a JSON object"
+                "ecosystem.workspace.json must be a JSON object"
             );
             return report;
         }
         for (auto iterator = root.begin(); iterator != root.end(); ++iterator) {
             if (iterator.key() != "groups") {
                 report.errors.push_back(
-                    "manifesto.workspace.json." + iterator.key()
+                    "ecosystem.workspace.json." + iterator.key()
                     + " is not supported"
                 );
             }
@@ -140,7 +140,7 @@ load_workspace_config(const std::filesystem::path& workspace_root) {
         if (root.contains("groups")) {
             if (!root.at("groups").is_object()) {
                 report.errors.emplace_back(
-                    "manifesto.workspace.json.groups must be a JSON object"
+                    "ecosystem.workspace.json.groups must be a JSON object"
                 );
             } else {
                 for (auto iterator = root.at("groups").begin();
@@ -155,12 +155,12 @@ load_workspace_config(const std::filesystem::path& workspace_root) {
         }
     } catch (const json::parse_error& error_value) {
         report.errors.push_back(
-            "manifesto.workspace.json parse error: "
+            "ecosystem.workspace.json parse error: "
             + std::string(error_value.what())
         );
     } catch (const json::type_error& error_value) {
         report.errors.push_back(
-            "manifesto.workspace.json type error: "
+            "ecosystem.workspace.json type error: "
             + std::string(error_value.what())
         );
     }

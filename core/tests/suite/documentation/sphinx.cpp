@@ -7,7 +7,7 @@ void write_fake_sphinx(const fs::path& path) {
     write_executable_script(path, R"sh(#!/bin/sh
 set -eu
 if [ "$1" = --version ]; then echo 'sphinx-build 9.0'; exit 0; fi
-printf 'theme=%s\n' "${MANIFESTO_SPHINX_THEME:-${ECOSYSTEM_SPHINX_THEME:-}}" >> "$FAKE_SPHINX_LOG"
+printf 'theme=%s\n' "${ECOSYSTEM_SPHINX_THEME:-}" >> "$FAKE_SPHINX_LOG"
 printf '%s\n' "$*" >> "$FAKE_SPHINX_LOG"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -27,16 +27,16 @@ esac
 mkdir -p "$build_dir"
 printf '<html>fresh Sphinx documentation</html>\n' > "$build_dir/index.html"
 if [ "${SPHINX_TEST_MODE:-}" = index-only ]; then exit 0; fi
-mkdir -p "$build_dir/_manifesto/doxygen"
-printf '<html>Project results</html>\n' > "$build_dir/_manifesto/index.html"
+mkdir -p "$build_dir/_ecosystem/doxygen"
+printf '<html>Project results</html>\n' > "$build_dir/_ecosystem/index.html"
 if [ "${SPHINX_TEST_MODE:-}" = empty-results ]; then
-  : > "$build_dir/_manifesto/index.html"
+  : > "$build_dir/_ecosystem/index.html"
 fi
 if [ "${SPHINX_TEST_MODE:-}" != missing-api ]; then
-  printf '<html>C++ API</html>\n' > "$build_dir/_manifesto/doxygen/index.html"
+  printf '<html>C++ API</html>\n' > "$build_dir/_ecosystem/doxygen/index.html"
 fi
 if [ "${SPHINX_TEST_MODE:-}" = empty-api ]; then
-  : > "$build_dir/_manifesto/doxygen/index.html"
+  : > "$build_dir/_ecosystem/doxygen/index.html"
 fi
 echo 'fixture Sphinx finished'
 )sh");
@@ -55,13 +55,13 @@ void test_sphinx_presentation_contract() {
            / "assets/dataset/test/suite/presentation_cases.py")
               .string(),
           (ecosystem::local_sphinx_dir(root.path())
-           / "manifesto_presentation.py")
+           / "ecosystem_presentation.py")
               .string() },
         root.path()
     );
     require_true(result.exit_code == 0, result.output);
     const auto module = ecosystem::local_sphinx_dir(root.path())
-        / "manifesto_presentation.py";
+        / "ecosystem_presentation.py";
     const auto retained = root.path() / "retained.py";
     fs::create_hard_link(module, retained);
     const auto original = read_text(retained);
@@ -101,7 +101,7 @@ void test_sphinx_default_config() {
     );
     require_contains(
         read_text(root.path() / ".ecosystem/sphinx/conf.py"),
-        "MANIFESTO_SPHINX_THEME",
+        "ECOSYSTEM_SPHINX_THEME",
         "ecos check sphinx must default to the Read the Docs theme"
     );
     require_contains(
@@ -111,6 +111,44 @@ void test_sphinx_default_config() {
     require_contains(
         read_text(sphinx_log), "-b html",
         "ecos check sphinx must invoke sphinx-build in html mode"
+    );
+    fs::create_directories(root.path() / "assets");
+    fs::rename(root.path() / "docs", root.path() / "assets/docs");
+    write_text(
+        root.path() / "assets/docs/sphinx.json",
+        R"({"exclude_patterns":["readme.md"]})"
+    );
+    const auto stable = run_cli(root.path(), "check sphinx");
+    require_true(
+        stable.exit_code == 0,
+        "stable assets/docs must build through the same Sphinx command:\n"
+            + stable.output
+    );
+    require_contains(
+        read_text(sphinx_log), (root.path() / "assets/docs").string(),
+        "Sphinx must receive the actual stable documentation root"
+    );
+    require_contains(
+        read_text(root.path() / ".ecosystem/sphinx/conf.py"), "readme.md",
+        "source selection settings belong to that root"
+    );
+    write_text(root.path() / "docs/index.md", "# Conflicting entry\n");
+    bool ambiguous = false;
+    try {
+        static_cast<void>(ecosystem::sphinx_source_dir(root.path()));
+    } catch (const ecosystem::template_render_error& error) {
+        ambiguous = std::string(error.what()).find("ambiguous Sphinx source")
+            != std::string::npos;
+    }
+    require_true(
+        ambiguous,
+        "two authored documentation roots must not be chosen silently"
+    );
+    const auto conflict = run_cli(root.path(), "check sphinx");
+    require_true(conflict.exit_code != 0, "ambiguous documentation must fail");
+    require_contains(
+        conflict.output, "ambiguous Sphinx source",
+        "the command must explain the competing authored roots"
     );
 }
 

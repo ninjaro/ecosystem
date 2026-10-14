@@ -1,0 +1,10 @@
+{
+  "exclude_patterns": [
+    "README.md",
+    "architecture/**",
+    "audits/**",
+    "history/**",
+    "planning/**",
+    "research/**"
+  ]
+}

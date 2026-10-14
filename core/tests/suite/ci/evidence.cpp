@@ -20,14 +20,14 @@ void test_ci_evidence() {
     write_text(codeql_path, codeql->contents);
     for (const auto* adapter : { "changes.cjs", "evidence.cjs" }) {
         const auto* script = find_tracked_surface_file(
-            files, ".github/actions/select-manifesto-ci/" + std::string(adapter)
+            files, ".github/actions/select-ecosystem-ci/" + std::string(adapter)
         );
         require_true(script != nullptr, "CI adapter must be generated");
         const auto destination = root.path() / adapter;
         write_text(destination, script->contents);
     }
     const auto* diagnostics = find_tracked_surface_file(
-        files, ".github/actions/publish-manifesto-report/diagnostics.cjs"
+        files, ".github/actions/publish-ecosystem-report/diagnostics.cjs"
     );
     require_true(diagnostics != nullptr, "CI diagnostics must be generated");
     write_text(root.path() / "diagnostics.cjs", diagnostics->contents);

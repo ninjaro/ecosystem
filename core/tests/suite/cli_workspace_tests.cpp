@@ -39,10 +39,10 @@ void test_cli_list_artifacts() {
     const cli_result result
         = run_cli(fs::path(ECOS_TEST_SOURCE_DIR), "list artifacts");
     require_true(
-        result.exit_code == 0, "manifesto list artifacts must succeed"
+        result.exit_code == 0, "ecosystem list artifacts must succeed"
     );
     require_not_contains(
-        result.output, "manifesto:manifesto",
+        result.output, "ecosystem:ecosystem",
         "no dispatcher artifact may remain"
     );
     require_contains(
@@ -241,7 +241,7 @@ void test_cli_workspace_list() {
     write_text(root.path() / "tooling/readme.md", "Unmanaged tools.\n");
     const cli_result result = run_cli(root.path(), "list");
     require_true(
-        result.exit_code == 0, "workspace manifesto list must succeed"
+        result.exit_code == 0, "workspace ecosystem list must succeed"
     );
     require_contains(
         result.output,
@@ -349,7 +349,7 @@ void test_invalid_workspace_group_and_root_manifest() {
     temp_dir root;
     write_text(root.path() / "broken/manifest.json", "[]\n");
     write_text(
-        root.path() / "manifesto.workspace.json",
+        root.path() / "ecosystem.workspace.json",
         "{\"groups\":{\"broken_group\":[\"broken\"]}}\n"
     );
     const auto workspace = ecosystem::discover_workspace(root.path());
@@ -442,7 +442,7 @@ void test_cli_workspace_config_rejects_unknown_group_project_selector() {
     temp_dir root;
     write_sample_workspace_project(root.path(), "alpha");
     write_text(
-        root.path() / "manifesto.workspace.json",
+        root.path() / "ecosystem.workspace.json",
         "{\n"
         "  \"groups\": {\n"
         "    \"broken\": [\"missing\"]\n"
@@ -457,7 +457,7 @@ void test_cli_workspace_config_rejects_unknown_group_project_selector() {
     );
     require_contains(
         result.output,
-        "manifesto.workspace.json.groups.broken references unknown project "
+        "ecosystem.workspace.json.groups.broken references unknown project "
         "selector: missing",
         "workspace config errors must explain the broken selector"
     );

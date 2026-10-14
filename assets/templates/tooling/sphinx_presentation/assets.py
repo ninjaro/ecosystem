@@ -8,7 +8,7 @@ from urllib.parse import quote
 from .inputs import link, require, safe_path
 from .previews import preview
 
-CATEGORIES = ('brand', 'showcase', 'reports', 'dataset', 'dumps', 'sets', 'templates')
+CATEGORIES = ('brand', 'showcase', 'docs', 'reports', 'dataset', 'dumps', 'sets', 'templates')
 COLUMNS = ['id', 'path', 'type', 'description', 'datetime']
 EXTENSIONS = {'image': {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif'},
               'video': {'.mp4', '.webm'}, 'pdf': {'.pdf'}}
@@ -48,7 +48,7 @@ def carousel(rows, prefix, token, title, controls):
         return '<p>No indexed ' + html.escape(title.lower()) + ' media is available.</p>'
     body = ('<link rel="stylesheet" href="' + controls + 'carousel.css">'
             '<script defer src="' + controls + 'carousel.js"></script>'
-            '<section class="manifesto-carousel" role="region" aria-roledescription="carousel"'
+            '<section class="ecosystem-carousel" role="region" aria-roledescription="carousel"'
             ' aria-label="' + html.escape(title, quote=True) + '">'
             '<div class="carousel-controls" hidden>'
             '<button type="button" data-step="-1" aria-controls="' + token + '">Previous</button>'
@@ -106,7 +106,7 @@ def asset_pages(inputs):
                 row['preview'] = preview(inputs, row['type'], name, data)
         page = ('<h1>' + category.title() + '</h1>'
                 + readme_body(inputs, category, rows, controls, controls + directory + '/'))
-        pages.append(('_manifesto/catalog/' + category + '/index',
+        pages.append(('_ecosystem/catalog/' + category + '/index',
                       {'title': category.title(), 'body': page}, 'page.html'))
         links.append('<li>' + link('catalog/' + category + '/index.html', category.title()) + '</li>')
         if category == 'showcase':

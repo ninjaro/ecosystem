@@ -153,7 +153,7 @@ test('installer logs outside ignored state block a receipt with their exact path
 
 test('mutable tooling references cannot receive reusable receipts', async t => {
   const f = fixture(t);
-  f.write('manifesto.github.vars.json', '{"manifesto_repository":"owner/tools","manifesto_ref":"main"}');
+  f.write('ecosystem.github.vars.json', '{"ecosystem_repository":"owner/tools","ecosystem_ref":"main"}');
   assert.equal(await f.record(), null);
   assert.equal(f.outputs.name, undefined);
   assert.match(f.notices.join('\n'), /immutable tooling commit/);

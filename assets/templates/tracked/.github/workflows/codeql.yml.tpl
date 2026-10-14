@@ -36,7 +36,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: selection
-        uses: ./.github/actions/select-manifesto-ci
+        uses: ./.github/actions/select-ecosystem-ci
         with:
           kind: codeql
 
@@ -69,7 +69,7 @@ jobs:
       security-events: write
     runs-on: ubuntu-24.04
     env:
-      CMAKE_BUILD_PARALLEL_LEVEL: {{manifesto_build_parallelism}}
+      CMAKE_BUILD_PARALLEL_LEVEL: {{ecosystem_build_parallelism}}
     strategy:
       fail-fast: false
       matrix:
@@ -86,28 +86,28 @@ jobs:
         uses: {{github_script_action}}
         with:
           script: |
-            require('./.github/actions/select-manifesto-ci/changes.cjs').collect({context, core});
+            require('./.github/actions/select-ecosystem-ci/changes.cjs').collect({context, core});
 
-      - name: Setup manifesto tool
+      - name: Setup ecosystem tool
         if: ${{ needs.select.outputs.scope != 'reuse' }}
-        id: manifesto
-        uses: {{manifesto_setup_action}}
+        id: ecosystem
+        uses: {{ecosystem_setup_action}}
         with:
-          bootstrap: {{manifesto_bootstrap}}
-          source-path: {{manifesto_source_path}}
-          manifesto-repository: {{manifesto_repository}}
-          manifesto-ref: {{manifesto_ref}}
-          build-parallelism: {{manifesto_build_parallelism}}
+          bootstrap: {{ecosystem_bootstrap}}
+          source-path: {{ecosystem_source_path}}
+          ecosystem-repository: {{ecosystem_repository}}
+          ecosystem-ref: {{ecosystem_ref}}
+          build-parallelism: {{ecosystem_build_parallelism}}
 
       - name: Classify checked-out changes
         if: ${{ needs.select.outputs.scope != 'reuse' }}
         id: classification
         uses: {{github_script_action}}
         env:
-          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          ENGELS_BINARY: ${{ steps.ecosystem.outputs.engels-binary }}
         with:
           script: |
-            require('./.github/actions/select-manifesto-ci/changes.cjs').classify({core, binary: process.env.ENGELS_BINARY});
+            require('./.github/actions/select-ecosystem-ci/changes.cjs').classify({core, binary: process.env.ENGELS_BINARY});
 
       - name: Upload change classification
         if: ${{ steps.classification.outcome == 'success' }}
@@ -124,12 +124,12 @@ jobs:
       - name: Verify generated tracked surfaces
         if: ${{ needs.select.outputs.scope != 'reuse' }}
         id: repository
-        uses: ./.github/actions/run-manifesto-stage
+        uses: ./.github/actions/run-ecosystem-stage
         with:
           stage-id: 01-tracked-surface
           stage-label: Tracked surface verification
           shell-command: |
-            "${{ steps.manifesto.outputs.engels-binary }}" check repo
+            "${{ steps.ecosystem.outputs.engels-binary }}" check repo
 
       - uses: github/codeql-action/init@{{codeql_action_ref}}
         id: codeql_init
@@ -144,12 +144,12 @@ jobs:
         env:
           CCACHE_DISABLE: '1'
         if: ${{ steps.codeql_init.outcome == 'success' }}
-        uses: ./.github/actions/run-manifesto-stage
+        uses: ./.github/actions/run-ecosystem-stage
         with:
           stage-id: 02-codeql-build
           stage-label: CodeQL build
           shell-command: |
-            "${{ steps.manifesto.outputs.marx-binary }}" build debug
+            "${{ steps.ecosystem.outputs.marx-binary }}" build debug
 
       - name: Run CodeQL analysis
         id: codeql_analyze
@@ -160,7 +160,7 @@ jobs:
       - name: Summarize CodeQL analysis
         if: ${{ always() && needs.select.outputs.scope != 'reuse' }}
         env:
-          TOOLCHAIN_STATUS: ${{ steps.manifesto.outcome }}
+          TOOLCHAIN_STATUS: ${{ steps.ecosystem.outcome }}
           CLASSIFICATION_STATUS: ${{ steps.classification.outcome }}
           REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
           CODEQL_SCOPE: ${{ steps.classification.outputs.codeql }}
@@ -217,7 +217,7 @@ jobs:
           DIAGNOSTIC_STEPS: ${{ toJSON(steps) }}
         with:
           script: |
-            await require('./.github/actions/publish-manifesto-report/diagnostics.cjs').snapshot({core,
+            await require('./.github/actions/publish-ecosystem-report/diagnostics.cjs').snapshot({core,
               kind: process.env.DIAGNOSTIC_KIND, scope: process.env.DIAGNOSTIC_SCOPE,
               selectionResult: process.env.DIAGNOSTIC_SELECTION, steps: JSON.parse(process.env.DIAGNOSTIC_STEPS)});
 
@@ -303,8 +303,8 @@ jobs:
         env:
           EVIDENCE_KIND: codeql
           VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}
-          TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
-          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          TOOL_SOURCE_ROOT: ${{ steps.ecosystem.outputs.ecosystem-source-root }}
+          ENGELS_BINARY: ${{ steps.ecosystem.outputs.engels-binary }}
           REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
           REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
           REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
@@ -315,7 +315,7 @@ jobs:
           CODEQL_ANALYZE_STATUS: ${{ steps.codeql_analyze.outcome }}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').record({github, context, core});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').record({github, context, core});
 
       - name: Record delta verification
         if: ${{ needs.select.outputs.scope == 'full' && steps.classification.outputs.codeql == 'repository' }}
@@ -324,8 +324,8 @@ jobs:
         env:
           EVIDENCE_KIND: codeql
           VERIFICATION_SCOPE: delta
-          TOOL_SOURCE_ROOT: ${{ steps.manifesto.outputs.manifesto-source-root }}
-          ENGELS_BINARY: ${{ steps.manifesto.outputs.engels-binary }}
+          TOOL_SOURCE_ROOT: ${{ steps.ecosystem.outputs.ecosystem-source-root }}
+          ENGELS_BINARY: ${{ steps.ecosystem.outputs.engels-binary }}
           REPOSITORY_OUTCOME: ${{ steps.repository.outcome }}
           REPOSITORY_STATUS: ${{ steps.repository.outputs.status }}
           REPOSITORY_EXIT_CODE: ${{ steps.repository.outputs.exit-code }}
@@ -336,7 +336,7 @@ jobs:
           CODEQL_ANALYZE_STATUS: ${{ steps.codeql_analyze.outcome }}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').record({github, context, core});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').record({github, context, core});
 
       - name: Upload verification evidence
         if: ${{ steps.evidence.outputs.name != '' }}
@@ -382,7 +382,7 @@ jobs:
         id: published
         if: ${{ always() }}
         continue-on-error: true
-        uses: ./.github/actions/publish-manifesto-report
+        uses: ./.github/actions/publish-ecosystem-report
         with:
           project-id: {{project_id}}
           report-key: codeql

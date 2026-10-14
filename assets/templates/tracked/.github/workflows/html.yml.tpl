@@ -30,7 +30,7 @@ jobs:
       commit: ${{ github.sha }}
       source: ${{ steps.automatic.outputs.source }}
     env:
-      CMAKE_BUILD_PARALLEL_LEVEL: {{manifesto_build_parallelism}}
+      CMAKE_BUILD_PARALLEL_LEVEL: {{ecosystem_build_parallelism}}
     steps:
       - uses: {{checkout_action}}
         with:
@@ -43,41 +43,41 @@ jobs:
         uses: {{github_script_action}}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').publication({github, context, core});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').publication({github, context, core});
 
-      - name: Setup manifesto tool
+      - name: Setup ecosystem tool
         if: ${{ github.event_name == 'workflow_dispatch' || steps.automatic.outputs.ready == 'true' }}
-        id: manifesto
-        uses: {{manifesto_setup_action}}
+        id: ecosystem
+        uses: {{ecosystem_setup_action}}
         with:
-          bootstrap: {{manifesto_bootstrap}}
-          source-path: {{manifesto_source_path}}
-          manifesto-repository: {{manifesto_repository}}
-          manifesto-ref: {{manifesto_ref}}
-          build-parallelism: {{manifesto_build_parallelism}}
+          bootstrap: {{ecosystem_bootstrap}}
+          source-path: {{ecosystem_source_path}}
+          ecosystem-repository: {{ecosystem_repository}}
+          ecosystem-ref: {{ecosystem_ref}}
+          build-parallelism: {{ecosystem_build_parallelism}}
           install-docs: 'true'
           sphinx-theme-package: {{sphinx_theme_package}}
 
       - name: Verify generated tracked surfaces
         if: ${{ github.event_name == 'workflow_dispatch' || steps.automatic.outputs.ready == 'true' }}
         id: repository
-        uses: ./.github/actions/run-manifesto-stage
+        uses: ./.github/actions/run-ecosystem-stage
         with:
           stage-id: 01-tracked-surface
           stage-label: Tracked surface verification
           shell-command: |
-            "${{ steps.manifesto.outputs.engels-binary }}" check repo
+            "${{ steps.ecosystem.outputs.engels-binary }}" check repo
           skipped-exit-codes: ''
 
       - name: Run coverage when supported
         if: ${{ github.event_name == 'workflow_dispatch' && steps.repository.outputs.status == 'passed' }}
         id: coverage
-        uses: ./.github/actions/run-manifesto-stage
+        uses: ./.github/actions/run-ecosystem-stage
         with:
           stage-id: 02-coverage-check
           stage-label: Coverage check
           shell-command: |
-            "${{ steps.manifesto.outputs.engels-binary }}" check coverage
+            "${{ steps.ecosystem.outputs.engels-binary }}" check coverage
           skipped-exit-codes: 3
 
       - name: Select current presentation reports
@@ -93,19 +93,19 @@ jobs:
           COVERAGE_EXIT_CODE: ${{ steps.coverage.outputs.exit-code }}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').presentation({context, core});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').presentation({context, core});
 
       - name: Generate docs site
         if: ${{ steps.repository.outputs.status == 'passed' && ((steps.presentation.outcome == 'success' && steps.presentation.outputs.directory != '') || steps.automatic.outputs.ready == 'true') }}
         id: docs
         env:
-          MANIFESTO_SPHINX_EVIDENCE: ${{ steps.automatic.outputs.directory || steps.presentation.outputs.directory }}
-        uses: ./.github/actions/run-manifesto-stage
+          ECOSYSTEM_SPHINX_EVIDENCE: ${{ steps.automatic.outputs.directory || steps.presentation.outputs.directory }}
+        uses: ./.github/actions/run-ecosystem-stage
         with:
           stage-id: 03-docs-build
           stage-label: Documentation build
           shell-command: |
-            "${{ steps.manifesto.outputs.engels-binary }}" check sphinx --theme {{sphinx_theme}}
+            "${{ steps.ecosystem.outputs.engels-binary }}" check sphinx --theme {{sphinx_theme}}
           skipped-exit-codes: ''
 
       - name: Revalidate automatic publication evidence
@@ -116,7 +116,7 @@ jobs:
           PUBLICATION_SOURCE: ${{ steps.automatic.outputs.source }}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').revalidatePublication({github, context});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').revalidatePublication({github, context});
 
       - name: Enforce Pages prerequisites
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || steps.automatic.outputs.ready == 'true') }}
@@ -169,7 +169,7 @@ jobs:
             exit 1
           fi
           require_result 03-docs-build "$DOCS_OUTCOME" "$DOCS_STATUS" "$DOCS_EXIT_CODE"
-          if [ ! -s .ecosystem/github/presentation/receipt.json ] || [ ! -s .ecosystem/sphinx/html/_manifesto/index.html ]; then
+          if [ ! -s .ecosystem/github/presentation/receipt.json ] || [ ! -s .ecosystem/sphinx/html/_ecosystem/index.html ]; then
             echo '::error::Current presentation evidence or composed results page is missing.'
             exit 1
           fi
@@ -207,7 +207,7 @@ jobs:
         uses: {{github_script_action}}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').checkPublicationTip({github, context});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').checkPublicationTip({github, context});
 
       - name: Upload Pages reports
         if: ${{ always() }}
@@ -255,7 +255,7 @@ jobs:
           PUBLICATION_SOURCE: ${{ needs.build.outputs.source }}
         with:
           script: |
-            await require('./.github/actions/select-manifesto-ci/evidence.cjs').revalidatePublication({github, context});
+            await require('./.github/actions/select-ecosystem-ci/evidence.cjs').revalidatePublication({github, context});
 
       - uses: {{configure_pages_action}}
 
@@ -303,7 +303,7 @@ jobs:
 
       - name: Publish Pages report
         continue-on-error: true
-        uses: ./.github/actions/publish-manifesto-report
+        uses: ./.github/actions/publish-ecosystem-report
         with:
           project-id: {{project_id}}
           report-key: pages

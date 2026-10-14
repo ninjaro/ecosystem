@@ -1,5 +1,5 @@
 {
-  "id": "manifesto",
+  "id": "ecosystem",
   "description": "Self-hosting C++ project workflow with Marx and Engels.",
   "install_artifacts": [
     "marx:marx",
@@ -10,14 +10,14 @@
     {
       "id": "core:core",
       "kind": "static_lib",
-      "name": "manifesto_core",
+      "name": "ecosystem_core",
       "root": "core",
       "owns": [
         "analysis",
         "manifest",
         "packages",
         "workspace",
-        "tests/manifesto_tests.cpp",
+        "tests/ecosystem_tests.cpp",
         "tests/suite"
       ],
       "packages": {
@@ -35,7 +35,7 @@
     {
       "id": "frontend_support:cli_support",
       "kind": "static_lib",
-      "name": "manifesto_frontend_support",
+      "name": "ecosystem_frontend_support",
       "root": "core",
       "owns": [
         "cli/common_args",

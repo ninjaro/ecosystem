@@ -1286,7 +1286,7 @@ void test_installed_actors_use_their_template_bundle() {
     );
     const auto prefix = root.path() / "relocated";
     fs::rename(install, prefix);
-    const auto bundle = prefix / "share/manifesto/templates";
+    const auto bundle = prefix / "share/ecosystem/templates";
     require_true(
         fs::is_regular_file(bundle / "tracked/.github/workflows/tests.yml.tpl"),
         "install must include hidden tracked template directories"
@@ -1314,7 +1314,7 @@ void test_installed_actors_use_their_template_bundle() {
     fs::create_directories(root.path() / "launchers");
     const auto marx = root.path() / "launchers/marx";
     fs::create_symlink(prefix / "bin/marx", marx);
-    scoped_env no_override("MANIFESTO_TEMPLATE_ROOT", "");
+    scoped_env no_override("ECOSYSTEM_TEMPLATE_ROOT", "");
     scoped_env no_legacy_override("ECOSYSTEM_TEMPLATE_ROOT", "");
     auto run = [&](const fs::path& binary, const std::string& args) {
         const auto result = run_cli_with_binary(binary, project, args);
@@ -1341,7 +1341,7 @@ void test_installed_actors_use_their_template_bundle() {
         "# explicit override\n" + read_text(surface)
     );
     {
-        scoped_env override("MANIFESTO_TEMPLATE_ROOT", overrides.string());
+        scoped_env override("ECOSYSTEM_TEMPLATE_ROOT", overrides.string());
         run(marx, "sync");
         require_contains(
             read_text(project / "CMakeLists.txt"), "# explicit override",
@@ -1375,7 +1375,7 @@ void test_installed_actors_use_their_template_bundle() {
     );
     {
         scoped_env override(
-            "MANIFESTO_TEMPLATE_ROOT",
+            "ECOSYSTEM_TEMPLATE_ROOT",
             (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates").string()
         );
         run(marx, "sync");

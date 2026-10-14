@@ -222,7 +222,7 @@ void test_release_isolated_install(const fs::path& cache) {
     );
     const auto registered = ecosystem::capture_command_result(
         { pacman, "--config", config.string(), "--root", prefix.string(),
-          "--dbpath", database.string(), "-Q", "runtime-sample", "manifesto" }
+          "--dbpath", database.string(), "-Q", "runtime-sample", "ecosystem" }
     );
     require_true(
         registered.exit_code == 0,
@@ -303,7 +303,7 @@ void test_release_isolated_install(const fs::path& cache) {
             + result.output
     );
     fs::remove(
-        prefix / "usr/share/manifesto/templates/cmake/surface_prefix.tpl"
+        prefix / "usr/share/ecosystem/templates/cmake/surface_prefix.tpl"
     );
     result = run_installed({ "/usr/bin/marx", "sync" });
     require_true(

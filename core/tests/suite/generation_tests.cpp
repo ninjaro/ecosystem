@@ -123,24 +123,19 @@ void test_sync_matches_tracked_surfaces() {
     }
 }
 
-void test_template_root_ignores_retired_environment_name() {
+void test_template_root_obeys_ecosystem_environment() {
     temp_dir root;
-    scoped_env no_override("MANIFESTO_TEMPLATE_ROOT", "");
+    scoped_env no_override("ECOSYSTEM_TEMPLATE_ROOT", "");
     const auto canonical = ecosystem::template_root_path();
     require_true(
         !canonical.empty(), "current template bundle must be available"
     );
-    const auto retired = root.path() / "retired";
-    write_text(retired / "cmake/surface_prefix.tpl", "# retired override\n");
-    scoped_env old_name("ECOSYSTEM_TEMPLATE_ROOT", retired.string());
+    const auto selected = root.path() / "selected";
+    write_text(selected / "cmake/surface_prefix.tpl", "# explicit override\n");
+    scoped_env current_name("ECOSYSTEM_TEMPLATE_ROOT", selected.string());
     require_true(
-        ecosystem::template_root_path() == canonical,
-        "retired environment names must not select a different template bundle"
-    );
-    scoped_env current_name("MANIFESTO_TEMPLATE_ROOT", retired.string());
-    require_true(
-        ecosystem::template_root_path() == retired,
-        "the current explicit override contract must remain supported"
+        ecosystem::template_root_path() == selected,
+        "the explicit Ecosystem template override must select its bundle"
     );
 }
 
@@ -226,14 +221,18 @@ void test_ignored_local_surfaces_respect_repository_policy() {
     write_text(ignore, ignore_contents);
     const auto obsolete
         = root.path() / ".github/actions/setup-ecosystem/action.yml";
-    write_text(obsolete, "obsolete generated action\n");
+    const auto selection = root.path() / "ecosystem.github.vars.json";
+    write_text(
+        selection,
+        R"({"ecosystem_setup_action":"example/ecosystem/.github/actions/setup-ecosystem@reviewed"})"
+    );
     require_contains(
         join_lines(ecosystem::tracked_surface_drift(root.path(), *loaded.value)
         ),
         "setup-ecosystem/action.yml is obsolete",
         "unexpected unignored generated surfaces must remain errors"
     );
-    fs::remove(obsolete);
+    fs::remove(selection);
 
     // Exercise the tracked-file branch without creating or mutating a Git
     // index.
@@ -494,11 +493,11 @@ void test_tracked_surface_generation_uses_github_vars_file() {
     temp_dir root;
     write_sample_build_project(root.path(), "sample");
     write_text(
-        root.path() / "manifesto.github.vars.json",
+        root.path() / "ecosystem.github.vars.json",
         "{\n"
-        "  \"manifesto_repository\": \"example/ecosystem\",\n"
-        "  \"manifesto_ref\": \"release/preview\",\n"
-        "  \"manifesto_build_parallelism\": \"3\",\n"
+        "  \"ecosystem_repository\": \"example/ecosystem\",\n"
+        "  \"ecosystem_ref\": \"release/preview\",\n"
+        "  \"ecosystem_build_parallelism\": \"3\",\n"
         "  \"sphinx_theme\": \"furo\",\n"
         "  \"sphinx_theme_package\": \"furo\",\n"
         "  \"checkout_action\": \"actions/checkout@checkout-pin\",\n"
@@ -546,7 +545,7 @@ void test_tracked_surface_generation_uses_github_vars_file() {
         "tracked surface generation must include the tests workflow"
     );
     require_contains(
-        tests_workflow->contents, "uses: ./.github/actions/setup-manifesto",
+        tests_workflow->contents, "uses: ./.github/actions/setup-ecosystem",
         "tests workflow must use the generated local setup action"
     );
     require_contains(
@@ -558,11 +557,11 @@ void test_tracked_surface_generation_uses_github_vars_file() {
         "tests workflow must use the configured immutable upload action"
     );
     require_contains(
-        tests_workflow->contents, "manifesto-repository: \"example/ecosystem\"",
+        tests_workflow->contents, "ecosystem-repository: \"example/ecosystem\"",
         "tests workflow must pass the configured ecosystem repository"
     );
     require_contains(
-        tests_workflow->contents, "manifesto-ref: \"release/preview\"",
+        tests_workflow->contents, "ecosystem-ref: \"release/preview\"",
         "tests workflow must pass the configured ecosystem ref"
     );
     require_contains(
@@ -574,17 +573,17 @@ void test_tracked_surface_generation_uses_github_vars_file() {
         "tests workflow must cancel superseded branch runs"
     );
     require_contains(
-        tests_workflow->contents, "uses: ./.github/actions/run-manifesto-stage",
+        tests_workflow->contents, "uses: ./.github/actions/run-ecosystem-stage",
         "tests workflow must reuse the shared stage runner"
     );
     require_contains(
         tests_workflow->contents,
-        "uses: ./.github/actions/publish-manifesto-report",
+        "uses: ./.github/actions/publish-ecosystem-report",
         "tests workflow must publish the shared CI report surface"
     );
     require_contains(
         tests_workflow->contents,
-        "\"${{ steps.manifesto.outputs.engels-binary }}\" check ci",
+        "\"${{ steps.ecosystem.outputs.engels-binary }}\" check ci",
         "CI must invoke the canonical local aggregate"
     );
     for (const auto* operation :
@@ -622,7 +621,7 @@ void test_tracked_surface_generation_uses_github_vars_file() {
         "deploy workflow must use the configured Pages deployment action"
     );
     require_not_contains(
-        html_workflow->contents, "Checkout manifesto tool",
+        html_workflow->contents, "Checkout ecosystem tool",
         "deploy workflow must stay thin and rely on the shared setup action"
     );
     require_contains(
@@ -631,18 +630,18 @@ void test_tracked_surface_generation_uses_github_vars_file() {
     );
     require_contains(
         html_workflow->contents,
-        "uses: ./.github/actions/publish-manifesto-report",
+        "uses: ./.github/actions/publish-ecosystem-report",
         "deploy workflow must publish the shared Pages report surface"
     );
     require_contains(
         html_workflow->contents,
-        "\"${{ steps.manifesto.outputs.engels-binary }}\" check coverage",
-        "deploy workflow must stage manifesto-owned coverage checks"
+        "\"${{ steps.ecosystem.outputs.engels-binary }}\" check coverage",
+        "deploy workflow must stage ecosystem-owned coverage checks"
     );
 
     const ecosystem::tracked_surface_file* setup_action
         = find_tracked_surface_file(
-            generated_files, ".github/actions/setup-manifesto/action.yml"
+            generated_files, ".github/actions/setup-ecosystem/action.yml"
         );
     require_true(
         setup_action != nullptr,
@@ -665,7 +664,7 @@ void test_tracked_surface_generation_uses_github_vars_file() {
     );
     require_contains(
         setup_action->contents,
-        "repository: ${{ inputs.manifesto-repository }}",
+        "repository: ${{ inputs.ecosystem-repository }}",
         "generated setup action must stay reusable through workflow inputs"
     );
     require_contains(
@@ -692,11 +691,11 @@ void test_tracked_surface_generation_uses_github_vars_file() {
         "bootstrap must also expose Engels"
     );
     require_not_contains(
-        setup_action->contents, "manifesto-binary",
+        setup_action->contents, "ecosystem-binary",
         "bootstrap must not expose a third actor"
     );
     require_not_contains(
-        tests_workflow->contents, "manifesto-binary",
+        tests_workflow->contents, "ecosystem-binary",
         "workflows must use explicit owners"
     );
     require_not_contains(
@@ -707,7 +706,7 @@ void test_tracked_surface_generation_uses_github_vars_file() {
 
     const ecosystem::tracked_surface_file* stage_action
         = find_tracked_surface_file(
-            generated_files, ".github/actions/run-manifesto-stage/action.yml"
+            generated_files, ".github/actions/run-ecosystem-stage/action.yml"
         );
     require_true(
         stage_action != nullptr,
@@ -721,7 +720,7 @@ void test_tracked_surface_generation_uses_github_vars_file() {
     const ecosystem::tracked_surface_file* report_action
         = find_tracked_surface_file(
             generated_files,
-            ".github/actions/publish-manifesto-report/action.yml"
+            ".github/actions/publish-ecosystem-report/action.yml"
         );
     require_true(
         report_action != nullptr,
@@ -770,14 +769,14 @@ void test_tracked_surface_generation_supports_remote_setup_action() {
     temp_dir root;
     write_sample_build_project(root.path(), "sample");
     write_text(
-        root.path() / "manifesto.github.vars.json",
+        root.path() / "ecosystem.github.vars.json",
         "{\n"
-        "  \"manifesto_repository\": \"example/ecosystem\",\n"
-        "  \"manifesto_ref\": \"release/preview\",\n"
-        "  \"manifesto_setup_action\": "
-        "\"example/ecosystem/.github/actions/setup-manifesto@release/"
+        "  \"ecosystem_repository\": \"example/ecosystem\",\n"
+        "  \"ecosystem_ref\": \"release/preview\",\n"
+        "  \"ecosystem_setup_action\": "
+        "\"example/ecosystem/.github/actions/setup-ecosystem@release/"
         "preview\",\n"
-        "  \"manifesto_build_parallelism\": \"3\",\n"
+        "  \"ecosystem_build_parallelism\": \"3\",\n"
         "  \"sphinx_theme\": \"furo\",\n"
         "  \"sphinx_theme_package\": \"furo\"\n"
         "}\n"
@@ -818,11 +817,11 @@ void test_tracked_surface_generation_supports_remote_setup_action() {
     require_contains(
         tests_workflow->contents,
         "uses: "
-        "example/ecosystem/.github/actions/setup-manifesto@release/preview",
+        "example/ecosystem/.github/actions/setup-ecosystem@release/preview",
         "tests workflow must use the configured remote setup action"
     );
     require_not_contains(
-        tests_workflow->contents, "uses: ./.github/actions/setup-manifesto",
+        tests_workflow->contents, "uses: ./.github/actions/setup-ecosystem",
         "tests workflow must not keep the local setup action when a remote "
         "action is configured"
     );
@@ -837,7 +836,7 @@ void test_tracked_surface_generation_supports_remote_setup_action() {
         "workflow"
     );
     require_not_contains(
-        html_workflow->contents, "Checkout manifesto tool",
+        html_workflow->contents, "Checkout ecosystem tool",
         "deploy workflow must stay thin when a remote setup action is used"
     );
     require_contains(
@@ -846,7 +845,7 @@ void test_tracked_surface_generation_supports_remote_setup_action() {
     );
     require_true(
         find_tracked_surface_file(
-            generated_files, ".github/actions/run-manifesto-stage/action.yml"
+            generated_files, ".github/actions/run-ecosystem-stage/action.yml"
         ) != nullptr,
         "remote-action tracked surface generation must keep the shared stage "
         "runner"
@@ -854,7 +853,7 @@ void test_tracked_surface_generation_supports_remote_setup_action() {
     require_true(
         find_tracked_surface_file(
             generated_files,
-            ".github/actions/publish-manifesto-report/action.yml"
+            ".github/actions/publish-ecosystem-report/action.yml"
         ) != nullptr,
         "remote-action tracked surface generation must keep the shared "
         "report publisher"
@@ -862,7 +861,7 @@ void test_tracked_surface_generation_supports_remote_setup_action() {
 
     require_true(
         find_tracked_surface_file(
-            generated_files, ".github/actions/setup-manifesto/action.yml"
+            generated_files, ".github/actions/setup-ecosystem/action.yml"
         ) == nullptr,
         "remote-action tracked surface generation must not materialize the "
         "local setup action"
@@ -882,7 +881,7 @@ void test_required_template_failures_preserve_generated_state() {
         write_text(root.path() / "CMakeLists.txt", "previous facade\n");
         write_text(root.path() / ".gitignore", "previous ignores\n");
         write_text(templates.path() / path, "{{required_missing_binding}}\n");
-        scoped_env env("MANIFESTO_TEMPLATE_ROOT", templates.path().string());
+        scoped_env env("ECOSYSTEM_TEMPLATE_ROOT", templates.path().string());
 
         const auto report = ecosystem::sync_project(root.path(), value);
         require_true(
@@ -917,7 +916,7 @@ void test_required_developer_template_failure_is_reported() {
     write_text(
         templates.path() / "cmake/developer_options.tpl", "{{missing}}\n"
     );
-    scoped_env env("MANIFESTO_TEMPLATE_ROOT", templates.path().string());
+    scoped_env env("ECOSYSTEM_TEMPLATE_ROOT", templates.path().string());
     std::string error;
     const auto status
         = ecosystem::ensure_local_developer_surface(root.path(), value, &error);
@@ -943,7 +942,7 @@ void test_required_missing_and_unreadable_templates_fail() {
         fs::create_directories(
             templates.path() / "unreadable-required-test.tpl"
         );
-        scoped_env env("MANIFESTO_TEMPLATE_ROOT", templates.path().string());
+        scoped_env env("ECOSYSTEM_TEMPLATE_ROOT", templates.path().string());
         bool failed = false;
         try {
             ecosystem::render_required_text_template(path, {});
@@ -982,15 +981,15 @@ void test_sync_project_removes_obsolete_tracked_surface_files() {
         "initial sync must succeed before obsolete-surface cleanup"
     );
     require_true(
-        fs::exists(root.path() / ".github/actions/setup-manifesto/action.yml"),
+        fs::exists(root.path() / ".github/actions/setup-ecosystem/action.yml"),
         "initial sync must materialize the local setup action"
     );
 
     write_text(
-        root.path() / "manifesto.github.vars.json",
+        root.path() / "ecosystem.github.vars.json",
         "{\n"
-        "  \"manifesto_setup_action\": "
-        "\"example/ecosystem/.github/actions/setup-manifesto@release/"
+        "  \"ecosystem_setup_action\": "
+        "\"example/ecosystem/.github/actions/setup-ecosystem@release/"
         "preview\"\n"
         "}\n"
     );
@@ -1010,7 +1009,7 @@ void test_sync_project_removes_obsolete_tracked_surface_files() {
         = ecosystem::tracked_surface_drift(root.path(), *updated_report.value);
     require_contains(
         join_lines(drift),
-        ".github/actions/setup-manifesto/action.yml is obsolete for current "
+        ".github/actions/setup-ecosystem/action.yml is obsolete for current "
         "ecosystem defaults; run `marx sync`",
         "tracked surface drift must report obsolete sync-owned files"
     );
@@ -1025,7 +1024,7 @@ void test_sync_project_removes_obsolete_tracked_surface_files() {
     bool removed_local_action = false;
     for (const fs::path& removed_file : updated_sync.removed_files) {
         if (removed_file
-            == root.path() / ".github/actions/setup-manifesto/action.yml") {
+            == root.path() / ".github/actions/setup-ecosystem/action.yml") {
             removed_local_action = true;
             break;
         }
@@ -1034,7 +1033,7 @@ void test_sync_project_removes_obsolete_tracked_surface_files() {
         removed_local_action, "sync must report the removed local setup action"
     );
     require_true(
-        !fs::exists(root.path() / ".github/actions/setup-manifesto/action.yml"),
+        !fs::exists(root.path() / ".github/actions/setup-ecosystem/action.yml"),
         "sync must remove obsolete local setup action files"
     );
 }
@@ -1116,8 +1115,8 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_action_template = ecosystem::locate_template_path(
-        { ".github/actions/setup-manifesto/action.yml",
-          "tracked/.github/actions/setup-manifesto/action.yml.tpl" }
+        { ".github/actions/setup-ecosystem/action.yml",
+          "tracked/.github/actions/setup-ecosystem/action.yml.tpl" }
     );
     require_true(
         !shared_action_template.empty(),
@@ -1125,7 +1124,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
     require_contains(
         shared_action_template.generic_string(),
-        "/assets/templates/tracked/.github/actions/setup-manifesto/"
+        "/assets/templates/tracked/.github/actions/setup-ecosystem/"
         "action.yml.tpl",
         "template loader must prefer the executable-owned GitHub action "
         "template when it is available"

@@ -69,7 +69,7 @@ Reference: section~\ref{intro}. Citation~\cite{reference}.
     result = run_engels_cli(project, "check sphinx");
     require_true(result.exit_code == 0, result.output);
     const auto page = ecosystem::local_sphinx_dir(project)
-        / "html/_manifesto/catalog/showcase/index.html";
+        / "html/_ecosystem/catalog/showcase/index.html";
     const auto html = read_text(page);
     require_contains(
         html, "First page: paper draft",

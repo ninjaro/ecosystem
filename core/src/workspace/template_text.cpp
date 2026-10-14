@@ -91,20 +91,20 @@ namespace template_text_support {
         return {};
     }
 
-    fs::path source_template_root() { return MANIFESTO_SOURCE_TEMPLATE_ROOT; }
+    fs::path source_template_root() { return ECOSYSTEM_SOURCE_TEMPLATE_ROOT; }
 
     fs::path version_template_root() {
         const auto executable = executable_path();
         if (!executable.empty()) {
             std::error_code error;
             const auto build
-                = fs::weakly_canonical(MANIFESTO_BUILD_ROOT, error);
+                = fs::weakly_canonical(ECOSYSTEM_BUILD_ROOT, error);
             if (!error && executable.parent_path() == build)
                 return source_template_root();
             // Installed data is one bundle. Missing members must not be filled
             // in from a different source checkout or incidental workspace
             // templates.
-            return (executable.parent_path() / MANIFESTO_INSTALL_TEMPLATE_PATH)
+            return (executable.parent_path() / ECOSYSTEM_INSTALL_TEMPLATE_PATH)
                 .lexically_normal();
         }
         return {};
@@ -123,7 +123,7 @@ namespace template_text_support {
     std::vector<fs::path> template_root_candidates() {
         std::vector<fs::path> candidates;
         std::set<std::string> seen;
-        std::string env_root = env_or_empty("MANIFESTO_TEMPLATE_ROOT");
+        std::string env_root = env_or_empty("ECOSYSTEM_TEMPLATE_ROOT");
         if (!env_root.empty()) {
             append_unique_path(&candidates, &seen, fs::path(env_root));
         }
@@ -168,7 +168,7 @@ std::string render_text_template_candidates(
     if (template_path.empty()) {
         if (error_message != nullptr) {
             *error_message
-                = "unable to locate manifesto template file; searched";
+                = "unable to locate ecosystem template file; searched";
             for (const auto& root : template_root_candidates())
                 *error_message += " " + root.generic_string();
             for (const auto& relative : relative_paths)

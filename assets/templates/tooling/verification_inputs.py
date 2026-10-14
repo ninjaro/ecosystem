@@ -74,7 +74,7 @@ def inputs(root, database, pid, configuration, tidy):
     if "InheritParentConfig" in configuration_text and not re.search(r"(?m)^\s*InheritParentConfig\s*:\s*false\s*$", configuration_text, re.I):
         raise ValueError("unmodelled inherited clang-tidy configuration")
     shared["tidy_version"] = subprocess.check_output([tidy, "--version"], text=True)
-    templates = os.environ.get("MANIFESTO_TEMPLATE_ROOT")
+    templates = os.environ.get("ECOSYSTEM_TEMPLATE_ROOT")
     if templates:
         shared["templates"] = {str(file): digest(file) for file in sorted(Path(templates).rglob("*")) if file.is_file()}
     entries = json.loads(Path(database).read_text())
@@ -108,9 +108,9 @@ def inputs(root, database, pid, configuration, tidy):
                 elif arg not in ("-c", "-MD", "-MMD", "-MP"):
                     command.append(arg)
             # -M includes system and external headers; -MM would be unsafe.
-            command.extend(system_args + ["-M", "-MT", "manifesto_inputs"])
+            command.extend(system_args + ["-M", "-MT", "ecosystem_inputs"])
             result = subprocess.run(command, cwd=directory, capture_output=True, text=True)
-            if result.returncode or not result.stdout.startswith("manifesto_inputs:"):
+            if result.returncode or not result.stdout.startswith("ecosystem_inputs:"):
                 raise ValueError("compiler dependency extraction failed")
             names = shlex.split(result.stdout.partition(":")[2].replace("\\\n", ""))
             headers = sorted({(directory / name.replace("$$", "$" )).resolve() for name in names} | {source})

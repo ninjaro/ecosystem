@@ -8,7 +8,7 @@ void test_sphinx_output_aliases() {
          { ".ecosystem",
            ".ecosystem/sphinx",
            ".ecosystem/sphinx/conf.py",
-           ".ecosystem/sphinx/manifesto_presentation.py",
+           ".ecosystem/sphinx/ecosystem_presentation.py",
            ".ecosystem/sphinx/sphinx_presentation",
            ".ecosystem/sphinx/sphinx_presentation/assets.py",
            ".ecosystem/sphinx/sphinx_presentation/benchmarks.py",
@@ -53,11 +53,11 @@ void test_sphinx_output_aliases() {
             "#!/bin/sh\n"
             "if [ \"$1\" = --version ]; then echo 'sphinx-build 8.0'; exit 0; "
             "fi\n"
-            "echo invoked > \"$MANIFESTO_TEST_SPHINX_INVOCATION\"\n"
+            "echo invoked > \"$ECOSYSTEM_TEST_SPHINX_INVOCATION\"\n"
             "exit 0\n"
         );
         scoped_env path("PATH", bin.string() + ":" + current_path_env());
-        scoped_env log("MANIFESTO_TEST_SPHINX_INVOCATION", invocation.string());
+        scoped_env log("ECOSYSTEM_TEST_SPHINX_INVOCATION", invocation.string());
         const auto result = run_engels_cli(project, "check sphinx");
         require_true(
             result.exit_code == 5,
@@ -134,8 +134,8 @@ void test_sphinx_failure_recovery() {
     fs::remove(project / "docs/sphinx.json");
     for (const auto* mode : { "fail", "empty", "empty-index", "index-only",
                               "empty-results", "missing-api", "empty-api" }) {
-        for (const auto* name : { "index.html", "_manifesto/index.html",
-                                  "_manifesto/doxygen/index.html" })
+        for (const auto* name : { "index.html", "_ecosystem/index.html",
+                                  "_ecosystem/doxygen/index.html" })
             write_text(directory / "html.pending" / name, "stale candidate\n");
         scoped_env behavior("SPHINX_TEST_MODE", mode);
         const auto result = run_engels_cli(project, "check sphinx");
@@ -161,13 +161,13 @@ void test_sphinx_failure_recovery() {
         if (std::string(mode) == "index-only"
             || std::string(mode) == "empty-results")
             require_contains(
-                result.output, "html.pending/_manifesto/index.html",
+                result.output, "html.pending/_ecosystem/index.html",
                 "identify the missing project results page"
             );
         if (std::string(mode) == "missing-api"
             || std::string(mode) == "empty-api")
             require_contains(
-                result.output, "html.pending/_manifesto/doxygen/index.html",
+                result.output, "html.pending/_ecosystem/doxygen/index.html",
                 "identify the missing bundled API index"
             );
         if (mode == std::string("fail"))

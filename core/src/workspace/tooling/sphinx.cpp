@@ -71,12 +71,12 @@ namespace {
         const auto directory = local_sphinx_dir(root);
         for (const auto& path :
              { local_state_dir(root), directory, directory / "conf.py",
-               directory / "manifesto_presentation.py",
+               directory / "ecosystem_presentation.py",
                directory / "sphinx.log", directory / "html",
                directory / "html.pending", directory / "html.previous" }) {
             const auto status = inspect(path);
             const bool file = path.filename() == "conf.py"
-                || path.filename() == "manifesto_presentation.py"
+                || path.filename() == "ecosystem_presentation.py"
                 || path.filename() == "sphinx.log";
             if (fs::exists(status)
                 && (file ? !fs::is_regular_file(status)
@@ -96,6 +96,20 @@ namespace {
 
 } // namespace
 
+fs::path sphinx_source_dir(const fs::path& project_root) {
+    const auto stable = project_root / "assets/docs";
+    const auto development = project_root / "docs";
+    const auto has_entry = [](const fs::path& directory) {
+        return fs::is_regular_file(directory / "index.md")
+            || fs::is_regular_file(directory / "index.rst");
+    };
+    if (has_entry(stable) && has_entry(development))
+        throw template_render_error(
+            "ambiguous Sphinx source: both assets/docs and docs have an index"
+        );
+    return has_entry(stable) ? stable : development;
+}
+
 bool write_local_sphinx_conf(
     const fs::path& project_root, const std::string& project_name,
     std::string* error_message
@@ -108,13 +122,14 @@ bool write_local_sphinx_conf(
             *error_message = error.what();
         return false;
     }
-    const fs::path docs_dir = project_root / "docs";
+    const fs::path docs_dir = sphinx_source_dir(project_root);
     json excluded = json::array({ "_build" });
     const auto selection = docs_dir / "sphinx.json";
     try {
         if (fs::exists(fs::symlink_status(selection))) {
-            const auto errors
-                = validate_project_paths(project_root, { "docs/sphinx.json" });
+            const auto errors = validate_project_paths(
+                project_root, { selection.lexically_relative(project_root) }
+            );
             if (!errors.empty())
                 throw template_render_error(errors.front());
             const auto contents = read_text_file(selection, error_message);
@@ -139,7 +154,8 @@ bool write_local_sphinx_conf(
             }
         }
     } catch (const std::exception& error) {
-        *error_message = "docs/sphinx.json: " + std::string(error.what());
+        *error_message = selection.lexically_relative(project_root).string()
+            + ": " + error.what();
         return false;
     }
     const bool has_markdown_docs = tree_has_extension(docs_dir, ".md");
@@ -182,7 +198,7 @@ bool write_local_sphinx_conf(
             return false;
     }
     return write_text_file(
-               local_sphinx_dir(project_root) / "manifesto_presentation.py",
+               local_sphinx_dir(project_root) / "ecosystem_presentation.py",
                presentation, error_message
            )
         && write_text_file(
@@ -221,8 +237,8 @@ bool publish_local_sphinx_output(
     const auto previous = directory / "html.previous";
     try {
         validate_outputs(root);
-        for (const auto* name : { "index.html", "_manifesto/index.html",
-                                  "_manifesto/doxygen/index.html" })
+        for (const auto* name : { "index.html", "_ecosystem/index.html",
+                                  "_ecosystem/doxygen/index.html" })
             if (!fs::is_regular_file(pending / name)
                 || fs::file_size(pending / name) == 0)
                 throw template_render_error(

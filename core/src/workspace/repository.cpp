@@ -198,7 +198,7 @@ namespace repository_support {
     std::string scripts_directory_issue(const fs::path& relative_directory) {
         return normalize_generic(relative_directory)
             + "/: script directories are forbidden; move wrapper logic into "
-              "the manifesto tool";
+              "the ecosystem tool";
     }
 
     std::string local_overlay_issue(const fs::path& relative_directory) {

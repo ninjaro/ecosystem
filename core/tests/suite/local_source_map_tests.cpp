@@ -67,14 +67,14 @@ void test_source_local_map_selects_mutable_checkouts_and_preserves_facade() {
         "consumer sync must succeed"
     );
     const auto tracked = read_text(consumer / "CMakeLists.txt");
-    const auto map = consumer / "manifesto.local.json";
+    const auto map = consumer / "ecosystem.local.json";
     write_text(
         map,
         json({ { "sources", { { provider.string(), local.string() } } } }
         ).dump(2)
     );
     command(consumer, { "git", "init", "-q" });
-    command(consumer, { "git", "check-ignore", "-q", "manifesto.local.json" });
+    command(consumer, { "git", "check-ignore", "-q", "ecosystem.local.json" });
     {
         scoped_env legacy(
             "PROVIDER_SOURCE_DIR",
@@ -111,7 +111,7 @@ void test_source_local_map_selects_mutable_checkouts_and_preserves_facade() {
             "failure must identify the retired environment input"
         );
         require_contains(
-            result.output, "manifesto.local.json",
+            result.output, "ecosystem.local.json",
             "failure must explain migration to the root source map"
         );
     }
@@ -154,7 +154,7 @@ void test_source_local_map_rejects_invalid_configuration() {
     const auto provider = root.path() / "provider";
     const auto loaded = ecosystem::load_manifest(consumer / "manifest.json");
     require_true(loaded.errors.empty(), join_lines(loaded.errors));
-    const auto map = consumer / "manifesto.local.json";
+    const auto map = consumer / "ecosystem.local.json";
     scoped_env legacy("NUMBERS_SOURCE_DIR", provider.string());
     const auto reject = [&](const std::string& expected) {
         ecosystem::string_list options;
@@ -167,7 +167,7 @@ void test_source_local_map_rejects_invalid_configuration() {
             "invalid explicit configuration must fail instead of falling back"
         );
         require_contains(
-            error, "manifesto.local.json",
+            error, "ecosystem.local.json",
             "failure must identify the configuration file"
         );
         require_contains(
@@ -259,7 +259,7 @@ void test_source_local_map_applies_to_recursive_providers() {
         "answer(std::span<const int>) { return base_answer(); }\n"
     );
     write_text(
-        consumer / "manifesto.local.json",
+        consumer / "ecosystem.local.json",
         json({ { "sources",
                  { { "https://example.invalid/numbers.git", provider.string() },
                    { "https://example.invalid/foundation.git",
@@ -268,8 +268,8 @@ void test_source_local_map_applies_to_recursive_providers() {
     );
     // One consumer-owned map governs the closure; provider/ancestor settings
     // must not silently change the selected topology.
-    write_text(provider / "manifesto.local.json", "invalid provider-local map");
-    write_text(root.path() / "manifesto.local.json", "invalid ancestor map");
+    write_text(provider / "ecosystem.local.json", "invalid provider-local map");
+    write_text(root.path() / "ecosystem.local.json", "invalid ancestor map");
     scoped_env legacy("NUMBERS_SOURCE_DIR", "/invalid-environment");
     scoped_env base_legacy("FOUNDATION_SOURCE_DIR", "/invalid-environment");
     expect_answer(consumer, 42);

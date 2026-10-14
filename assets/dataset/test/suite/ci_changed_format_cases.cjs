@@ -121,7 +121,7 @@ test('unsupported profiles, artifact filters, workspace scope and duplicate flag
   const f = formatFixture(t);
   for (const args of [['check', 'ci', '--changes'], ['check', 'format', 'lib:base', '--changes'],
     ['check', 'format', '--changes', '--changes'], ['check', 'format', '--changes=invalid']]) assert.equal(f.run(args).status, 2);
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-format-workspace-'));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'ecosystem-format-workspace-'));
   t.after(() => fs.rmSync(workspace, {recursive: true, force: true}));
   f.git('clone', '-q', f.root, path.join(workspace, 'project'));
   assert.equal(f.run(['check', 'format', '--changes'], workspace).status, 2);

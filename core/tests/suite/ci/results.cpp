@@ -5,7 +5,7 @@ namespace ecosystem_test_support {
 
 void test_ci_stage_failures() {
     const std::string action = ecosystem::render_required_text_template(
-        "tracked/.github/actions/run-manifesto-stage/action.yml.tpl", {}
+        "tracked/.github/actions/run-ecosystem-stage/action.yml.tpl", {}
     );
     const std::string marker = "      run: |\n";
     const auto start = action.find(marker);
@@ -24,7 +24,7 @@ void test_ci_stage_failures() {
         sample_manifest(), project.path()
     );
     const auto* publisher = find_tracked_surface_file(
-        generated, ".github/actions/publish-manifesto-report/action.yml"
+        generated, ".github/actions/publish-ecosystem-report/action.yml"
     );
     require_true(publisher != nullptr, "shared report publisher must exist");
     require_contains(
@@ -69,7 +69,7 @@ void test_ci_stage_failures() {
             );
             require_contains(
                 workflow->contents,
-                "uses: ./.github/actions/select-manifesto-ci",
+                "uses: ./.github/actions/select-ecosystem-ci",
                 "CodeQL must share event selection with required checks"
             );
         }
@@ -179,7 +179,7 @@ void test_ci_result_gates() {
         = find_tracked_surface_file(files, ".github/workflows/tests.yml");
     require_true(workflow != nullptr, "required workflow must exist");
     const auto* publisher = find_tracked_surface_file(
-        files, ".github/actions/publish-manifesto-report/action.yml"
+        files, ".github/actions/publish-ecosystem-report/action.yml"
     );
     require_true(publisher != nullptr, "report collector must exist");
     {
@@ -248,7 +248,7 @@ void test_ci_result_gates() {
         gate, ci_shell(workflow->contents, "Enforce required result", 8)
     );
     const auto* action = find_tracked_surface_file(
-        files, ".github/actions/run-manifesto-stage/action.yml"
+        files, ".github/actions/run-ecosystem-stage/action.yml"
     );
     require_true(action != nullptr, "stage runner must exist");
     const auto program = ci_shell(action->contents, "Run stage command", 6);
@@ -416,7 +416,7 @@ void test_ci_result_gates() {
     for (const auto* consumer : { workflow, codeql }) {
         require_contains(
             consumer->contents,
-            "- name: Setup manifesto tool\n        if: ${{ "
+            "- name: Setup ecosystem tool\n        if: ${{ "
             "needs.select.outputs.scope != 'reuse' }}",
             "validated reuse must skip tooling bootstrap and native operations"
         );

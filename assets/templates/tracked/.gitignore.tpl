@@ -25,7 +25,7 @@
 {{ignored_local_surface_rules}}# Reserved transient resource-cache directories (also excluded from payloads).
 **/.cache/
 **/.*_cache/
-/manifesto.local.json
+/ecosystem.local.json
 build*/
 cmake-build*/
 cov/

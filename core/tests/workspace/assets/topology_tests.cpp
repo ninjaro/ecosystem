@@ -75,6 +75,18 @@ void test_asset_branches() {
 void test_asset_repo_gate() {
     temp_dir root;
     write_sample_build_project(root.path(), "asset_repo");
+    write_text(
+        root.path() / "assets/docs/specification.md", "# Current reference\n"
+    );
+    require_true(
+        ecosystem::validate_assets(root.path()).empty(),
+        "stable documentation is an authored asset category"
+    );
+    const auto runtime = ecosystem::runtime_asset_files(root.path());
+    require_true(
+        runtime.empty(),
+        "reference documentation is not application runtime data"
+    );
     write_text(root.path() / "assets/sets/config.json", "{}");
     auto result = run_marx_cli(root.path(), "sync");
     require_true(result.exit_code == 0, result.output);

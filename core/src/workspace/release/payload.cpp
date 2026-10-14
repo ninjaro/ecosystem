@@ -189,7 +189,7 @@ bool stage_tooling_templates(
     const artifact_ref& primary, const fs::path& stage_root,
     std::string* error_message
 ) {
-    if (value.id != "manifesto")
+    if (value.id != "ecosystem")
         return true;
     bool has_actor = false;
     for (const auto& ref : distribution_artifacts(value, primary)) {
@@ -262,7 +262,7 @@ bool stage_tooling_templates(
     }
     // Ship the built project's data, independently of execution-time template
     // overrides and install_assets. Hidden tracked/ directories are included.
-    const auto destination = stage_root / "usr/share/manifesto/templates";
+    const auto destination = stage_root / "usr/share/ecosystem/templates";
     if (!ensure_clean_directory(destination, error_message))
         return false;
     return copy_runtime_files(
