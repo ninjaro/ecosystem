@@ -3,6 +3,113 @@
 
 namespace ecosystem_test_support {
 
+void test_ci_compiler_cache_configuration() {
+    temp_dir root;
+    const auto action = ecosystem::render_required_text_template(
+        "tracked/.github/actions/setup-manifesto/action.yml.tpl",
+        { { "checkout_action", "actions/checkout@v4" },
+          { "install_qt_action", "vendor/qt@pin" } }
+    );
+    const auto script = root.path() / "cache.sh";
+    const auto environment = root.path() / "environment";
+    write_text(script, ci_shell(action, "Configure compiler cache", 6));
+    auto result = ecosystem::capture_command_result(
+        { "bash", "-e", "-o", "pipefail", script.string() }, root.path(),
+        { { "GITHUB_WORKSPACE", root.path().string() },
+          { "GITHUB_ENV", environment.string() } }
+    );
+    require_true(result.exit_code == 0, result.output);
+    std::map<std::string, std::string> values;
+    std::istringstream lines(read_text(environment));
+    std::string line;
+    while (std::getline(lines, line)) {
+        const auto split = line.find('=');
+        require_true(
+            split != std::string::npos, "cache export must be KEY=VALUE"
+        );
+        values.emplace(line.substr(0, split), line.substr(split + 1));
+    }
+    require_true(
+        values.contains("CCACHE_NODIRECT") && values.contains("CCACHE_NODEPEND")
+            && values.at("CCACHE_NODIRECT") == "1"
+            && values.at("CCACHE_NODEPEND") == "1"
+            && !values.contains("CCACHE_DIRECT")
+            && !values.contains("CCACHE_DEPEND"),
+        "negative boolean variables must select preprocessor caching"
+    );
+    require_true(
+        values.at("CCACHE_COMPILERCHECK") == "content"
+            && values.at("CCACHE_SLOPPINESS").empty()
+            && values.at("CCACHE_MAXSIZE") == "500M"
+            && values.at("CMAKE_C_COMPILER_LAUNCHER") == "ccache"
+            && values.at("CMAKE_CXX_COMPILER_LAUNCHER") == "ccache"
+            && !values.contains("CCACHE_DISABLE"),
+        "bootstrap must retain safe caching for both compilers"
+    );
+    const auto ccache = ecosystem::find_command_path("ccache");
+    if (ccache.empty()) {
+        std::cout << "[not-run] actual ccache configuration/compiler probe: "
+                     "ccache is unavailable\n";
+        return;
+    }
+    std::vector<std::pair<std::string, std::string>> build_environment(
+        values.begin(), values.end()
+    );
+    for (const auto* option : { "direct_mode", "depend_mode", "disable" }) {
+        result = ecosystem::capture_command_result(
+            { ccache, "--get-config", option }, root.path(), build_environment
+        );
+        require_true(
+            result.exit_code == 0 && result.output == "false\n",
+            std::string("actual cache option must be false: ")
+                .append(option)
+                .append("\n")
+                .append(result.output)
+        );
+    }
+    write_text(
+        root.path() / "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(cache_probe LANGUAGES C CXX)\n"
+        "add_executable(c_probe main.c)\n"
+        "add_executable(cxx_probe main.cpp)\n"
+    );
+    for (const auto* source : { "main.c", "main.cpp" })
+        write_text(root.path() / source, "int main(void) { return 0; }\n");
+    const auto build = root.path() / "build";
+    result = ecosystem::capture_command_result(
+        { "cmake", "-S", root.path().string(), "-B", build.string(),
+          "-DCMAKE_BUILD_TYPE=Debug" },
+        root.path(), build_environment
+    );
+    require_true(
+        result.exit_code == 0,
+        "actual C/C++ compiler detection with cache must succeed:\n"
+            + result.output
+    );
+    result = ecosystem::capture_command_result(
+        { "cmake", "--build", build.string(), "--parallel", "2" }, root.path(),
+        build_environment
+    );
+    require_true(result.exit_code == 0, result.output);
+    for (const auto* binary : { "c_probe", "cxx_probe" }) {
+        result
+            = ecosystem::capture_command_result({ (build / binary).string() });
+        require_true(result.exit_code == 0, "cached probe must execute");
+    }
+    build_environment.emplace_back("CCACHE_DISABLE", "1");
+    result = ecosystem::capture_command_result(
+        { "cmake", "--build", build.string(), "--clean-first", "--parallel",
+          "2" },
+        root.path(), build_environment
+    );
+    require_true(
+        result.exit_code == 0,
+        "CodeQL's uncached traced compilation must remain valid:\n"
+            + result.output
+    );
+}
+
 void test_ci_bootstrap_options() {
     temp_dir root;
     const auto generate = [&](const json& config,

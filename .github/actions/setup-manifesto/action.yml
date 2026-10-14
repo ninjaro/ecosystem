@@ -213,8 +213,8 @@ runs:
         {
           echo "CCACHE_DIR=$cache"
           echo 'CCACHE_COMPILERCHECK=content'
-          echo 'CCACHE_DIRECT=false'
-          echo 'CCACHE_DEPEND=false'
+          echo 'CCACHE_NODIRECT=1'
+          echo 'CCACHE_NODEPEND=1'
           echo 'CCACHE_SLOPPINESS='
           echo 'CCACHE_MAXSIZE=500M'
           echo 'CMAKE_C_COMPILER_LAUNCHER=ccache'

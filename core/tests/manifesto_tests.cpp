@@ -300,6 +300,8 @@ int main(int argc, char** argv) {
         { "ci_event_selection_and_full_verification", test_ci_selection },
         { "ci_verification_evidence_contract", test_ci_evidence },
         { "sphinx_presentation_contract", test_sphinx_presentation_contract },
+        { "ci_compiler_cache_configuration",
+          test_ci_compiler_cache_configuration },
         { "github_bootstrap_vars_validate_explicit_selection",
           test_ci_bootstrap_options },
         { "ci_bootstrap_builds_reviewed_checkout_and_repository_layouts",

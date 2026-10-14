@@ -10,6 +10,7 @@ void test_ci_selection();
 void test_ci_stage_failures();
 void test_ci_result_gates();
 void test_ci_pages_gates();
+void test_ci_compiler_cache_configuration();
 void test_ci_bootstrap_options();
 void test_ci_bootstrap_layouts();
 void test_ci_bootstrap_errors();
