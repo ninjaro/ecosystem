@@ -10,7 +10,7 @@ namespace ecosystem {
 std::vector<std::filesystem::path> tex_sources(const std::filesystem::path& root
 );
 command_error build_tex(
-    const std::filesystem::path& root, std::ostream& out, std::ostream& err
+    const std::filesystem::path& project, std::ostream& out, std::ostream& err
 );
 
 } // namespace ecosystem

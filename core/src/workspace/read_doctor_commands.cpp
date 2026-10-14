@@ -390,7 +390,8 @@ command_error run_doctor(
     std::ostream& err
 ) {
     return command_support::run_doctor(
-        project_root, manifest_value, profile, requested_artifact, out, err
+        project_root, manifest_value, std::move(profile),
+        std::move(requested_artifact), out, err
     );
 }
 

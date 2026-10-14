@@ -281,21 +281,23 @@ namespace repository_support {
     bool path_has_directory_segment(
         const fs::path& relative_path, const std::string& directory_name
     ) {
-        for (const fs::path& segment : relative_path.parent_path()) {
-            if (segment.generic_string() == directory_name) {
-                return true;
+        return std::ranges::any_of(
+            relative_path.parent_path(),
+            [&](const fs::path& segment) {
+                return segment.generic_string() == directory_name;
             }
-        }
-        return false;
+        );
     }
 
     bool path_has_generated_report_directory(const fs::path& relative_path) {
-        for (const fs::path& segment : relative_path.parent_path()) {
-            if (is_generated_report_directory_name(segment.generic_string())) {
-                return true;
+        return std::ranges::any_of(
+            relative_path.parent_path(),
+            [](const fs::path& segment) {
+                return is_generated_report_directory_name(
+                    segment.generic_string()
+                );
             }
-        }
-        return false;
+        );
     }
 
 } // namespace repository_support

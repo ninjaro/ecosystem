@@ -107,22 +107,22 @@ namespace package_surface_rule_support {
                 package_surface_block::nlohmann_json,
                 make_static_surface_rule({
                     "if (ANDROID)",
-                    "    find_package(nlohmann_json 3.12 CONFIG REQUIRED "
-                    "NO_CMAKE_FIND_ROOT_PATH)",
-                    "    find_path(ECOSYSTEM_NLOHMANN_JSON_INCLUDE_DIR "
-                    "nlohmann/json.hpp REQUIRED NO_CMAKE_FIND_ROOT_PATH)",
-                    "    set(ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR "
-                    "\"${CMAKE_BINARY_DIR}/ecosystem-host-headers/"
-                    "nlohmann_json\")",
-                    "    file(MAKE_DIRECTORY "
-                    "\"${ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR}\")",
-                    "    file(COPY "
-                    "\"${ECOSYSTEM_NLOHMANN_JSON_INCLUDE_DIR}/nlohmann\" "
-                    "DESTINATION "
-                    "\"${ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR}\")",
-                    "    target_include_directories("
-                    "nlohmann_json::nlohmann_json INTERFACE "
-                    "\"${ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR}\")",
+                    ("    find_package(nlohmann_json 3.12 CONFIG REQUIRED "
+                     "NO_CMAKE_FIND_ROOT_PATH)"),
+                    ("    find_path(ECOSYSTEM_NLOHMANN_JSON_INCLUDE_DIR "
+                     "nlohmann/json.hpp REQUIRED NO_CMAKE_FIND_ROOT_PATH)"),
+                    ("    set(ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR "
+                     "\"${CMAKE_BINARY_DIR}/ecosystem-host-headers/"
+                     "nlohmann_json\")"),
+                    ("    file(MAKE_DIRECTORY "
+                     "\"${ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR}\")"),
+                    ("    file(COPY "
+                     "\"${ECOSYSTEM_NLOHMANN_JSON_INCLUDE_DIR}/nlohmann\" "
+                     "DESTINATION "
+                     "\"${ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR}\")"),
+                    ("    target_include_directories("
+                     "nlohmann_json::nlohmann_json INTERFACE "
+                     "\"${ECOSYSTEM_NLOHMANN_JSON_STAGE_DIR}\")"),
                     "else ()",
                     "    find_package(nlohmann_json 3.12 CONFIG REQUIRED)",
                     "endif ()",
@@ -201,20 +201,20 @@ namespace package_surface_rule_support {
                 package_surface_block::cxxopts,
                 make_static_surface_rule({
                     "if (ANDROID)",
-                    "    find_package(cxxopts CONFIG REQUIRED "
-                    "NO_CMAKE_FIND_ROOT_PATH)",
-                    "    find_path(ECOSYSTEM_CXXOPTS_INCLUDE_DIR "
-                    "cxxopts.hpp REQUIRED NO_CMAKE_FIND_ROOT_PATH)",
-                    "    set(ECOSYSTEM_CXXOPTS_STAGE_DIR "
-                    "\"${CMAKE_BINARY_DIR}/ecosystem-host-headers/"
-                    "cxxopts\")",
-                    "    file(MAKE_DIRECTORY "
-                    "\"${ECOSYSTEM_CXXOPTS_STAGE_DIR}\")",
-                    "    file(COPY "
-                    "\"${ECOSYSTEM_CXXOPTS_INCLUDE_DIR}/cxxopts.hpp\" "
-                    "DESTINATION \"${ECOSYSTEM_CXXOPTS_STAGE_DIR}\")",
-                    "    target_include_directories(cxxopts::cxxopts "
-                    "INTERFACE \"${ECOSYSTEM_CXXOPTS_STAGE_DIR}\")",
+                    ("    find_package(cxxopts CONFIG REQUIRED "
+                     "NO_CMAKE_FIND_ROOT_PATH)"),
+                    ("    find_path(ECOSYSTEM_CXXOPTS_INCLUDE_DIR "
+                     "cxxopts.hpp REQUIRED NO_CMAKE_FIND_ROOT_PATH)"),
+                    ("    set(ECOSYSTEM_CXXOPTS_STAGE_DIR "
+                     "\"${CMAKE_BINARY_DIR}/ecosystem-host-headers/"
+                     "cxxopts\")"),
+                    ("    file(MAKE_DIRECTORY "
+                     "\"${ECOSYSTEM_CXXOPTS_STAGE_DIR}\")"),
+                    ("    file(COPY "
+                     "\"${ECOSYSTEM_CXXOPTS_INCLUDE_DIR}/cxxopts.hpp\" "
+                     "DESTINATION \"${ECOSYSTEM_CXXOPTS_STAGE_DIR}\")"),
+                    ("    target_include_directories(cxxopts::cxxopts "
+                     "INTERFACE \"${ECOSYSTEM_CXXOPTS_STAGE_DIR}\")"),
                     "else ()",
                     "    find_package(cxxopts CONFIG REQUIRED)",
                     "endif ()",

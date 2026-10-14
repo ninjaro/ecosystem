@@ -250,7 +250,7 @@ workspace_artifact_requests_for_project(
     std::vector<std::optional<artifact_ref>> requests;
     requests.reserve(artifacts.size());
     for (const artifact_ref& artifact : artifacts) {
-        requests.push_back(artifact);
+        requests.emplace_back(artifact);
     }
     return requests;
 }
@@ -498,7 +498,7 @@ json workspace_scope_json(
 ) {
     if (scope.projects.empty() && scope.groups.empty()
         && scope.artifact_filters.empty()) {
-        return json();
+        return {};
     }
 
     json selection = json::object();

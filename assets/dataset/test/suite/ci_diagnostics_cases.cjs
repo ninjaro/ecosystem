@@ -184,3 +184,33 @@ test('successful CodeQL analysis cannot hide a failed receipt or its actual diag
   assert.equal(record.status, 'failed'); assert.match(record.reason, /unexpected.cpp/); assert.doesNotMatch(record.reason, /not executed/);
   assert.match(record.stages[0].reason, /Untracked authored inputs/);
 });
+
+test('native timing, command and reuse inventories are retained in uploaded diagnostics', async t => {
+  const f = fixture(t);
+  f.write('.ecosystem/reports/ci.json', JSON.stringify([
+    {phase: 'repository', status: 'executed', seconds: 1},
+    {phase: 'build-and-tests', status: 'executed', seconds: 2},
+    {phase: 'java', status: 'not-applicable', reason: 'no managed capability'},
+    {phase: 'tidy', status: 'executed', seconds: 3},
+    {phase: 'format', status: 'blocked', reason: 'blocked by tidy'}]));
+  f.write('.ecosystem/reports/ci-commands.log', '> clang-tidy src/main.cpp\n< 0 seconds=2.1\n');
+  f.write('.ecosystem/reports/tidy.json', JSON.stringify({
+    execution: [{status: 'reused', reason: 'matching inputs'}],
+    tidy_execution: [{status: 'executed', seconds: 2.1, command: ['clang-tidy', 'src/main.cpp']}]}));
+  const result = await diagnostics.snapshot({core: f.core, root: f.root, kind: 'checks', scope: 'full', selectionResult: 'success',
+    steps: {changes: {outcome: 'success'}, manifesto: {outcome: 'success'}, classification: {outcome: 'success'},
+      required: {outcome: 'success', outputs: {status: 'failed', 'exit-code': '5'}}}});
+  assert.deepEqual(result.execution_counts.ast, {executed: 0, reused: 1, skipped: 0, blocked: 0});
+  assert.deepEqual(result.execution_counts.phases, {executed: 3, reused: 0, skipped: 1, blocked: 1});
+  assert.equal(result.execution_counts.tidy.executed, 1);
+  assert.equal(result.native_report_error, null);
+  assert.match(fs.readFileSync(path.join(f.root, '.ecosystem/github/reports/native/ci-commands.log'), 'utf8'), /seconds=2.1/);
+  assert.equal(result.status, 'failed');
+});
+test('a claimed passing full check without native execution reports cannot succeed', async t => {
+  const f = fixture(t);
+  const result = await diagnostics.snapshot({core: f.core, root: f.root, kind: 'checks', scope: 'full', selectionResult: 'success',
+    steps: {changes: {outcome: 'success'}, manifesto: {outcome: 'success'}, classification: {outcome: 'success'},
+      required: {outcome: 'success', outputs: {status: 'passed'}}, coverage: {outcome: 'success'}}});
+  assert.equal(result.status, 'failed'); assert.match(result.reason, /Missing native verification report/);
+});

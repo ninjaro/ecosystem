@@ -143,6 +143,13 @@ runs:
         path: .ecosystem/tooling/source
         persist-credentials: false
 
+    - name: Restore compiler cache
+      uses: actions/cache/restore@v4
+      with:
+        path: .ecosystem/cache/ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-manifesto-ccache-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-manifesto-ccache-v1-
+
     - name: Install Qt 6
       if: ${{ inputs.install-project-deps == 'true' }}
       uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730
@@ -165,6 +172,7 @@ runs:
         trap 'result=$?; printf "native-dependencies\t%s\n" "$result" >> "$report_root/steps.tsv"' EXIT
         packages=(
           clang
+          ccache
           clang-format
           cmake
           ninja-build
@@ -194,6 +202,26 @@ runs:
         fi
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends "${packages[@]}"
+
+    - name: Configure compiler cache
+      shell: bash
+      run: |
+        cache="$GITHUB_WORKSPACE/.ecosystem/cache/ccache"
+        mkdir -p "$cache"
+        # Preprocessor mode observes newly appearing and system headers too.
+        # Never cache CodeQL's traced compilation (the workflow disables it).
+        {
+          echo "CCACHE_DIR=$cache"
+          echo 'CCACHE_COMPILERCHECK=content'
+          echo 'CCACHE_DIRECT=false'
+          echo 'CCACHE_DEPEND=false'
+          echo 'CCACHE_SLOPPINESS='
+          echo 'CCACHE_MAXSIZE=500M'
+          echo 'CMAKE_C_COMPILER_LAUNCHER=ccache'
+          echo 'CMAKE_CXX_COMPILER_LAUNCHER=ccache'
+          libraries=$(ldd "$(command -v clang++)" | awk '/=> \// {print $3}' | paste -sd:)
+          echo "CCACHE_EXTRAFILES=$libraries"
+        } >> "$GITHUB_ENV"
 
     # Ubuntu 24.04 supplies JSON 3.11; the tooling requires 3.12.
     - name: Checkout declared JSON prerequisite
@@ -232,6 +260,7 @@ runs:
         echo "$docs_env/bin" >> "$GITHUB_PATH"
 
     - name: Build Marx and Engels
+      id: bootstrap_build
       shell: bash
       env:
         CC: clang
@@ -263,3 +292,11 @@ runs:
           echo '::error::Selected tooling revision must build both marx and engels at the build root.'
           exit 1
         fi
+
+    - name: Save bootstrap compiler cache
+      if: ${{ steps.bootstrap_build.outcome == 'success' && github.event_name != 'pull_request' }}
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: .ecosystem/cache/ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-manifesto-ccache-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-bootstrap

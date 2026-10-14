@@ -22,6 +22,8 @@ function save(directory, record) {
     + rows.map(row => `| ${row.name} | ${row.status} | ${row.category} | ${row.reason.replaceAll('|', '\\|').replaceAll('\n', ' ')} |`).join('\n') + '\n';
   if (record.test_counts) text += '\nTest counts (observed output, not inferred passes):\n```json\n'
     + JSON.stringify(record.test_counts, null, 2) + '\n```\n';
+  if (record.execution_counts) text += '\nExecuted/reused/skipped units (phase and translation-unit scopes are separate):\n```json\n'
+    + JSON.stringify(record.execution_counts, null, 2) + '\n```\n';
   if (record.logs) text += '\n' + record.logs.map(log => `- ${log}`).join('\n') + '\n';
   fs.writeFileSync(path.join(directory, 'summary.md'), text);
   return text;
@@ -54,6 +56,45 @@ function failureLog(root, id, output) {
   if (relative.startsWith('..' + path.sep) || path.isAbsolute(relative) || !fs.existsSync(absolute)) return null;
   return {file: relative, excerpt: diagnosticExcerpt(fs.readFileSync(absolute, 'utf8'))};
 }
+function nativeDetails(root, steps, kind, scope) {
+  if (kind !== 'checks' || scope !== 'full' || steps.required?.outcome !== 'success') return {logs: []};
+  const read = name => {
+    const file = path.join(root, '.ecosystem/reports', name);
+    let current = root;
+    for (const part of path.relative(root, file).split(path.sep)) {
+      current = path.join(current, part);
+      if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink()) throw new Error('Unsafe native report path: ' + name);
+    }
+    if (!fs.existsSync(file)) throw new Error('Missing native verification report: ' + name);
+    const destination = path.join(root, '.ecosystem/github/reports/native', name);
+    fs.mkdirSync(path.dirname(destination), {recursive: true});
+    fs.copyFileSync(file, destination);
+    return fs.readFileSync(file, 'utf8');
+  };
+  try {
+    const phases = JSON.parse(read('ci.json'));
+    if (!Array.isArray(phases) || !phases.length || phases.some(row => !row.phase || !row.status))
+      throw new Error('Invalid native phase report');
+    read('ci-commands.log');
+    const units = [];
+    if (phases.some(row => row.phase === 'tidy' && ['executed', 'failed'].includes(row.status))) {
+      const tidy = JSON.parse(read('tidy.json'));
+      for (const [scope, rows] of [['ast', tidy.execution], ['tidy', tidy.tidy_execution]]) {
+        if (!Array.isArray(rows)) throw new Error('Missing ' + scope + ' execution inventory');
+        units.push(...rows.map(row => ({scope, ...row})));
+      }
+    }
+    const count = rows => ({executed: rows.filter(row => ['executed', 'failed'].includes(row.status)).length,
+      reused: rows.filter(row => row.status === 'reused').length,
+      skipped: rows.filter(row => row.status === 'not-applicable').length,
+      blocked: rows.filter(row => row.status === 'blocked').length});
+    return {phases, units, counts: {phases: count(phases), ast: count(units.filter(row => row.scope === 'ast')),
+      tidy: count(units.filter(row => row.scope === 'tidy'))},
+      logs: ['Native command durations: `.ecosystem/github/reports/native/ci-commands.log`',
+        'Native phase timings and dispositions: `.ecosystem/github/reports/native/ci.json`',
+        ...(units.length ? ['Per-source commands, durations and reuse reasons: `.ecosystem/github/reports/native/tidy.json`'] : [])]};
+  } catch (error) { return {error: error.message, logs: []}; }
+}
 async function snapshot({core, kind, scope, selectionResult, steps, root = process.cwd()}) {
   const definition = kind === 'checks'
     ? [['changes', 'Change resolution', []], ['manifesto', 'Tooling setup', ['changes']],
@@ -72,7 +113,8 @@ async function snapshot({core, kind, scope, selectionResult, steps, root = proce
     const narrowed = kind === 'codeql' && id.startsWith('codeql_') && steps.classification?.outputs?.codeql === 'repository';
     const optional = (scope === 'cheap' && ['classification', 'coverage'].includes(id)) || narrowed;
     if (step.outcome === 'failure' || output.status === 'failed') {
-      Object.assign(row, {status: 'failed', category: ['4', '127'].includes(row.exit_code) ? 'unavailable-environment' : 'actual-failure',
+      Object.assign(row, {status: 'failed', category: output.reason?.startsWith('Log capture failed') ? 'missing-report'
+        : ['4', '127'].includes(row.exit_code) ? 'unavailable-environment' : 'actual-failure',
         reason: output.reason || `${name} failed${row.exit_code ? ' (exit ' + row.exit_code + ')' : ''}; see captured logs and hosted step log.`});
     } else if (step.outcome === 'cancelled') {
       Object.assign(row, {status: 'blocked', category: 'unavailable-environment', reason: `${name} was cancelled.`});
@@ -133,6 +175,10 @@ async function snapshot({core, kind, scope, selectionResult, steps, root = proce
     for (const match of text.matchAll(/\[\s*SKIPPED\s*\]\s*(\d+) tests?/g))
       testCounts.push({source: relative, framework: 'GoogleTest', skipped: Number(match[1])});
   }
+  const native = nativeDetails(root, steps, kind, scope);
+  if (native.error && !stages.some(row => row.status === 'failed')) stages.push({id: 'native_reports', name: 'Native execution reports',
+    status: 'failed', category: 'missing-report', reason: native.error});
+  logs.push(...native.logs);
   const bad = stages.find(row => ['failed', 'blocked'].includes(row.status));
   // The final nested CTest summary is the top-level outcome; keep prior probe
   // summaries labelled so they cannot be read as successful project acceptance.
@@ -141,6 +187,8 @@ async function snapshot({core, kind, scope, selectionResult, steps, root = proce
   testCounts.push(...detailCounts);
   const record = {title: kind === 'checks' ? 'Checks execution' : 'CodeQL execution', scope,
     status: bad ? 'failed' : 'passed', reason: bad ? bad.reason : 'All selected stages completed.', stages,
+    native_phases: native.phases || [], execution_counts: native.counts || null,
+    native_report_error: native.error || null,
     test_counts: testCounts.length ? testCounts : {status: 'not-observed', reason: 'No completed test count was recorded; do not infer zero tests or passing tests.'}, logs};
   await core.summary.addRaw(save(path.join(root, '.ecosystem/github/reports/00-workflow'), record)).write();
   core.setOutput('status', record.status);
@@ -190,6 +238,12 @@ async function collect({github, context, core, kind, scope, workflowResult, sele
         const native = localRecord?.stages?.find(row => row.id === nativeId);
         const excludedReason = step.name === 'Upload reused verification reports' && scope !== 'reuse'
           ? 'Fresh verification selected; no validated PR report is being reused.'
+          : step.name === 'Restore verified analysis cache'
+          ? 'Only native full selection uses analysis records; unknown inputs still execute.'
+          : step.name === 'Record compiler cache statistics' && scope === 'reuse'
+          ? 'Validated whole-workflow reuse does not configure or execute the compiler cache.'
+          : step.name === 'Save verified compiler cache' || step.name === 'Save verified analysis cache'
+          ? 'Only an executed non-PR verification may publish shared caches; cache upload is not a verification result.'
           : step.name === 'Upload change classification' && scope === 'cheap'
           ? 'Cheap non-build change does not request native classification.'
           : step.name === 'Record delta verification' && localRecord?.stages?.find(row => row.id === 'codeql_init')?.category !== 'not-applicable'

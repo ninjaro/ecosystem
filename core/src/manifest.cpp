@@ -212,10 +212,12 @@ namespace manifest_support {
         }
         for (std::size_t index = 0; index < value.size(); ++index) {
             if (!value.at(index).is_string()) {
-                errors->push_back(
-                    context + "." + field_name + "[" + std::to_string(index)
-                    + "] must be a string"
-                );
+                errors->push_back(std::string(context)
+                                      .append(".")
+                                      .append(field_name)
+                                      .append("[")
+                                      .append(std::to_string(index))
+                                      .append("] must be a string"));
                 continue;
             }
             values.push_back(trim_copy(value.at(index).get<std::string>()));
@@ -229,9 +231,10 @@ namespace manifest_support {
     ) {
         for (const auto& [key, ignored] : object.items()) {
             if (!allowed.contains(key))
-                errors->push_back(
-                    context + ": unsupported field '" + key + "'"
-                );
+                errors->push_back(std::string(context)
+                                      .append(": unsupported field '")
+                                      .append(key)
+                                      .append("'"));
         }
     }
 
@@ -277,12 +280,13 @@ namespace manifest_support {
             value.android = require_object(root, "android", "manifest", errors);
         if (root.contains("install_assets")) {
             if (!root.at("install_assets").is_boolean())
-                errors->push_back("manifest.install_assets must be a boolean");
+                errors->emplace_back("manifest.install_assets must be a boolean"
+                );
             else
                 value.install_assets = root.at("install_assets").get<bool>();
         }
         if (!root.contains("artifacts") || !root.at("artifacts").is_array()) {
-            errors->push_back(
+            errors->emplace_back(
                 "manifest.artifacts must be an array; "
                 "components/modules/file_units are obsolete authored fields"
             );
@@ -370,19 +374,13 @@ namespace manifest_support {
         const std::vector<std::string>& values, const std::string& candidate
     ) {
         const std::string prefix = candidate + "/";
-        for (const std::string& value : values) {
-            if (value == candidate) {
-                return true;
-            }
-            if (value.rfind(prefix, 0U) == 0U) {
+        return std::ranges::any_of(values, [&](const std::string& value) {
+            if (value == candidate || value.rfind(prefix, 0U) == 0U) {
                 return true;
             }
             const std::string other_prefix = value + "/";
-            if (candidate.rfind(other_prefix, 0U) == 0U) {
-                return true;
-            }
-        }
-        return false;
+            return candidate.rfind(other_prefix, 0U) == 0U;
+        });
     }
 
     void validate_external_project(
@@ -411,7 +409,9 @@ namespace manifest_support {
             if (!external.contains(field) || !external.at(field).is_string()
                 || trim_copy(external.at(field).get<std::string>()).empty()) {
                 errors->push_back(
-                    context + "." + field + " must be a non-empty string"
+                    std::string(context).append(".").append(field).append(
+                        " must be a non-empty string"
+                    )
                 );
             }
         }
@@ -526,7 +526,9 @@ manifest_report load_manifest(const fs::path& manifest_path) {
     try {
         json root = json::parse(file);
         if (!root.is_object()) {
-            report.errors.push_back("manifest top-level must be a JSON object");
+            report.errors.emplace_back(
+                "manifest top-level must be a JSON object"
+            );
             return report;
         }
         report.has_manifest = true;
@@ -651,30 +653,30 @@ std::vector<fs::path> artifact_output_candidates(
 string_list validate_manifest(const manifest& value) {
     string_list errors;
     if (!is_valid_id(value.id)) {
-        errors.push_back("manifest.id must match ^[a-z][a-z0-9_]*$");
+        errors.emplace_back("manifest.id must match ^[a-z][a-z0-9_]*$");
     }
     if (trim_copy(value.description).empty()) {
-        errors.push_back("manifest.description must not be empty");
+        errors.emplace_back("manifest.description must not be empty");
     }
     if (!value.version.empty()
         && !std::regex_match(value.version, project_version_pattern)) {
-        errors.push_back(
+        errors.emplace_back(
             "manifest.version must be a three-part semantic version"
         );
     }
     if (value.cpp_standard < 17) {
-        errors.push_back("manifest.cpp_standard must be at least 17");
+        errors.emplace_back("manifest.cpp_standard must be at least 17");
     }
     if (!value.android_application_id.empty()
         && !std::regex_match(
             value.android_application_id, android_application_id_pattern
         )) {
-        errors.push_back(
+        errors.emplace_back(
             "manifest.android_application_id must be a reverse-DNS identifier"
         );
     }
     if (!value.android.is_object()) {
-        errors.push_back("manifest.android must be an object");
+        errors.emplace_back("manifest.android must be an object");
     } else {
         check_fields(
             value.android,
@@ -695,7 +697,7 @@ string_list validate_manifest(const manifest& value) {
             if (std::any_of(name.begin(), name.end(), [](unsigned char ch) {
                     return ch < 32;
                 }))
-                errors.push_back(
+                errors.emplace_back(
                     "manifest.android.name must not contain control characters"
                 );
         }
@@ -716,7 +718,8 @@ string_list validate_manifest(const manifest& value) {
             && value.android.at("min_sdk").is_number_integer()
             && value.android.at("target_sdk").is_number_integer()
             && value.android.at("target_sdk") < value.android.at("min_sdk"))
-            errors.push_back("manifest.android.target_sdk must be >= min_sdk");
+            errors.emplace_back("manifest.android.target_sdk must be >= min_sdk"
+            );
         for (const std::string field :
              { "allow_backup", "full_backup_content", "full_backup_only",
                "supports_rtl", "round_icon" })
@@ -771,12 +774,13 @@ string_list validate_manifest(const manifest& value) {
         if (value.android.contains("features")) {
             const auto& features = value.android.at("features");
             if (!features.is_array()) {
-                errors.push_back("manifest.android.features must be an array");
+                errors.emplace_back("manifest.android.features must be an array"
+                );
             } else {
                 std::set<std::string> names;
                 for (const auto& feature : features) {
                     if (!feature.is_object()) {
-                        errors.push_back(
+                        errors.emplace_back(
                             "manifest.android.features entries must be objects"
                         );
                         continue;
@@ -793,13 +797,13 @@ string_list validate_manifest(const manifest& value) {
                             name, android_application_id_pattern
                         )
                         || !names.insert(name).second)
-                        errors.push_back(
+                        errors.emplace_back(
                             "manifest.android.features contains an invalid "
                             "or duplicate name"
                         );
                     if (!feature.contains("required")
                         || !feature.at("required").is_boolean())
-                        errors.push_back(
+                        errors.emplace_back(
                             "manifest.android.features.required must be a "
                             "boolean"
                         );
@@ -808,12 +812,12 @@ string_list validate_manifest(const manifest& value) {
         }
         if (value.android.value("round_icon", json(false)) == true
             && !value.android.contains("icon"))
-            errors.push_back(
+            errors.emplace_back(
                 "manifest.android.round_icon requires icon metadata"
             );
         if (value.android.contains("icon_export_id")
             && !value.android.contains("icon"))
-            errors.push_back(
+            errors.emplace_back(
                 "manifest.android.icon_export_id requires icon metadata"
             );
         if (value.android.contains("icon")
@@ -821,14 +825,14 @@ string_list validate_manifest(const manifest& value) {
             const auto path = value.android.at("icon").get<std::string>();
             if (!safe_owned_path(path) || !path.starts_with("assets/brand/")
                 || fs::path(path).extension() != ".svg")
-                errors.push_back(
+                errors.emplace_back(
                     "manifest.android.icon must name a safe assets/brand/*.svg "
                     "file"
                 );
         }
     }
     if (value.components.empty()) {
-        errors.push_back("manifest.artifacts must not be empty");
+        errors.emplace_back("manifest.artifacts must not be empty");
     }
 
     std::set<std::string> component_ids;
@@ -861,7 +865,7 @@ string_list validate_manifest(const manifest& value) {
         if (component_value.ownership) {
             const auto& owned = *component_value.ownership;
             if (component_value.artifacts.size() != 1)
-                errors.push_back(
+                errors.emplace_back(
                     "an authored owner must contain exactly one artifact"
                 );
             std::set<std::string> scopes;
@@ -1009,17 +1013,22 @@ string_list validate_manifest(const manifest& value) {
             if (const auto [existing, inserted]
                 = target_owners.emplace(target, ref);
                 !inserted && existing->second != ref) {
-                errors.push_back(
-                    "CMake target collision: " + existing->second + " and "
-                    + ref + " produce " + target
-                );
+                errors.push_back(std::string("CMake target collision: ")
+                                     .append(existing->second)
+                                     .append(" and ")
+                                     .append(ref)
+                                     .append(" produce ")
+                                     .append(target));
             }
             const std::string output
                 = artifact_output_name(value, component_value, artifact_value);
             if (!safe_output_name(output)) {
                 errors.push_back(
-                    "artifact output name must be a safe filename: " + ref
-                    + ": " + output
+                    std::string("artifact output name must be a safe filename: "
+                    )
+                        .append(ref)
+                        .append(": ")
+                        .append(output)
                 );
             } else if (!component_value.stack.contains("external_project")) {
                 for (const fs::path& path :
@@ -1029,8 +1038,12 @@ string_list validate_manifest(const manifest& value) {
                         = output_owners.emplace(key, ref);
                         !inserted && existing->second != ref) {
                         errors.push_back(
-                            "artifact output collision: " + existing->second
-                            + " and " + ref + " produce " + key
+                            std::string("artifact output collision: ")
+                                .append(existing->second)
+                                .append(" and ")
+                                .append(ref)
+                                .append(" produce ")
+                                .append(key)
                         );
                     }
                 }
@@ -1080,13 +1093,17 @@ string_list validate_manifest(const manifest& value) {
                         || contains_owned_path(claim, prior))) {
                     if (reported_overlaps.insert({ other, identity }).second)
                         errors.push_back(
-                            "overlapping artifact ownership: " + other + " and "
-                            + identity + " claim " + claim.generic_string()
+                            std::string("overlapping artifact ownership: ")
+                                .append(other)
+                                .append(" and ")
+                                .append(identity)
+                                .append(" claim ")
+                                .append(claim.generic_string())
                         );
                     break;
                 }
             }
-            ownership_claims.push_back({ claim, identity });
+            ownership_claims.emplace_back(claim, identity);
         }
     }
 
@@ -1115,10 +1132,12 @@ string_list validate_manifest(const manifest& value) {
             if (const auto [existing, inserted]
                 = output_owners.emplace(key, ref);
                 !inserted) {
-                errors.push_back(
-                    "artifact output collision: " + existing->second + " and "
-                    + ref + " produce " + key
-                );
+                errors.push_back(std::string("artifact output collision: ")
+                                     .append(existing->second)
+                                     .append(" and ")
+                                     .append(ref)
+                                     .append(" produce ")
+                                     .append(key));
             }
         }
     }
@@ -1127,21 +1146,25 @@ string_list validate_manifest(const manifest& value) {
         std::set<std::string> links;
         for (const std::string& link : item->link) {
             if (!links.insert(link).second) {
-                errors.push_back(
-                    "duplicate artifact link: " + ref + " -> " + link
-                );
+                errors.push_back(std::string("duplicate artifact link: ")
+                                     .append(ref)
+                                     .append(" -> ")
+                                     .append(link));
             }
             const auto target = artifacts.find(link);
             if (!parse_artifact_ref(link).has_value()
                 || target == artifacts.end()) {
-                errors.push_back(
-                    "unresolved artifact link: " + ref + " -> " + link
-                );
+                errors.push_back(std::string("unresolved artifact link: ")
+                                     .append(ref)
+                                     .append(" -> ")
+                                     .append(link));
             } else if (target->second->kind == "exe"
                        || target->second->kind == "qt_app") {
                 errors.push_back(
-                    "artifact link must reference a library: " + ref + " -> "
-                    + link
+                    std::string("artifact link must reference a library: ")
+                        .append(ref)
+                        .append(" -> ")
+                        .append(link)
                 );
             }
         }
@@ -1204,7 +1227,8 @@ string_list validate_manifest(const manifest& value) {
     const std::optional<artifact_ref> facade_ref
         = parse_artifact_ref(value.facade_entry_artifact);
     if (!facade_ref.has_value()) {
-        errors.push_back("manifest.facade must be in component:artifact form");
+        errors.emplace_back("manifest.facade must be in component:artifact form"
+        );
         return errors;
     }
 
@@ -1296,13 +1320,16 @@ discover_owned_files(manifest* value, const fs::path& project_root) {
                         || contains_owned_path(resolved, prior))
                     && overlaps.insert({ other, identity }).second)
                     errors.push_back(
-                        "overlapping artifact ownership through filesystem "
-                        "paths: "
-                        + other + " and " + identity + " claim "
-                        + candidate.generic_string()
+                        std::string("overlapping artifact ownership through "
+                                    "filesystem paths: ")
+                            .append(other)
+                            .append(" and ")
+                            .append(identity)
+                            .append(" claim ")
+                            .append(candidate.generic_string())
                     );
             }
-            physical_scopes.push_back({ resolved, identity });
+            physical_scopes.emplace_back(resolved, identity);
         }
     }
     if (!errors.empty())
@@ -1547,10 +1574,10 @@ json to_json(const manifest& value) {
                 }
                 if (index == 0 && !owner.tests.empty()
                     && !component_is_test_only(owner))
-                    scopes.push_back("tests");
+                    scopes.emplace_back("tests");
                 if (index == 0 && !owner.benchmarks.empty()
                     && !component_is_benchmark_only(owner))
-                    scopes.push_back("benchmarks");
+                    scopes.emplace_back("benchmarks");
             }
             authored["owns"] = scopes;
             if (!entry.empty())

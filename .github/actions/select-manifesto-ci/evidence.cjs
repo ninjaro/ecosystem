@@ -16,6 +16,55 @@ const kinds = {
 const maxBytes = 256 * 1024 * 1024;
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function validRuntime(value) {
+  return value?.schema === 1 && value.known === true && typeof value.image === 'string'
+    && typeof value.node === 'string' && typeof value.architecture === 'string'
+    && value.build_environment && typeof value.build_environment === 'object' && !Array.isArray(value.build_environment)
+    && /^[a-f0-9]{64}$/.test(value.dependencies || '')
+    && ['.clang-format', '.clang-tidy'].every(name => value.configuration?.[name] === 'absent'
+      || /^[a-f0-9]{64}$/.test(value.configuration?.[name] || ''))
+    && ['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format', 'llvm-cov', 'llvm-profdata']
+      .every(name => typeof value.tools?.[name] === 'string' && value.tools[name].length > 0);
+}
+function runtimeIdentity(root) {
+  try {
+    requireValue(process.env.ImageVersion && process.env.QT_ROOT_DIR && process.env.CMAKE_PREFIX_PATH,
+      'installed runner/toolchain identity unavailable before setup');
+    requireValue(!fs.existsSync(path.join(root, 'manifesto.local.json')), 'local provider overrides require execution');
+    requireValue(!process.env.CMAKE_TOOLCHAIN_FILE, 'external toolchain configuration requires execution');
+    const localTidy = path.join(root, '.clang-tidy');
+    requireValue(!fs.existsSync(localTidy) || !fs.readFileSync(localTidy, 'utf8').includes('InheritParentConfig'),
+      'inherited optional Clang configuration requires execution');
+    const tools = Object.fromEntries(['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format',
+      'llvm-cov', 'llvm-profdata'].map(name => {
+      const binary = execFileSync('bash', ['-c', 'command -v "$1"', '_', name], {encoding: 'utf8'}).trim();
+      requireValue(path.isAbsolute(binary), 'unknown tool binary');
+      return [name, execFileSync(binary, ['--version'], {encoding: 'utf8'}).trim() + '\nsha256:' + hash(fs.readFileSync(binary))];
+    }));
+    const packages = execFileSync('dpkg-query', ['-W', '-f=${Package}=${Version}\n'], {encoding: 'utf8'});
+    const sdk = {};
+    const walk = (directory, prefix = '') => {
+      const entries = [];
+      for (const row of fs.readdirSync(directory, {withFileTypes: true}).sort((a,b) => a.name.localeCompare(b.name))) {
+        const file = path.join(directory, row.name), name = prefix + row.name;
+        requireValue(!row.isSymbolicLink() || !fs.statSync(file).isDirectory(), 'unmodelled SDK directory alias');
+        if (row.isDirectory()) entries.push(...walk(file, name + '/'));
+        else entries.push([name, hash(fs.readFileSync(file))]);
+      }
+      return entries;
+    };
+    for (const directory of [...new Set([process.env.QT_ROOT_DIR, ...process.env.CMAKE_PREFIX_PATH.split(':')])].sort())
+      sdk[directory] = hash(JSON.stringify(walk(directory)));
+    const configuration = Object.fromEntries(['.clang-format', '.clang-tidy'].map(name =>
+      [name, fs.existsSync(path.join(root, name)) ? hash(fs.readFileSync(path.join(root, name))) : 'absent']));
+    const build_environment = Object.fromEntries(['CC', 'CXX', 'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS',
+      'CPATH', 'CPLUS_INCLUDE_PATH', 'C_INCLUDE_PATH', 'SDKROOT', 'COMPILER_PATH', 'GCC_EXEC_PREFIX',
+      'LIBRARY_PATH', 'LD_LIBRARY_PATH', 'LD_PRELOAD', 'LANG', 'LC_ALL', 'TZ', 'SOURCE_DATE_EPOCH']
+      .map(name => [name, process.env[name] || null]));
+    return {schema: 1, known: true, image: process.env.ImageVersion, node: process.version,
+      architecture: process.arch, tools, configuration, build_environment, dependencies: hash(packages + JSON.stringify(sdk))};
+  } catch (error) { return {schema: 1, known: false, reason: error.message}; }
+}
 function requireValue(ok, message) { if (!ok) throw new Error(message); }
 function git(root, ...args) {
   return execFileSync('git', ['-C', root, ...args], {encoding: 'utf8', maxBuffer: maxBytes}).trim();
@@ -195,7 +244,7 @@ async function presentation({context, core, root = process.cwd(), env = process.
   core.setOutput('directory', destination);
 }
 
-async function record({github, context, core, root = process.cwd(), env = process.env}) {
+async function record({github, context, core, root = process.cwd(), env = process.env, runtime = runtimeIdentity(root)}) {
   const kind = env.EVIDENCE_KIND;
   requireValue(kinds[kind], 'Unknown evidence kind');
   const delta = kind === 'codeql' && env.VERIFICATION_SCOPE === 'delta';
@@ -231,7 +280,8 @@ async function record({github, context, core, root = process.cwd(), env = proces
   requireValue(run.head_sha === tested || run.head_sha === pr?.head.sha, 'Run does not identify the tested commit');
   const tree = git(root, 'rev-parse', 'HEAD^{tree}');
   const receipt = {
-    schema: delta ? 1 : 3, kind: delta ? 'codeql-delta' : kind,
+    schema: delta ? 1 : 4, kind: delta ? 'codeql-delta' : kind,
+    environment: runtime,
     repository: {id: context.payload.repository.id, name: `${context.repo.owner}/${context.repo.repo}`},
     run_id: run.id, run_attempt: attempt, workflow_id: run.workflow_id, workflow: run.path, event: run.event,
     run_head: run.head_sha, tested_commit: tested, tested_tree: tree,
@@ -334,7 +384,7 @@ async function unchangedRun(api, run, matches) {
   requireValue(current.run_attempt === run.run_attempt && current.head_sha === run.head_sha
     && current.workflow_id === run.workflow_id, 'Run changed during verification');
 }
-async function verifiedRun({api, run, kind, repository, context, tree, config, temporary, matches, pr}) {
+async function verifiedRun({api, run, kind, repository, context, tree, config, temporary, matches, pr, runtime}) {
   completed(run, matches);
   const job = await requiredJob(api, run, kind);
   for (const name of ['Record reusable verification', 'Upload verification evidence'])
@@ -358,7 +408,7 @@ async function verifiedRun({api, run, kind, repository, context, tree, config, t
   const allowed = ['receipt.json', ...fileNames(kind, 'passed')];
   execFileSync('python3', ['-c', unpackProgram, archive, directory, JSON.stringify(allowed)], {stdio: 'pipe'});
   const receipt = JSON.parse(readFile(directory, 'receipt.json', true));
-  requireValue(receipt.schema === 3 && receipt.kind === kind && receipt.repository?.id === repository.id
+  requireValue(receipt.schema === 4 && receipt.environment?.schema === 1 && receipt.kind === kind && receipt.repository?.id === repository.id
     && receipt.repository.name === `${context.repo.owner}/${context.repo.repo}` && receipt.run_id === run.id
     && receipt.run_attempt === run.run_attempt && receipt.workflow_id === run.workflow_id
     && receipt.workflow === run.path && receipt.event === run.event && receipt.run_head === run.head_sha
@@ -367,6 +417,8 @@ async function verifiedRun({api, run, kind, repository, context, tree, config, t
       ? receipt.tested_commit : config.tooling.revision), 'Receipt provenance differs from the source tree/configuration');
   requireValue(equal(receipt.verification, fullVerification(kind, tree, config.manifest)),
     'Receipt does not attest the required whole-project verification scope');
+  if (runtime) requireValue(validRuntime(runtime) && validRuntime(receipt.environment) && equal(receipt.environment, runtime),
+    'Tool versions, runner image or installed dependencies differ or are unknown');
   if (pr) {
     const pointer = run.pull_requests.find(item => item.number === pr.number);
     requireValue(receipt.pr?.number === pr.number && receipt.pr.head === pr.head.sha && receipt.pr.base === pointer.base.sha
@@ -398,7 +450,8 @@ async function verifiedRun({api, run, kind, repository, context, tree, config, t
     artifact_id: artifact.id, artifact_digest: artifact.digest, verification: receipt.verification,
     change: {event: receipt.event, commit: receipt.tested_commit, pr: receipt.pr, ...receipt.files[changeFile(kind)]}}};
 }
-async function reusablePair({github, context, root, temporary}) {
+async function reusablePair({github, context, root, temporary, runtime = runtimeIdentity(root)}) {
+  requireValue(validRuntime(runtime), 'Current tool/dependency identity is unknown; execution required');
   const repository = context.payload.repository;
   const {tree, config} = checkedCheckout(root, context);
   const api = apiFor(github, context);
@@ -418,7 +471,7 @@ async function reusablePair({github, context, root, temporary}) {
     const candidateRun = listed.workflow_runs.find(matches);
     requireValue(candidateRun, 'No matching ' + kind + ' PR run');
     const run = await api('GET /repos/{owner}/{repo}/actions/runs/{run_id}', {run_id: candidateRun.id});
-    pair[kind] = await verifiedRun({api, run, kind, repository, context, tree, config, temporary, matches, pr});
+    pair[kind] = await verifiedRun({api, run, kind, repository, context, tree, config, temporary, matches, pr, runtime});
     runs[kind] = run;
   }
   requireValue(pair.checks.receipt.tested_commit === pair.codeql.receipt.tested_commit, 'Checks and CodeQL tested different revisions');
@@ -453,7 +506,7 @@ async function latestPush(api, kind, context) {
   completed(run, current => pushMatches(current, kind, context));
   return run;
 }
-async function publicationPair({github, context, root, temporary}) {
+async function publicationPair({github, context, root, temporary, runtime}) {
   const trigger = context.payload.workflow_run;
   const triggerKind = Object.keys(kinds).find(kind => trigger && workflowMatches(trigger, kind));
   requireValue(context.eventName === 'workflow_run' && triggerKind
@@ -485,7 +538,7 @@ async function publicationPair({github, context, root, temporary}) {
       if (!reused) {
         const directory = path.join(temporary, 'pr');
         fs.mkdirSync(directory);
-        reused = await reusablePair({github, context, root, temporary: directory});
+        reused = await reusablePair({github, context, root, temporary: directory, runtime});
       }
       pair[kind] = reused.pair[kind];
     }
@@ -509,11 +562,11 @@ async function publicationPair({github, context, root, temporary}) {
     pushes, checks: pair.checks.source, codeql: pair.codeql.source};
   return {pair, source};
 }
-async function publication({github, context, core, root = process.cwd()}) {
+async function publication({github, context, core, root = process.cwd(), runtime = runtimeIdentity(root)}) {
   core.setOutput('ready', 'false');
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-publication-'));
   try {
-    const {pair, source} = await publicationPair({github, context, root, temporary});
+    const {pair, source} = await publicationPair({github, context, root, temporary, runtime});
     const directory = safePath(root, '.ecosystem/github/presentation');
     requireValue(!fs.existsSync(directory), 'Presentation destination already exists');
     const receipt = {schema: 2, kind: 'publication', repository: pair.checks.receipt.repository,
@@ -543,7 +596,7 @@ async function publication({github, context, core, root = process.cwd()}) {
     fs.rmSync(temporary, {recursive: true, force: true});
   }
 }
-async function revalidatePublication({github, context, root = process.cwd(), env = process.env}) {
+async function revalidatePublication({github, context, root = process.cwd(), env = process.env, runtime = runtimeIdentity(root)}) {
   const api = apiFor(github, context);
   await currentDefault(api, context);
   requireValue(git(root, 'rev-parse', 'HEAD') === context.sha, 'Deployment checkout differs');
@@ -552,7 +605,7 @@ async function revalidatePublication({github, context, root = process.cwd(), env
   requireValue(expected?.commit === context.sha, 'Publication source is missing');
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-revalidate-'));
   try {
-    const {source} = await publicationPair({github, context, root, temporary});
+    const {source} = await publicationPair({github, context, root, temporary, runtime});
     requireValue(equal(source, expected), 'Selected publication evidence changed');
   } finally {
     fs.rmSync(temporary, {recursive: true, force: true});
@@ -578,7 +631,7 @@ function requiredScope({context, root, baseScope}) {
   }
 }
 
-async function select({github, context, core, root = process.cwd(), env = process.env}) {
+async function select({github, context, core, root = process.cwd(), env = process.env, runtime = runtimeIdentity(root)}) {
   const selectedScope = requiredScope({context, root, baseScope: env.BASE_SCOPE});
   core.setOutput('scope', selectedScope.scope);
   core.setOutput('reason', selectedScope.reason);
@@ -587,7 +640,7 @@ async function select({github, context, core, root = process.cwd(), env = proces
     || context.ref !== 'refs/heads/' + context.payload.repository.default_branch) return;
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-reuse-'));
   try {
-    const {pair, tree, pr} = await reusablePair({github, context, root, temporary});
+    const {pair, tree, pr} = await reusablePair({github, context, root, temporary, runtime});
     requireValue(kinds[env.EVIDENCE_KIND], 'Unknown evidence consumer');
     const source = {schema: 1, repository_id: context.payload.repository.id, commit: context.sha,
       tree, pr, checks: pair.checks.source, codeql: pair.codeql.source};
@@ -620,4 +673,5 @@ async function select({github, context, core, root = process.cwd(), env = proces
 }
 
 module.exports = {record, presentation, select, requiredScope, publication, revalidatePublication, reusablePair, policy, fileNames, artifactName, hash,
+  runtimeIdentity,
   checkPublicationTip: ({github, context}) => currentDefault(apiFor(github, context), context)};

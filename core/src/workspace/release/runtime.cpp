@@ -320,8 +320,8 @@ bool resolve_runtime_packages(
             const auto queried = capture_command_result(
                 use_pacman ? string_list { pacman, "-Q", "--", owner }
                            : string_list { dpkg, "-W",
-                                           "-f=${Package} ${Version} "
-                                           "${db:Status-Status}\\n",
+                                           ("-f=${Package} ${Version} "
+                                            "${db:Status-Status}\\n"),
                                            "--", owner },
                 work_dir, { { "LC_ALL", "C" } }
             );
@@ -335,8 +335,12 @@ bool resolve_runtime_packages(
                 || (!use_pacman && installed_status != "installed")
                 || !std::regex_match(version, pacman_version_pattern)
                 || (record >> extra)) {
-                *error_message = "unable to read installed " + backend
-                    + " version for " + owner + ":\n" + queried.output;
+                *error_message = std::string("unable to read installed ")
+                                     .append(backend)
+                                     .append(" version for ")
+                                     .append(owner)
+                                     .append(":\n")
+                                     .append(queried.output);
                 return false;
             }
             versions.emplace(owner, version);
@@ -349,7 +353,9 @@ bool resolve_runtime_packages(
                                     : artifacts->debian_dependencies;
     for (const auto& [name, version] : versions)
         dependencies.push_back(
-            use_pacman ? name + ">=" + version : name + " (>= " + version + ")"
+            use_pacman
+                ? std::string(name).append(">=").append(version)
+                : std::string(name).append(" (>= ").append(version).append(")")
         );
     mapping["dependencies"] = dependencies;
     if (!libraries.empty()) {

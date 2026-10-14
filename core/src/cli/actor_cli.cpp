@@ -261,8 +261,8 @@ bool validate_actor_request(
 
 class shell_queue {
 public:
-    explicit shell_queue(const actor_frontend& frontend)
-        : frontend_(frontend) {
+    explicit shell_queue(actor_frontend frontend)
+        : frontend_(std::move(frontend)) {
         worker_ = std::thread(&shell_queue::worker_loop, this);
     }
 

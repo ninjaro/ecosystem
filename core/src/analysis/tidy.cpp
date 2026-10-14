@@ -1,4 +1,5 @@
 #include "analysis/tidy.hpp"
+#include "verification_internal.hpp"
 
 #include "workspace/project.hpp"
 #include "workspace/template_text.hpp"
@@ -165,6 +166,9 @@ tidy_check_report run_tidy_check(
         return report;
     }
 
+    verification_detail::input_batch batch_inputs(
+        project_root, profile == "debug"
+    );
     report.analysis = analyze_project_sources(
         selected, project_root, std::nullopt, include_tests, include_benchmarks
     );
@@ -177,17 +181,90 @@ tidy_check_report run_tidy_check(
         "--warnings-as-errors=*",
         configuration_argument,
     };
-    for (const cxx_analysis_source& source : sources) {
-        command.push_back(source.path.string());
-    }
-
-    const captured_command result
-        = capture_command_result(command, project_root);
     report.clang_tidy_used = true;
-    report.clang_tidy_exit_code = result.exit_code;
-    report.clang_tidy_output = split_nonempty_lines(result.output);
+    const auto keys = verification_detail::input_keys(project_root);
+    const auto check = [&](const cxx_analysis_source& source) {
+        const auto start = std::chrono::steady_clock::now();
+        const auto cache = verification_detail::cache_file(
+            project_root, keys, source.path, "tidy"
+        );
+        const auto saved = verification_detail::read_success(cache);
+        const bool reused = saved == json { { "exit_code", 0 } };
+        captured_command result { 0, {} };
+        if (!reused) {
+            auto invocation = command;
+            invocation.push_back(source.path.string());
+            result = capture_command_result(invocation, project_root);
+        }
+        return std::pair {
+            result,
+            json { { "file",
+                     source.path.lexically_relative(project_root)
+                         .generic_string() },
+                   { "status", reused ? "reused" : "executed" },
+                   { "seconds", verification_detail::elapsed(start) },
+                   { "exit_code", result.exit_code },
+                   { "reason",
+                     reused              ? "matching verified compiler inputs"
+                         : cache.empty() ? "unknown inputs; execution required"
+                                         : "fresh verification required or no "
+                                           "clean evidence" } }
+        };
+    };
+    for (std::size_t batch = 0; batch < sources.size(); batch += 2) {
+        std::vector<std::future<std::pair<captured_command, json>>> pending;
+        pending.reserve(2);
+        for (std::size_t index = batch;
+             index < std::min(batch + 2, sources.size()); ++index)
+            pending.emplace_back(
+                std::async(std::launch::async, check, sources[index])
+            );
+        for (auto& operation : pending) {
+            auto [result, execution] = operation.get();
+            report.execution.push_back(execution);
+            if (result.exit_code != 0)
+                report.clang_tidy_exit_code = result.exit_code;
+            const auto lines = split_nonempty_lines(result.output);
+            report.clang_tidy_output.insert(
+                report.clang_tidy_output.end(), lines.begin(), lines.end()
+            );
+            if (std::getenv("MANIFESTO_CI_PROGRESS") != nullptr)
+                std::clog << "[tidy] " << execution.dump() << std::endl;
+        }
+    }
+    const auto final_keys = profile == "debug"
+        ? verification_detail::fresh_input_keys(project_root)
+        : json::object();
+    for (std::size_t index = 0; index < sources.size(); ++index) {
+        const auto before = verification_detail::cache_file(
+            project_root, keys, sources[index].path, "tidy"
+        );
+        const auto after = verification_detail::cache_file(
+            project_root, final_keys, sources[index].path, "tidy"
+        );
+        report.execution[index]["cache_file"]
+            = before.lexically_relative(project_root).generic_string();
+        auto invocation = command;
+        invocation.push_back(sources[index].path.string());
+        report.execution[index]["command"]
+            = report.execution[index]["status"] == "executed" ? json(invocation)
+                                                              : json(nullptr);
+        if (!before.empty() && before != after) {
+            report.clang_tidy_exit_code = 1;
+            report.clang_tidy_output.emplace_back(
+                "inputs changed during verification: "
+                + sources[index].path.string()
+            );
+        } else if (!before.empty()
+                   && report.execution[index]["exit_code"] == 0) {
+            verification_detail::write_success(
+                before, json { { "exit_code", 0 } }
+            );
+        }
+    }
     report.clang_tidy_configuration_error
         = has_configuration_error(report.clang_tidy_output);
+    batch_inputs.publish(final_keys);
     return report;
 }
 
@@ -204,6 +281,7 @@ json to_json(const tidy_check_report& value) {
     report["clang_tidy_exit_code"] = value.clang_tidy_exit_code;
     report["clang_tidy_output"] = value.clang_tidy_output;
     report["clang_tidy_skip_reason"] = value.clang_tidy_skip_reason;
+    report["tidy_execution"] = value.execution;
     return report;
 }
 

@@ -113,7 +113,7 @@ namespace mutation_support {
         mutation_report* report
     ) {
         std::string error_message;
-        const std::string contents
+        std::string contents
             = render_text_template(relative_path, bindings, &error_message);
         if (!error_message.empty()) {
             report->errors.push_back(error_message);
@@ -127,7 +127,7 @@ namespace mutation_support {
         string_list* errors
     ) {
         std::string error_message;
-        const std::string contents
+        std::string contents
             = render_text_template(relative_path, bindings, &error_message);
         if (!error_message.empty()) {
             errors->push_back(error_message);
@@ -158,6 +158,7 @@ namespace mutation_support {
         mutation_report* report
     ) {
         std::vector<fs::path> paths;
+        paths.reserve(files.size());
         for (const auto& file : files)
             paths.push_back(file.path.lexically_relative(project_root));
         auto errors = validate_project_paths(project_root, paths);
@@ -772,7 +773,7 @@ mutation_report add_component(
         ? std::string("static_lib")
         : options.template_kind;
     if (component_id.empty()) {
-        report.errors.push_back("component id must not be empty");
+        report.errors.emplace_back("component id must not be empty");
         return report;
     }
     if (find_component(*value, component_id) != nullptr) {
@@ -874,7 +875,7 @@ mutation_report add_module(
     const std::string normalized_module_path
         = normalize_module_path(module_path);
     if (normalized_module_path.empty() || normalized_module_path == ".") {
-        report.errors.push_back("module path must not be empty");
+        report.errors.emplace_back("module path must not be empty");
         return report;
     }
     if (contains_value(component_value->modules, normalized_module_path)) {
@@ -1039,7 +1040,7 @@ set_facade_entry(manifest* value, const artifact_ref& entry_ref) {
         && artifact_value->kind != "shared_lib"
         && artifact_value->kind != "interface_lib"
         && artifact_value->kind != "exe" && artifact_value->kind != "qt_app") {
-        report.errors.push_back(
+        report.errors.emplace_back(
             "facade entry must reference a facade-eligible artifact"
         );
         return report;

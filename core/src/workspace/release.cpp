@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <ctime>
+#include <ranges>
 
 namespace fs = std::filesystem;
 
@@ -19,7 +20,7 @@ std::string prerelease_package_name(
 ) {
     const std::optional<artifact_ref> facade_ref
         = parse_artifact_ref(manifest_value.facade_entry_artifact);
-    const std::string project_name = package_token(manifest_value.id);
+    std::string project_name = package_token(manifest_value.id);
     if (facade_ref.has_value()
         && format_artifact_ref(*facade_ref) == format_artifact_ref(ref)) {
         return project_name;
@@ -75,8 +76,7 @@ static command_error prepare_packages(
     const std::string machine = native_machine();
     const std::string debian_architecture = debian_arch(machine);
     const std::string pacman_architecture = pacman_arch(machine);
-    const std::int64_t build_epoch
-        = static_cast<std::int64_t>(std::time(nullptr));
+    const auto build_epoch = static_cast<std::int64_t>(std::time(nullptr));
 
     const fs::path work_dir = release_work_dir(publication_project_root)
         / (package_state->package_name + "-" + version->logical_version);
@@ -347,19 +347,19 @@ namespace {
 
         *error_message = "unable to publish release: " + error.message();
         bool restored = true;
-        for (auto item = installed.rbegin(); item != installed.rend(); ++item) {
-            fs::rename(published / *item, candidate / *item, error);
+        for (auto& item : std::views::reverse(installed)) {
+            fs::rename(published / item, candidate / item, error);
             if (error) {
                 restored = false;
-                *error_message += "; unable to retire " + item->string() + ": "
+                *error_message += "; unable to retire " + item.string() + ": "
                     + error.message();
             }
         }
-        for (auto item = saved.rbegin(); item != saved.rend(); ++item) {
-            fs::rename(previous / *item, published / *item, error);
+        for (auto& item : std::views::reverse(saved)) {
+            fs::rename(previous / item, published / item, error);
             if (error) {
                 restored = false;
-                *error_message += "; unable to restore " + item->string() + ": "
+                *error_message += "; unable to restore " + item.string() + ": "
                     + error.message();
             }
         }

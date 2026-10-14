@@ -38,7 +38,7 @@ std::set<std::string> debian_architectures(const release_state& state) {
 }
 
 std::string format_rfc2822_utc(const std::int64_t build_epoch) {
-    const std::time_t raw_time = static_cast<std::time_t>(build_epoch);
+    const auto raw_time = static_cast<std::time_t>(build_epoch);
     const std::tm* utc = std::gmtime(&raw_time);
     if (utc == nullptr) {
         return {};

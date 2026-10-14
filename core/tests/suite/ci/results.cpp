@@ -89,6 +89,7 @@ void test_ci_stage_failures() {
         std::string command;
         std::string status;
         int exit_code;
+        bool broken_log = false;
     };
 
     for (const auto& item : std::vector<stage_case> {
@@ -98,6 +99,8 @@ void test_ci_stage_failures() {
              { "exit 3", "skipped", 3 },
              { "exit 4", "failed", 4 },
              { "exit 127", "failed", 127 },
+             { "printf streamed", "failed", 9, true },
+             { "printf streamed", "failed", 3, true },
          }) {
         temp_dir root;
         std::string script = program;
@@ -118,9 +121,17 @@ void test_ci_stage_failures() {
         const fs::path command = root.path() / "stage.sh";
         const fs::path outputs = root.path() / "outputs";
         write_text(command, script);
+        if (item.broken_log)
+            write_executable_script(
+                root.path() / "bin/tee",
+                "#!/bin/sh\n/usr/bin/tee \"$@\"\nexit "
+                    + std::to_string(item.exit_code) + "\n"
+            );
         const auto result = ecosystem::capture_command_result(
             { "bash", "-e", "-o", "pipefail", command.string() }, root.path(),
-            { { "GITHUB_OUTPUT", outputs.string() },
+            { { "PATH",
+                (root.path() / "bin").string() + ":" + current_path_env() },
+              { "GITHUB_OUTPUT", outputs.string() },
               { "GITHUB_STEP_SUMMARY", (root.path() / "summary").string() } }
         );
         require_true(
@@ -142,6 +153,16 @@ void test_ci_stage_failures() {
             ),
             "should-not-run", "stage must stop after an intermediate failure"
         );
+        require_contains(
+            read_text(root.path() / "summary"),
+            "duration seconds:", "every stage records elapsed duration"
+        );
+        if (item.command.starts_with("printf"))
+            require_contains(
+                result.output,
+                item.command == "printf success" ? "success" : "streamed",
+                "child progress must reach hosted output while retaining logs"
+            );
     }
 }
 
@@ -149,7 +170,7 @@ void test_ci_result_gates() {
     temp_dir root;
     write_text(
         root.path() / ".ecosystem/github/reports/00-workflow/result.json",
-        "{\"status\":\"passed\"}"
+        R"({"status":"passed"})"
     );
     const auto files = ecosystem::generate_tracked_surface_files(
         sample_manifest(), root.path()
@@ -172,7 +193,9 @@ void test_ci_result_gates() {
                  { "report-key", "checks" },
                  { "project-id", "fixture" },
                  { "report-title", "Checks" } }) {
-            combine = ci_bind(combine, "inputs." + key, replacement);
+            combine = ci_bind(
+                combine, std::string("inputs.").append(key), replacement
+            );
         }
         write_text(empty_reports.path() / "combine.sh", combine);
         const auto output = empty_reports.path() / "outputs";
@@ -265,7 +288,8 @@ void test_ci_result_gates() {
                  { "stage-label", "Required local checks" },
                  { "shell-command", command },
                  { "skipped-exit-codes", "" } }) {
-            script = ci_bind(script, "inputs." + name, value);
+            script
+                = ci_bind(script, std::string("inputs.").append(name), value);
         }
         write_text(stage, script);
         write_text(outputs, "");
@@ -404,7 +428,7 @@ void test_ci_result_gates() {
                 { "bash", "-e", "-o", "pipefail", gate.string() }, root.path(),
                 { { "CHECK_SCOPE", "reuse" },
                   { "REUSE_VERIFIED", verified },
-                  { "REUSE_SOURCE", "{\"checks\":101,\"codeql\":202}" },
+                  { "REUSE_SOURCE", R"({"checks":101,"codeql":202})" },
                   { "GITHUB_STEP_SUMMARY",
                     (root.path() / "summary").string() } }
             );

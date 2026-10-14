@@ -39,16 +39,15 @@ bool command_exists(const std::string& name);
 std::string find_command_path(const std::string& name);
 std::string capture_command(
     const std::vector<std::string>& args,
-    const std::filesystem::path& working_directory = std::filesystem::path()
+    const std::filesystem::path& cwd = std::filesystem::path()
 );
 captured_command capture_command_result(
     const std::vector<std::string>& args,
-    const std::filesystem::path& working_directory = std::filesystem::path(),
+    const std::filesystem::path& cwd = std::filesystem::path(),
     const std::vector<std::pair<std::string, std::string>>& environment = {}
 );
 int run_command(
-    const std::vector<std::string>& args,
-    const std::filesystem::path& working_directory,
+    const std::vector<std::string>& args, const std::filesystem::path& cwd,
     const std::vector<std::pair<std::string, std::string>>& environment = {}
 );
 
@@ -70,8 +69,7 @@ private:
     friend int
     run_command(const std::vector<std::string>&, const std::filesystem::path&, const std::vector<std::pair<std::string, std::string>>&);
     static captured_command capture(
-        const std::vector<std::string>& args,
-        const std::filesystem::path& working_directory,
+        const std::vector<std::string>& args, const std::filesystem::path& cwd,
         const std::vector<std::pair<std::string, std::string>>& environment,
         bool echo_output
     );

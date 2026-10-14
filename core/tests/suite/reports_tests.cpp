@@ -292,10 +292,11 @@ void test_cli_doctor_and_toolchain_report_share_probe_facts() {
                                                    : "--version";
         write_executable_script(
             bin / name,
-            "#!/bin/sh\n[ \"$1\" = '" + argument
-                + "' ] || exit 12\n"
-                  "printf '\\n"
-                + name + " version 1.2.3\\n' >&2\n"
+            std::string("#!/bin/sh\n[ \"$1\" = '")
+                .append(argument)
+                .append("' ] || exit 12\nprintf '\\n")
+                .append(name)
+                .append(" version 1.2.3\\n' >&2\n")
         );
     }
     write_executable_script(
@@ -363,8 +364,9 @@ void test_cli_doctor_and_toolchain_report_share_probe_facts() {
     report = json::parse(result.output);
     const auto& missing = report.at("clang-tidy");
     require_true(
-        missing.at("available") == false && missing.at("path") == ""
-            && missing.at("version") == ""
+        missing.at("available") == false
+            && missing.at("path").get<std::string>().empty()
+            && missing.at("version").get<std::string>().empty()
             && missing.at("version_exit_code") == -1,
         "missing tools must not retain stale successful facts"
     );
@@ -497,7 +499,10 @@ void test_cli_doctor_nonbuild_profiles_avoid_unrelated_tools_and_refresh() {
     const auto report = ecosystem::toolchains_report("format");
     require_true(
         report.at("clang-format").at("available") == true
-            && report.at("clang-format").at("version") == ""
+            && report.at("clang-format")
+                   .at("version")
+                   .get<std::string>()
+                   .empty()
             && report.at("clang-format").at("version_exit_code") == 7,
         "separate executable presence from a successful version probe"
     );

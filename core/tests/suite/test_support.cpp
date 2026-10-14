@@ -1171,7 +1171,7 @@ cli_result run_cli_with_binary(
     return result;
 }
 
-fs::path test_cli_build_dir() { return fs::path(ECOS_TEST_BUILD_DIR); }
+fs::path test_cli_build_dir() { return { ECOS_TEST_BUILD_DIR }; }
 
 fs::path engels_binary_path() { return test_cli_build_dir() / "engels"; }
 
@@ -1257,7 +1257,7 @@ ecosystem::string_list workspace_conformance_errors(const fs::path& root) {
             = project.root.lexically_relative(root).generic_string();
         if (!project.valid()) {
             for (const auto& error : project.errors)
-                errors.push_back(label + ": " + error);
+                errors.push_back(std::string(label).append(": ").append(error));
             continue;
         }
         ecosystem::string_list render_errors;
@@ -1265,7 +1265,7 @@ ecosystem::string_list workspace_conformance_errors(const fs::path& root) {
             *project.manifest_value, project.root, &render_errors
         );
         for (const auto& error : render_errors)
-            errors.push_back(label + ": " + error);
+            errors.push_back(std::string(label).append(": ").append(error));
         const auto local_paths = ecosystem::ignored_local_surface_paths();
         for (const auto& file : files) {
             if (std::find(
@@ -1278,7 +1278,7 @@ ecosystem::string_list workspace_conformance_errors(const fs::path& root) {
                 if (read_text(path) != file.contents)
                     errors.push_back("stale surface: " + path.string());
             } catch (const std::exception& error) {
-                errors.push_back(error.what());
+                errors.emplace_back(error.what());
             }
         }
     }

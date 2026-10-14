@@ -179,6 +179,7 @@ function classify({core, root = process.cwd(), binary}) {
   core.info(status ? 'Checkout status:\n' + status : 'Checkout is clean.');
   core.setOutput('classification-file', report);
   core.setOutput('codeql', result.execution.codeql);
+  core.setOutput('incremental', result.delta_validated && ['affected', 'presentation', 'none'].includes(result.classification));
   core.info(`Change classification: ${result.classification} (${result.reason}).`);
   return result;
 }

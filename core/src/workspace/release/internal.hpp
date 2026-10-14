@@ -108,7 +108,7 @@ std::vector<std::string> collect_relative_files(const fs::path& root);
 bool stage_payload(
     const fs::path& project_root, const resolved_artifact& resolved,
     const fs::path& built_artifact_path, const fs::path& stage_root,
-    const bool install_assets, std::map<fs::path, fs::path>* payload_sources,
+    bool install_assets, std::map<fs::path, fs::path>* payload_sources,
     std::string* error_message
 );
 
@@ -150,7 +150,7 @@ command_error create_debian_package(
     const std::string& package_name, const prerelease_version& version,
     const std::string& architecture, const std::string& description,
     const std::string& packager, const fs::path& payload_root,
-    const std::uintmax_t installed_size, const string_list& dependencies,
+    std::uintmax_t installed_size, const string_list& dependencies,
     fs::path* package_path, std::string* error_message
 );
 
@@ -159,15 +159,15 @@ command_error create_pacman_package(
     const tool_status& tar_tool, const std::string& package_name,
     const prerelease_version& version, const std::string& architecture,
     const std::string& description, const std::string& packager,
-    const fs::path& payload_root, const std::uintmax_t installed_size,
-    const std::int64_t build_epoch, const string_list& dependencies,
+    const fs::path& payload_root, std::uintmax_t installed_size,
+    std::int64_t build_epoch, const string_list& dependencies,
     fs::path* package_path, std::string* error_message
 );
 
 bool rewrite_debian_repo(
     const release_state& state, const manifest& manifest_value,
     const fs::path& project_root, const tool_status& gzip_tool,
-    const tool_status& sha256_tool, const std::int64_t build_epoch,
+    const tool_status& sha256_tool, std::int64_t build_epoch,
     std::string* error_message
 );
 

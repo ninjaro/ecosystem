@@ -60,9 +60,9 @@ async function publicationFixture(t, mode = 'fresh', triggerKind = 'checks') {
   f.context.payload.workflow_run = structuredClone(f.runs[state.pushes[triggerKind][0]]);
   const publish = async () => {
     for (const key of Object.keys(f.outputs)) delete f.outputs[key];
-    await evidence.publication({github: f.github, context: f.context, core: f.core, root: f.root});
+    await evidence.publication({github: f.github, context: f.context, core: f.core, root: f.root, runtime: f.runtime});
   };
-  const revalidate = source => evidence.revalidatePublication({github: f.github, context: f.context, root: f.root,
+  const revalidate = source => evidence.revalidatePublication({github: f.github, context: f.context, root: f.root, runtime: f.runtime,
     env: {PUBLICATION_SOURCE: source}});
   return {...f, publish, revalidate};
 }

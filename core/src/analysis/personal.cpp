@@ -292,7 +292,7 @@ void inspect_sources(
 ) {
     parser context;
     if (!context.index) {
-        state.report.errors.push_back(
+        state.report.errors.emplace_back(
             "unable to create the Clang analysis index"
         );
         return;
@@ -345,8 +345,9 @@ void inspect_sources(
             }
         }
         args.insert(args.end(), system_includes.begin(), system_includes.end());
-        args.push_back("-Wno-error");
+        args.emplace_back("-Wno-error");
         std::vector<const char*> raw;
+        raw.reserve(args.size());
         for (const auto& arg : args)
             raw.push_back(arg.c_str());
         translation_unit unit;

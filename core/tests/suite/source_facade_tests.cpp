@@ -688,7 +688,7 @@ void test_external_project_generates_imported_library() {
     auto second = grouped.components.front();
     second.id = "packing_extra";
     second.stack["external_project"]["artifact"] = "library:extra";
-    grouped.components.back().artifacts.front().link.push_back(
+    grouped.components.back().artifacts.front().link.emplace_back(
         "packing_extra:core"
     );
     grouped.components.push_back(second);

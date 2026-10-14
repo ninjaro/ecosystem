@@ -223,6 +223,7 @@ void test_ci_bootstrap_layouts() {
                   { "CHECKOUT_ROOT", values.at("manifesto-checkout-root") },
                   { "SOURCE_ROOT", values.at("manifesto-source-root") },
                   { "BUILD_ROOT", values.at("manifesto-build-root") },
+                  { "GITHUB_WORKSPACE", project.string() },
                   { "BUILD_PARALLELISM", "2" }
               };
         result = ecosystem::capture_command_result(
@@ -337,6 +338,7 @@ void test_ci_bootstrap_errors() {
         { { "CHECKOUT_ROOT", checkout.string() },
           { "SOURCE_ROOT", (checkout / "tooling").string() },
           { "BUILD_ROOT", (root.path() / "build").string() },
+          { "GITHUB_WORKSPACE", root.path().string() },
           { "BUILD_PARALLELISM", "2" } }
     );
     require_true(

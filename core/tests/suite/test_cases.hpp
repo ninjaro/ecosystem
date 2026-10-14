@@ -232,4 +232,6 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
 );
 void test_source_dependency_rejects_ambiguous_authored_metadata();
 
+void test_incremental_verification_keeps_strict_diagnostics();
+
 } // namespace ecosystem_test_support

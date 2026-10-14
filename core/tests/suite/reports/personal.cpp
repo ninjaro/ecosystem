@@ -101,7 +101,9 @@ void test_cli_personal_reports_share_findings_and_presentation() {
              { "core:absent --json", "core:app --json --json",
                "core:app --unsupported" }) {
             result = run_engels_cli(
-                root.path(), "report " + profile + " " + suffix
+                root.path(),
+                std::string("report ").append(profile).append(" ").append(suffix
+                )
             );
             require_true(
                 result.exit_code == 2 && read_text(path) == before,

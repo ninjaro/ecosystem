@@ -67,7 +67,7 @@ public:
         fs::remove_all(path_, error);
     }
 
-    const fs::path& path() const { return path_; }
+    [[nodiscard]] const fs::path& path() const { return path_; }
 
 private:
     fs::path path_;
@@ -104,7 +104,7 @@ struct cli_result {
     std::string output;
 };
 
-void require_true(const bool condition, const std::string& message);
+void require_true(bool condition, const std::string& message);
 
 void require_contains(
     const std::string& value, const std::string& expected,
@@ -120,12 +120,12 @@ std::string join_lines(const ecosystem::string_list& lines);
 
 const ecosystem::package_section* find_package_section(
     const std::vector<ecosystem::package_section>& sections,
-    const ecosystem::package_group group
+    ecosystem::package_group group
 );
 
 const ecosystem::package_status_section* find_package_status_section(
     const std::vector<ecosystem::package_status_section>& sections,
-    const ecosystem::package_group group
+    ecosystem::package_group group
 );
 
 const ecosystem::package_line* find_package_line(
@@ -245,9 +245,7 @@ void write_sample_cmake_cache(
     const std::string& contents
 );
 
-void age_file_by_seconds(
-    const fs::path& path, const std::chrono::seconds delta
-);
+void age_file_by_seconds(const fs::path& path, std::chrono::seconds delta);
 
 std::string relative_build_cache_path(
     const fs::path& project_root, const std::string& profile

@@ -124,7 +124,7 @@ load_workspace_config(const std::filesystem::path& workspace_root) {
     try {
         const json root = json::parse(file);
         if (!root.is_object()) {
-            report.errors.push_back(
+            report.errors.emplace_back(
                 "manifesto.workspace.json must be a JSON object"
             );
             return report;
@@ -139,7 +139,7 @@ load_workspace_config(const std::filesystem::path& workspace_root) {
         }
         if (root.contains("groups")) {
             if (!root.at("groups").is_object()) {
-                report.errors.push_back(
+                report.errors.emplace_back(
                     "manifesto.workspace.json.groups must be a JSON object"
                 );
             } else {

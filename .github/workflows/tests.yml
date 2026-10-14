@@ -5,13 +5,15 @@ name: Checks
 on:
   pull_request:
   push:
+  schedule:
+    - cron: '23 4 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: checks-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -113,11 +115,22 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+      - name: Restore verified analysis cache
+        if: ${{ needs.select.outputs.scope == 'full' }}
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: .ecosystem/cache/verification
+          key: ${{ runner.os }}-${{ runner.arch }}-manifesto-analysis-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-manifesto-analysis-v1-
+
       - name: Run required local checks
         if: ${{ needs.select.outputs.scope != 'reuse' }}
         id: required
         env:
           CHECK_SCOPE: ${{ needs.select.outputs.scope }}
+          MANIFESTO_CI_PROGRESS: '1'
+          MANIFESTO_REUSE_VERIFICATION: ${{ steps.classification.outputs.incremental == 'true' && '1' || '0' }}
         uses: ./.github/actions/run-manifesto-stage
         with:
           stage-id: 01-required-checks
@@ -129,12 +142,34 @@ jobs:
                 "${{ steps.manifesto.outputs.engels-binary }}" check format --changes
                 ;;
               full)
-                "${{ steps.manifesto.outputs.marx-binary }}" build debug
                 "${{ steps.manifesto.outputs.engels-binary }}" check ci
                 ;;
               *) echo '::error::Missing or invalid verification scope.'; exit 1 ;;
             esac
           skipped-exit-codes: ''
+
+      - name: Record compiler cache statistics
+        if: ${{ always() && steps.manifesto.outcome == 'success' && needs.select.outputs.scope != 'reuse' }}
+        shell: bash
+        run: |
+          mkdir -p .ecosystem/github/reports/compiler-cache
+          ccache --show-stats | tee .ecosystem/github/reports/compiler-cache/statistics.log
+
+      - name: Save verified compiler cache
+        continue-on-error: true
+        if: ${{ always() && steps.required.outcome == 'success' && github.event_name != 'pull_request' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .ecosystem/cache/ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-manifesto-ccache-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save verified analysis cache
+        if: ${{ always() && steps.required.outcome == 'success' && github.event_name != 'pull_request' }}
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .ecosystem/cache/verification
+          key: ${{ runner.os }}-${{ runner.arch }}-manifesto-analysis-v1-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Run full verification coverage
         if: ${{ needs.select.outputs.scope == 'full' && steps.required.outputs.status == 'passed' }}

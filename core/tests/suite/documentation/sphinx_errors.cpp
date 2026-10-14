@@ -114,7 +114,7 @@ void test_sphinx_failure_recovery() {
     scoped_env doxy_log(
         "DOXYGEN_TEST_LOG", (root.path() / "doxy-calls").string()
     );
-    for (const auto* invalid : { "{", "[]", "{\"theme\":\"unknown\"}",
+    for (const auto* invalid : { "{", "[]", R"({"theme":"unknown"})",
                                  "{\"exclude_patterns\":[false]}" }) {
         write_text(project / "docs/sphinx.json", invalid);
         const auto result = run_engels_cli(project, "check sphinx");

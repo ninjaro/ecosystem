@@ -11,7 +11,7 @@ test('record successful checks and CodeQL with immutable identity and report has
   const f = fixture(t);
   for (const kind of ['checks', 'codeql']) {
     const receipt = await f.record(kind);
-    assert.equal(receipt.schema, 3);
+    assert.equal(receipt.schema, 4);
     assert.deepEqual(receipt.verification, {scope: 'full',
       selection: {kind: 'whole-tree', tree: f.tree, manifest: f.git('rev-parse', 'HEAD:manifest.json')},
       stages: kind === 'checks'
@@ -393,3 +393,16 @@ else:
     assert.equal(f.outputs.source, undefined);
     assert.ok(!fs.existsSync(path.join(f.root, '.ecosystem/github/reuse')));
   });
+
+for (const name of ['unknown environment', 'changed compiler', 'changed dependencies', 'changed ignored configuration']) {
+  test('unchanged Git inputs cannot reuse ' + name, async t => {
+    const f = await consumerFixture(t);
+    const identity = name === 'unknown environment' ? {schema: 1, known: false}
+      : name === 'changed compiler' ? {...f.runtime, tools: {...f.runtime.tools, clang: 'different'}}
+      : name === 'changed dependencies' ? {...f.runtime, dependencies: 'b'.repeat(64)}
+      : {...f.runtime, configuration: {...f.runtime.configuration, '.clang-tidy': 'c'.repeat(64)}};
+    await f.select('checks', 'full', identity);
+    assert.equal(f.outputs.scope, 'full'); assert.equal(f.outputs.verified, 'false');
+    assert.match(f.outputs.reason, /identity|unknown|differ/i);
+  });
+}

@@ -2,6 +2,7 @@
 
 #include "packages/package_dependency.hpp"
 
+#include <algorithm>
 #include <vector>
 
 namespace ecosystem {
@@ -367,13 +368,12 @@ enabled_packages(const dependency_summary& dependencies) {
 }
 
 bool has_enabled_packages(const dependency_summary& dependencies) {
-    for (const package_descriptor* descriptor :
-         enabled_packages(dependencies)) {
-        if (descriptor != nullptr) {
-            return true;
+    return std::ranges::any_of(
+        enabled_packages(dependencies),
+        [](const package_descriptor* descriptor) {
+            return descriptor != nullptr;
         }
-    }
-    return false;
+    );
 }
 
 const package_descriptor* find_package_descriptor(const package_kind kind) {

@@ -1,6 +1,7 @@
 #include "analysis/clang.hpp"
 
 #include "clang_internal.hpp"
+#include "verification_internal.hpp"
 #include "workspace/project.hpp"
 #include "workspace/tooling.hpp"
 
@@ -62,11 +63,11 @@ namespace analysis_support {
         const std::vector<fs::path>& include_dirs
     ) {
         std::vector<std::string> args;
-        args.push_back("-xc++");
+        args.emplace_back("-xc++");
         args.push_back(
             "-std=c++" + std::to_string(manifest_value.cpp_standard)
         );
-        args.push_back("-fsyntax-only");
+        args.emplace_back("-fsyntax-only");
         for (const fs::path& include_dir : include_dirs) {
             args.push_back("-I" + include_dir.string());
         }
@@ -102,7 +103,7 @@ namespace analysis_support {
             if (trimmed.empty()) {
                 continue;
             }
-            args.push_back("-isystem");
+            args.emplace_back("-isystem");
             args.push_back(trimmed);
         }
         return args;
@@ -126,8 +127,7 @@ namespace analysis_support {
             return args;
         }
 
-        const CXCompileCommand command
-            = clang_CompileCommands_getCommand(commands, 0U);
+        const auto command = clang_CompileCommands_getCommand(commands, 0U);
         args.push_back(
             "-working-directory="
             + to_string(clang_CompileCommand_getDirectory(command))
@@ -233,7 +233,7 @@ namespace analysis_support {
 
         if (error_code != CXError_Success || translation_unit == nullptr) {
             analysis.error_count = 1;
-            analysis.diagnostics.push_back(
+            analysis.diagnostics.emplace_back(
                 "fatal: unable to parse translation unit"
             );
             if (translation_unit != nullptr)
@@ -245,7 +245,7 @@ namespace analysis_support {
             = clang_getNumDiagnostics(translation_unit);
         for (unsigned index_value = 0; index_value < diagnostic_count;
              ++index_value) {
-            const CXDiagnostic diagnostic
+            const auto diagnostic
                 = clang_getDiagnostic(translation_unit, index_value);
             const CXDiagnosticSeverity severity
                 = clang_getDiagnosticSeverity(diagnostic);
@@ -352,7 +352,9 @@ cxx_analysis_report analyze_project_sources(
     );
 
     if (source_files.empty()) {
-        report.errors.push_back("no source files available for Clang analysis");
+        report.errors.emplace_back(
+            "no source files available for Clang analysis"
+        );
         return report;
     }
 
@@ -368,7 +370,7 @@ cxx_analysis_report analyze_project_sources(
             compile_database_dir.c_str(), &database_error
         );
         if (database_error != CXCompilationDatabase_NoError) {
-            report.errors.push_back(
+            report.errors.emplace_back(
                 "unable to load compile_commands.json for Clang analysis"
             );
             return report;
@@ -377,77 +379,180 @@ cxx_analysis_report analyze_project_sources(
 
     const std::vector<std::string> system_include_args
         = detected_system_include_args();
-    CXIndex index = clang_createIndex(0, 0);
-    if (index == nullptr) {
-        report.errors.push_back("unable to initialize Clang analysis");
-        if (compilation_database != nullptr)
-            clang_CompilationDatabase_dispose(compilation_database);
-        return report;
-    }
-    for (const cxx_analysis_source& source_file : source_files) {
-        std::error_code error;
-        if (!fs::is_regular_file(source_file.path, error)) {
-            report.errors.push_back(
-                "missing source file: "
-                + source_file.path.lexically_relative(project_root)
-                      .generic_string()
-            );
-            continue;
-        }
-        source_analysis analysis = analyze_single_file(
-            index, value, project_root, compilation_database, include_dirs,
-            system_include_args, source_file
+    const auto keys = verification_detail::input_keys(project_root);
+    const auto analyze = [&](const cxx_analysis_source& source) {
+        const auto start = std::chrono::steady_clock::now();
+        const auto cache = verification_detail::cache_file(
+            project_root, keys, source.path, "ast"
         );
-        if (analysis.error_count > 0)
-            report.errors.push_back(
-                analysis.file
-                + ": C++ analysis incomplete: " + analysis.diagnostics.front()
-            );
-        if (analysis.category == "tests") {
-            ++report.test_files;
-        } else if (analysis.category == "benchmarks") {
-            ++report.benchmark_files;
-        } else if (analysis.category == "runtime") {
-            ++report.runtime_files;
-        } else {
-            ++report.core_files;
-        }
-        report.total_warnings += analysis.warning_count;
-        report.total_errors += analysis.error_count;
-        report.total_functions += analysis.function_count;
-        report.total_classes += analysis.class_count;
-        report.total_namespaces += analysis.namespace_count;
-
-        component_analysis_summary* component_summary = nullptr;
-        for (component_analysis_summary& summary : report.component_summaries) {
-            if (summary.component_id == analysis.component_id) {
-                component_summary = &summary;
-                break;
+        source_analysis analysis;
+        bool reused = false;
+        const auto saved = verification_detail::read_success(cache);
+        try {
+            if (saved.is_object()) {
+                analysis.file = saved.at("file").get<std::string>();
+                analysis.component_id
+                    = saved.at("component").get<std::string>();
+                analysis.category = saved.at("category").get<std::string>();
+                analysis.artifact = saved.at("artifact").get<std::string>();
+                analysis.function_count = saved.at("functions");
+                analysis.class_count = saved.at("classes");
+                analysis.namespace_count = saved.at("namespaces");
+                reused = analysis.file
+                        == source.path.lexically_relative(project_root)
+                               .generic_string()
+                    && analysis.component_id == source.component_id
+                    && analysis.category == source.category
+                    && analysis.artifact == source.artifact
+                    && analysis.function_count >= 0 && analysis.class_count >= 0
+                    && analysis.namespace_count >= 0;
             }
+        } catch (const json::exception&) {
+            reused = false;
         }
-        if (component_summary == nullptr) {
-            report.component_summaries.push_back(component_analysis_summary {
-                analysis.component_id });
-            component_summary = &report.component_summaries.back();
+        if (!reused) {
+            const auto own_index = clang_createIndex(0, 0);
+            CXCompilationDatabase_Error own_error
+                = CXCompilationDatabase_NoError;
+            const auto own_database = compilation_database == nullptr
+                ? nullptr
+                : clang_CompilationDatabase_fromDirectory(
+                      compile_database_dir.c_str(), &own_error
+                  );
+            if (own_index == nullptr
+                || own_error != CXCompilationDatabase_NoError) {
+                analysis.file = source.path.lexically_relative(project_root)
+                                    .generic_string();
+                analysis.error_count = 1;
+                analysis.diagnostics
+                    = { "unable to initialize independent Clang context" };
+            } else {
+                analysis = analyze_single_file(
+                    own_index, value, project_root, own_database, include_dirs,
+                    system_include_args, source
+                );
+            }
+            if (own_index != nullptr)
+                clang_disposeIndex(own_index);
+            if (own_database != nullptr)
+                clang_CompilationDatabase_dispose(own_database);
         }
-        ++component_summary->files_analyzed;
-        if (analysis.category == "tests") {
-            ++component_summary->test_files;
-        } else if (analysis.category == "benchmarks") {
-            ++component_summary->benchmark_files;
-        } else if (analysis.category == "runtime") {
-            ++component_summary->runtime_files;
-        } else {
-            ++component_summary->core_files;
+        return std::pair {
+            analysis,
+            json { { "file", analysis.file },
+                   { "status", reused ? "reused" : "executed" },
+                   { "seconds", verification_detail::elapsed(start) },
+                   { "reason",
+                     reused              ? "matching verified compiler inputs"
+                         : cache.empty() ? "unknown inputs; execution required"
+                                         : "fresh verification required or no "
+                                           "clean evidence" } }
+        };
+    };
+    for (std::size_t batch = 0; batch < source_files.size(); batch += 2) {
+        std::vector<std::future<std::pair<source_analysis, json>>> pending;
+        pending.reserve(2);
+        for (std::size_t position = batch;
+             position < std::min(batch + 2, source_files.size()); ++position)
+            pending.emplace_back(
+                std::async(std::launch::async, analyze, source_files[position])
+            );
+        for (std::size_t offset = 0; offset < pending.size(); ++offset) {
+            const auto& source_file = source_files[batch + offset];
+            std::error_code error;
+            if (!fs::is_regular_file(source_file.path, error)) {
+                report.errors.push_back(
+                    "missing source file: "
+                    + source_file.path.lexically_relative(project_root)
+                          .generic_string()
+                );
+                continue;
+            }
+            auto [analysis, execution] = pending[offset].get();
+            report.execution.push_back(execution);
+            if (std::getenv("MANIFESTO_CI_PROGRESS") != nullptr
+                && verification_detail::input_batch::active() != nullptr)
+                std::clog << "[clang] " << execution.dump() << std::endl;
+            if (analysis.error_count > 0)
+                report.errors.push_back(
+                    analysis.file + ": C++ analysis incomplete: "
+                    + analysis.diagnostics.front()
+                );
+            if (analysis.category == "tests") {
+                ++report.test_files;
+            } else if (analysis.category == "benchmarks") {
+                ++report.benchmark_files;
+            } else if (analysis.category == "runtime") {
+                ++report.runtime_files;
+            } else {
+                ++report.core_files;
+            }
+            report.total_warnings += analysis.warning_count;
+            report.total_errors += analysis.error_count;
+            report.total_functions += analysis.function_count;
+            report.total_classes += analysis.class_count;
+            report.total_namespaces += analysis.namespace_count;
+
+            component_analysis_summary* component_summary = nullptr;
+            for (component_analysis_summary& summary :
+                 report.component_summaries) {
+                if (summary.component_id == analysis.component_id) {
+                    component_summary = &summary;
+                    break;
+                }
+            }
+            if (component_summary == nullptr) {
+                report.component_summaries.push_back(
+                    component_analysis_summary { analysis.component_id }
+                );
+                component_summary = &report.component_summaries.back();
+            }
+            ++component_summary->files_analyzed;
+            if (analysis.category == "tests") {
+                ++component_summary->test_files;
+            } else if (analysis.category == "benchmarks") {
+                ++component_summary->benchmark_files;
+            } else if (analysis.category == "runtime") {
+                ++component_summary->runtime_files;
+            } else {
+                ++component_summary->core_files;
+            }
+            component_summary->total_warnings += analysis.warning_count;
+            component_summary->total_errors += analysis.error_count;
+            component_summary->function_count += analysis.function_count;
+            component_summary->class_count += analysis.class_count;
+            component_summary->namespace_count += analysis.namespace_count;
+            report.sources.push_back(std::move(analysis));
         }
-        component_summary->total_warnings += analysis.warning_count;
-        component_summary->total_errors += analysis.error_count;
-        component_summary->function_count += analysis.function_count;
-        component_summary->class_count += analysis.class_count;
-        component_summary->namespace_count += analysis.namespace_count;
-        report.sources.push_back(std::move(analysis));
     }
-    clang_disposeIndex(index);
+    const auto final_keys = verification_detail::input_keys(project_root);
+    for (const auto& analysis : report.sources) {
+        const auto source = project_root / analysis.file;
+        const auto before = verification_detail::cache_file(
+            project_root, keys, source, "ast"
+        );
+        const auto after = verification_detail::cache_file(
+            project_root, final_keys, source, "ast"
+        );
+        if (!before.empty() && before != after) {
+            report.errors.emplace_back(
+                "inputs changed during verification: " + analysis.file
+            );
+        } else if (!before.empty() && analysis.error_count == 0
+                   && analysis.warning_count == 0
+                   && analysis.findings.empty()) {
+            verification_detail::write_success(
+                before,
+                json { { "file", analysis.file },
+                       { "component", analysis.component_id },
+                       { "category", analysis.category },
+                       { "artifact", analysis.artifact },
+                       { "functions", analysis.function_count },
+                       { "classes", analysis.class_count },
+                       { "namespaces", analysis.namespace_count } }
+            );
+        }
+    }
     if (compilation_database != nullptr) {
         clang_CompilationDatabase_dispose(compilation_database);
     }
@@ -519,6 +624,7 @@ json to_json(const cxx_analysis_report& value) {
     }
     report["components"] = components;
     report["errors"] = value.errors;
+    report["execution"] = value.execution;
     return report;
 }
 

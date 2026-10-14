@@ -182,10 +182,14 @@ namespace {
                     continue;
                 set_error(
                     error_message,
-                    "Android build cache conflicts with selected " + name + ": "
-                        + actual + " (selected " + expected
-                        + "); use a fresh Android build directory: "
-                        + build_dir.string()
+                    std::string("Android build cache conflicts with selected ")
+                        .append(name)
+                        .append(": ")
+                        .append(actual)
+                        .append(" (selected ")
+                        .append(expected)
+                        .append("); use a fresh Android build directory: ")
+                        .append(build_dir.string())
                 );
                 return false;
             }
@@ -269,7 +273,7 @@ android_environment detect_android_environment() {
     const auto sdk_home = normalize_path(env_value("ANDROID_HOME"));
     const auto sdk_root = normalize_path(env_value("ANDROID_SDK_ROOT"));
     if (!sdk_home.empty() && !sdk_root.empty() && sdk_home != sdk_root)
-        environment.errors.push_back(
+        environment.errors.emplace_back(
             "ANDROID_HOME and ANDROID_SDK_ROOT name different SDKs"
         );
     environment.sdk_root = sdk_home.empty() ? sdk_root : sdk_home;
@@ -424,7 +428,7 @@ android_environment detect_android_environment() {
             environment.qt_version = kit.parent_path().filename().string();
         }
     if (environment.abi.empty())
-        environment.errors.push_back(
+        environment.errors.emplace_back(
             "cannot infer Android ABI; set ANDROID_ABI for the selected "
             "qt-cmake"
         );

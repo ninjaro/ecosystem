@@ -141,6 +141,8 @@ jobs:
 
       - name: Build project through ecosystem
         id: codeql_build
+        env:
+          CCACHE_DISABLE: '1'
         if: ${{ steps.codeql_init.outcome == 'success' }}
         uses: ./.github/actions/run-manifesto-stage
         with:

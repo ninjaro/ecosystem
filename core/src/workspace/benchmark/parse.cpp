@@ -37,7 +37,7 @@ namespace benchmark_support {
 
     std::string parse_algorithm(const std::string& benchmark_name) {
         const std::size_t separator = benchmark_name.find('/');
-        const std::string head = separator == std::string::npos
+        std::string head = separator == std::string::npos
             ? benchmark_name
             : benchmark_name.substr(0U, separator);
         if (head == "bench_dense_matrix" && separator != std::string::npos) {

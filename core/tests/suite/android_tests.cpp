@@ -29,11 +29,11 @@ void test_android_application_id_is_manifest_owned() {
         = ecosystem::generate_developer_cmakelists(value, root.path());
     for (const auto& generated : { tracked, developer }) {
         require_contains(
-            generated, "\"application_id\":\"org.example.sample\"",
+            generated, R"("application_id":"org.example.sample")",
             "Android ID must come from the manifest"
         );
         require_contains(
-            generated, "\"version_name\":\"2.3.4\"",
+            generated, R"("version_name":"2.3.4")",
             "Android version must come from the project version"
         );
         require_contains(

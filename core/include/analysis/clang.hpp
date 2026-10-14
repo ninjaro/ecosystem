@@ -55,6 +55,7 @@ struct cxx_analysis_report {
     std::vector<source_analysis> sources;
     std::vector<component_analysis_summary> component_summaries;
     string_list errors;
+    json execution = json::array();
 };
 
 cxx_analysis_report analyze_project_sources(

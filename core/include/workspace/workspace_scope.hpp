@@ -16,9 +16,11 @@ struct workspace_project {
     std::optional<manifest> manifest_value;
     string_list errors;
 
-    bool valid() const { return manifest_value.has_value() && errors.empty(); }
+    [[nodiscard]] bool valid() const {
+        return manifest_value.has_value() && errors.empty();
+    }
 
-    std::string identity() const;
+    [[nodiscard]] std::string identity() const;
 };
 
 struct workspace_context {

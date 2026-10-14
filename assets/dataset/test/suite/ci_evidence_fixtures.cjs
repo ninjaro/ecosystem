@@ -7,6 +7,9 @@ const {execFileSync} = require('node:child_process');
 const evidence = require(path.resolve(process.argv[2]));
 const changes = require(path.join(path.dirname(path.resolve(process.argv[2])), 'changes.cjs'));
 const engels = path.resolve(process.argv[3]);
+const runtime = {schema: 1, known: true, image: 'fixture-reviewed-image', node: process.version, architecture: process.arch,
+  configuration: {'.clang-format': 'absent', '.clang-tidy': 'absent'}, build_environment: {},
+  tools: Object.fromEntries(['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format', 'llvm-cov', 'llvm-profdata'].map(name => [name, 'reviewed'])), dependencies: evidence.hash('fixture-sdk')};
 
 function fixture(t, delta = 'source') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'manifesto-ci-evidence-'));
@@ -66,7 +69,7 @@ function fixture(t, delta = 'source') {
     for (const name of evidence.fileNames(kind, env.COVERAGE_STATUS).filter(name => !name.startsWith('github/selection/')))
       write('.ecosystem/' + name, name === 'reports/coverage.json'
         ? '{"type":"llvm.coverage.json.export","data":[{"files":[{}],"totals":{"lines":{"count":10,"covered":7}}}]}' : 'native evidence\n');
-    await evidence.record({github, core, context: {...context, runId}, env, root});
+    await evidence.record({github, core, context: {...context, runId}, env, root, runtime});
     if (!outputs.directory) return null;
     return JSON.parse(fs.readFileSync(path.join(outputs.directory, 'receipt.json')));
   }
@@ -147,9 +150,9 @@ async function consumerFixture(t, strategy = 'squash') {
     else throw new Error('Unexpected API route: ' + route);
     return {data: structuredClone(data)};
   };
-  const select = async (kind = 'checks', scope = 'full') => evidence.select({github: f.github, context,
-    core: f.core, root: f.root, env: {BASE_SCOPE: scope, EVIDENCE_KIND: kind}});
-  return {...f, state, context, repack, changeReceipt, changeSelection, select};
+  const select = async (kind = 'checks', scope = 'full', identity = runtime) => evidence.select({github: f.github, context,
+    core: f.core, root: f.root, runtime: identity, env: {BASE_SCOPE: scope, EVIDENCE_KIND: kind}});
+  return {...f, state, context, repack, changeReceipt, changeSelection, select, runtime};
 }
 
 module.exports = {fixture, consumerFixture, evidence};

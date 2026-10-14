@@ -305,7 +305,8 @@ command_error run_check_tests(
 
     std::vector<std::string> ctest_args {
         ctest_tool.path,
-        "--output-on-failure",
+        std::getenv("MANIFESTO_CI_PROGRESS") != nullptr ? "--verbose"
+                                                        : "--output-on-failure",
         "--no-tests=error",
         "-R",
         ctest_regex_for(test_targets),
@@ -432,7 +433,7 @@ command_error run_check_coverage(
     }
 
     const fs::path profile_data = profile_dir / "coverage.profdata";
-    merge_args.push_back("-o");
+    merge_args.emplace_back("-o");
     merge_args.push_back(profile_data.string());
     if (run_command(merge_args, build_dir) != 0) {
         print_error(
@@ -459,7 +460,7 @@ command_error run_check_coverage(
         "-format=text",
     };
     for (std::size_t index = 1U; index < test_targets.size(); ++index) {
-        export_args.push_back("-object");
+        export_args.emplace_back("-object");
         export_args.push_back(
             (build_dir / test_targets[index].binary_name).string()
         );
@@ -751,9 +752,14 @@ command_error run_check_doxy(
             err << result.output << warnings;
             print_error(
                 err, command_error::task_failed,
-                "doxygen produced no " + format + " index using " + config
-                    + "; expected "
-                    + index.lexically_relative(project_root).generic_string()
+                std::string("doxygen produced no ")
+                    .append(format)
+                    .append(" index using ")
+                    .append(config)
+                    .append("; expected ")
+                    .append(
+                        index.lexically_relative(project_root).generic_string()
+                    )
             );
             return command_error::task_failed;
         }
@@ -986,37 +992,119 @@ command_error run_check(
         );
     }
 
-    command_error status
-        = run_check_repo(project_root, manifest_value, out, err);
+    const auto report_errors = validate_project_paths(
+        project_root,
+        { ".ecosystem/reports/ci.json", ".ecosystem/reports/ci-commands.log" }
+    );
+    if (!report_errors.empty()) {
+        print_error(err, command_error::invalid_request, report_errors.front());
+        return command_error::invalid_request;
+    }
+    ensure_local_artifacts(project_root, false, false);
+    json phases = json::array();
+    const auto build_phase
+        = has_tests_enabled(manifest_value) ? "build-and-tests" : "build";
+    for (const auto& name :
+         { std::string("repository"), std::string(build_phase),
+           std::string("java"), std::string("tidy"), std::string("format") }) {
+        const bool unavailable = name == "java"
+            && (requested_artifact.has_value()
+                || !project_supports_java_check(project_root, manifest_value));
+        phases.push_back(json {
+            { "phase", name },
+            { "status", unavailable ? "not-applicable" : "blocked" },
+            { "reason",
+              unavailable ? "no declared runnable managed surface"
+                          : "requires successful preceding phases" } });
+    }
+    scoped_command_log commands(
+        local_report_dir(project_root) / "ci-commands.log"
+    );
+    const auto phase = [&](const std::string& name, const auto& operation) {
+        out << "[ci] start " << name << std::endl;
+        const auto started = std::chrono::steady_clock::now();
+        const auto result = operation();
+        const json row {
+            { "phase", name },
+            { "status", result == command_error::ok ? "executed" : "failed" },
+            { "exit_code", static_cast<int>(result) },
+            { "seconds",
+              std::chrono::duration<double>(
+                  std::chrono::steady_clock::now() - started
+              )
+                  .count() }
+        };
+        for (auto& existing : phases)
+            if (existing.at("phase") == name)
+                existing = row;
+        if (result != command_error::ok)
+            for (auto& remaining : phases)
+                if (remaining.at("status") == "blocked")
+                    remaining["reason"] = "blocked by " + name;
+        std::string error;
+        if (!write_text_file(
+                local_report_dir(project_root) / "ci.json",
+                phases.dump(2) + "\n", &error
+            )) {
+            print_error(err, command_error::task_failed, error);
+            return command_error::task_failed;
+        }
+        out << "[ci] finish " << row.dump() << std::endl;
+        return result;
+    };
+    command_error status = phase("repository", [&] {
+        return run_check_repo(project_root, manifest_value, out, err);
+    });
     if (status != command_error::ok) {
         return status;
     }
     if (has_tests_enabled(manifest_value)) {
-        status = run_check_tests(
-            project_root, manifest_value, requested_artifact, out, err
-        );
+        status = phase("build-and-tests", [&] {
+            return run_check_tests(
+                project_root, manifest_value, requested_artifact, out, err
+            );
+        });
         if (status != command_error::ok) {
             return status;
         }
+    } else {
+        status = phase("build", [&] {
+            const auto configured = run_configure_build_tree(
+                project_root, manifest_value, "debug", false, false, false, err
+            );
+            return configured == command_error::ok
+                ? build_facade_entry_artifact(
+                      project_root, manifest_value, "debug", err
+                  )
+                : configured;
+        });
+        if (status != command_error::ok)
+            return status;
     }
     if (!requested_artifact.has_value()
         && project_supports_java_check(project_root, manifest_value)) {
-        status = run_check_java(
-            project_root, manifest_value, std::nullopt, out, err
-        );
+        status = phase("java", [&] {
+            return run_check_java(
+                project_root, manifest_value, std::nullopt, out, err
+            );
+        });
         if (status != command_error::ok) {
             return status;
         }
     }
-    status = run_check_tidy(
-        project_root, manifest_value, requested_artifact, out, err
-    );
+    status = phase("tidy", [&] {
+        return run_check_tidy(
+            project_root, manifest_value, requested_artifact, out, err
+        );
+    });
     if (status != command_error::ok) {
         return status;
     }
-    status = run_check_format(
-        project_root, manifest_value, requested_artifact, out, err
-    );
+    status = phase("format", [&] {
+        return run_check_format(
+            project_root, manifest_value, requested_artifact, out, err
+        );
+    });
     if (status != command_error::ok) {
         return status;
     }

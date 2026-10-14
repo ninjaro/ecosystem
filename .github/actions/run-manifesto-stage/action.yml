@@ -51,8 +51,14 @@ runs:
         chmod +x "$command_path"
 
         set +e
-        bash -e -o pipefail "$command_path" > "$log_path" 2>&1
-        exit_code=$?
+        started=$SECONDS
+        bash -e -o pipefail "$command_path" 2>&1 | tee "$log_path"
+        pipeline_status=("${PIPESTATUS[@]}")
+        command_code=${pipeline_status[0]}
+        log_code=${pipeline_status[1]:-0}
+        exit_code=$command_code
+        if [ "$command_code" -eq 0 ] && [ "$log_code" -ne 0 ]; then exit_code=$log_code; fi
+        elapsed=$((SECONDS - started))
         set -e
 
         status="failed"
@@ -66,6 +72,8 @@ runs:
             fi
           done
         fi
+
+        if [ "$log_code" -ne 0 ]; then status="failed"; fi
 
         reason="Command completed successfully."
         category="executed"
@@ -81,6 +89,11 @@ runs:
           fi
         fi
 
+        if [ "$log_code" -ne 0 ]; then
+          reason="Log capture failed (exit $log_code); command exit $command_code."
+          category="missing-report"
+        fi
+
         log_lines=0
         if [ -f "$log_path" ]; then
           log_lines=$(wc -l < "$log_path")
@@ -90,6 +103,7 @@ runs:
           printf '## %s\n\n' "${{ inputs.stage-label }}"
           printf -- '- status: `%s`\n' "$status"
           printf -- '- exit code: `%s`\n' "$exit_code"
+          printf -- '- duration seconds: `%s`\n' "$elapsed"
           printf -- '- category: `%s`\n' "$category"
           printf -- '- reason: %s\n' "$reason"
           printf -- '- command:\n\n```bash\n'

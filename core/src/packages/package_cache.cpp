@@ -78,12 +78,9 @@ bool cmake_cache_has_found_value(
 bool cmake_cache_has_all_found_values(
     const cmake_cache_snapshot& cache, const std::vector<std::string_view>& keys
 ) {
-    for (const std::string_view key : keys) {
-        if (!cmake_cache_has_found_value(cache, std::string(key))) {
-            return false;
-        }
-    }
-    return true;
+    return std::ranges::all_of(keys, [&](const std::string_view key) {
+        return cmake_cache_has_found_value(cache, std::string(key));
+    });
 }
 
 bool cmake_cache_flag_enabled(

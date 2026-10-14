@@ -124,6 +124,7 @@ void test_asset_runtime_surface() {
         write_text(shared / "sets/.cache/retired.dat", "obsolete cache");
         write_text(shared / "showcase/retired.dat", "obsolete showcase");
         std::vector<std::future<ecosystem::captured_command>> parallel;
+        parallel.reserve(8);
         for (int index = 0; index < 8; ++index)
             parallel.push_back(std::async(std::launch::async, [&] {
                 return ecosystem::capture_command_result(

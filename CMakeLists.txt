@@ -474,6 +474,7 @@ set(MANIFESTO_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/write_commands.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/personal_internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/verification_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/command_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/internal.hpp

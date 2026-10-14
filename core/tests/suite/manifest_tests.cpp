@@ -969,7 +969,7 @@ void test_owned_paths_preflight_mutations_without_changes() {
         fs::create_symlink(outside, project / relative);
         auto value = sample_manifest();
         if (operation == "files") {
-            value.components.front().modules.push_back("feature");
+            value.components.front().modules.emplace_back("feature");
         }
         const json before = ecosystem::to_json(value);
         std::string error;

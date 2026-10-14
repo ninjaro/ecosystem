@@ -60,7 +60,7 @@ void test_ci_selection() {
              { "pull_request", "refs/pull/42/merge", "main", "release",
                "cheap" },
              { "workflow_dispatch", "refs/heads/feature", "main", "", "full" },
-             { "schedule", "refs/heads/main", "main", "", "security" },
+             { "schedule", "refs/heads/main", "main", "", "full" },
              { "release", "refs/tags/v1", "main", "", "skip" },
              { "push", "refs/heads/main", "", "", "error" },
              { "pull_request", "refs/pull/42/merge", "main", "", "error" } }) {
@@ -81,9 +81,36 @@ void test_ci_selection() {
         require_true(
             read_text(outputs)
                 == (expected == "error" ? "" : "scope=" + expected + "\n"),
-            "event selection mismatch: " + event + " " + ref
+            std::string("event selection mismatch: ")
+                .append(event)
+                .append(" ")
+                .append(ref)
         );
     }
+    write_text(outputs, "");
+    const auto scheduled_security = ecosystem::capture_command_result(
+        { "bash", "-e", "-o", "pipefail", selection.string() }, root.path(),
+        { { "EVENT_NAME", "schedule" },
+          { "CHECK_KIND", "codeql" },
+          { "DEFAULT_BRANCH", "main" },
+          { "CURRENT_REF", "refs/heads/main" },
+          { "GITHUB_OUTPUT", outputs.string() },
+          { "GITHUB_STEP_SUMMARY", (root.path() / "summary").string() } }
+    );
+    require_true(
+        scheduled_security.exit_code == 0
+            && read_text(outputs) == "scope=security\n",
+        "scheduled CodeQL remains full security while scheduled Checks is full "
+        "native"
+    );
+    require_contains(
+        codeql->contents, "CCACHE_DISABLE: '1'",
+        "CodeQL tracing must execute compilers"
+    );
+    require_not_contains(
+        checks->contents, "build debug",
+        "required CI must not duplicate the production build"
+    );
     require_contains(
         codeql->contents, "  schedule:\n    - cron:",
         "CodeQL must maintain an independent scheduled default-branch baseline"
@@ -161,7 +188,9 @@ void test_ci_selection() {
         write_text(dependencies, script);
         const auto result = ecosystem::capture_command_result(
             { "bash", "-e", "-o", "pipefail", dependencies.string() },
-            root.path(), { { "PATH", bin.string() + ":" + current_path_env() } }
+            root.path(),
+            { { "PATH", bin.string() + ":" + current_path_env() },
+              { "GITHUB_WORKSPACE", root.path().string() } }
         );
         require_true(
             result.exit_code == 0, "dependency selection must execute"
@@ -223,13 +252,11 @@ void test_ci_selection() {
          std::vector<std::tuple<std::string, std::string, std::string>> {
              { "cheap", "",
                "engels check repo\nengels check format --changes\n" },
-             { "full", "", "marx build debug\nengels check ci\n" },
+             { "full", "", "engels check ci\n" },
              { "cheap", "engels check repo", "engels check repo\n" },
              { "cheap", "engels check format --changes",
                "engels check repo\nengels check format --changes\n" },
-             { "full", "marx build debug", "marx build debug\n" },
-             { "full", "engels check ci",
-               "marx build debug\nengels check ci\n" },
+             { "full", "engels check ci", "engels check ci\n" },
              { "missing", "invalid scope", "" } }) {
         write_text(calls, "");
         const auto result = ecosystem::capture_command_result(
@@ -255,7 +282,7 @@ void test_ci_selection() {
     }
     const auto report = root.path() / ".ecosystem/reports/coverage.json";
     write_text(report, "current coverage");
-    write_text(reports / "00-workflow/result.json", "{\"status\":\"passed\"}");
+    write_text(reports / "00-workflow/result.json", R"({"status":"passed"})");
     const auto run_gate = [&](const std::string& outcome,
                               const std::string& status,
                               const std::string& code) {

@@ -43,7 +43,7 @@ std::string package_token(const std::string& value) {
     std::string normalized;
     bool last_was_dash = false;
     for (const char character : value) {
-        const unsigned char raw = static_cast<unsigned char>(character);
+        const auto raw = static_cast<unsigned char>(character);
         if (std::isalnum(raw)) {
             normalized.push_back(static_cast<char>(std::tolower(raw)));
             last_was_dash = false;
@@ -82,11 +82,11 @@ std::string package_description(
 }
 
 std::string package_author() {
-    const std::string packager = trim(env_value("MANIFESTO_PACKAGER"));
+    std::string packager = trim(env_value("MANIFESTO_PACKAGER"));
     if (!packager.empty()) {
         return packager;
     }
-    const std::string generic_packager = trim(env_value("PACKAGER"));
+    std::string generic_packager = trim(env_value("PACKAGER"));
     if (!generic_packager.empty()) {
         return generic_packager;
     }
@@ -324,7 +324,7 @@ std::string debian_pool_bucket(const std::string& package_name) {
     if (package_name.empty()) {
         return "x";
     }
-    return std::string(1U, package_name.front());
+    return { package_name.front() };
 }
 
 std::string debian_pool_relative_path(

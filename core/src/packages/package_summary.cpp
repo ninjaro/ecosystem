@@ -3,6 +3,7 @@
 #include "packages/package_registry.hpp"
 #include "workspace/project.hpp"
 
+#include <algorithm>
 #include <set>
 #include <string>
 #include <string_view>
@@ -63,12 +64,9 @@ namespace package_summary_support {
         const std::vector<std::string>& values,
         const std::string_view expected_value
     ) {
-        for (const std::string& value : values) {
-            if (value == expected_value) {
-                return true;
-            }
-        }
-        return false;
+        return std::ranges::any_of(values, [&](const std::string& value) {
+            return value == expected_value;
+        });
     }
 
     std::vector<std::string> summarize_stack_values(

@@ -4,6 +4,7 @@
 namespace ecosystem_test_support {
 
 void test_cli_report_cxx_preserves_artifact_scope_and_failure_status() {
+    scoped_env progress("MANIFESTO_CI_PROGRESS", "1");
     temp_dir root;
     scoped_env flags("CXXFLAGS", "-Wno-error=unused-variable");
     write_cxx_report_project(root.path(), "reports");

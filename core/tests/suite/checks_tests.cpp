@@ -1062,4 +1062,151 @@ void test_cli_check_java_builds_shared_libraries_and_runs_gradle_tests() {
     );
 }
 
+void test_incremental_verification_keeps_strict_diagnostics() {
+    temp_dir root;
+    const auto project = root.path() / "project";
+    const json specification {
+        { "id", "verification_fixture" },
+        { "description", "Real compiler cache regression." },
+        { "facade", "app:main" },
+        { "artifacts",
+          json::array({ json { { "id", "app:main" },
+                               { "kind", "exe" },
+                               { "description", "Fixture application." },
+                               { "entry", "src/main.cpp" },
+                               { "owns", { "src" } } } }) }
+    };
+    write_text(project / "manifest.json", specification.dump(2));
+    const auto external = root.path() / "sdk/values.hpp";
+    write_text(external, "#define VALUE 0\n");
+    write_text(
+        project / "src/defs.hpp",
+        "#pragma once\n#include \"" + external.string()
+            + "\"\nvoid companion();\n"
+    );
+    write_text(
+        project / "src/main.cpp",
+        "#include \"defs.hpp\"\nint main() { companion(); return VALUE; }\n"
+    );
+    write_text(
+        project / "src/companion.cpp",
+        "#include \"defs.hpp\"\nvoid companion() {}\n"
+    );
+    scoped_env cache("MANIFESTO_REUSE_VERIFICATION", "1");
+    const auto check = [&](int expected_reused) {
+        const auto result = run_engels_cli(project, "check tidy");
+        require_true(result.exit_code == 0, result.output);
+        const auto report
+            = json::parse(read_text(project / ".ecosystem/reports/tidy.json"));
+        for (const auto* key : { "execution", "tidy_execution" }) {
+            int reused = 0;
+            require_true(
+                report.at(key).size() == 2,
+                "both real authored units must be checked"
+            );
+            for (const auto& row : report.at(key))
+                if (row.at("status") == "reused")
+                    ++reused;
+            require_true(reused == expected_reused, report.dump(2));
+        }
+        return report;
+    };
+    check(0);
+    check(2);
+    write_text(
+        ecosystem::local_build_dir(project, "release")
+            / "compile_commands.json",
+        read_text(
+            ecosystem::local_build_dir(project, "debug")
+            / "compile_commands.json"
+        )
+    );
+    const auto loaded = ecosystem::load_manifest(project / "manifest.json");
+    const auto other_profile = ecosystem::run_tidy_check(
+        *loaded.value, project, std::nullopt, true, false, "release"
+    );
+    require_true(
+        other_profile.clang_tidy_exit_code == 0,
+        "real profile probe must execute cleanly"
+    );
+    for (const auto& row : other_profile.execution)
+        require_true(
+            row.at("status") == "executed",
+            "non-Debug inputs must never inherit Debug evidence"
+        );
+    write_text(
+        project / "src/defs.hpp",
+        "#pragma once\n#include \"" + external.string()
+            + "\"\nvoid companion(); // changed transitive input\n"
+    );
+    check(0);
+    check(2);
+    write_text(external, "#define VALUE 0 // changed installed dependency\n");
+    check(0);
+    check(2);
+    write_text(
+        project / ".clang-tidy",
+        read_text(ecosystem::locate_template_path({ "tooling/clang-tidy.tpl" }))
+            + "\n# changed configuration\n"
+    );
+    check(0);
+    check(2);
+    {
+        scoped_env fresh("MANIFESTO_REUSE_VERIFICATION", "0");
+        check(0);
+    }
+    write_text(
+        project / "src/companion.cpp",
+        "#include \"defs.hpp\"\nvoid companion() {} // changed owner\n"
+    );
+    const auto report = check(1);
+    const auto file = project
+        / report.at("tidy_execution").at(0).at("cache_file").get<std::string>();
+    auto corrupt = json::parse(read_text(file));
+    corrupt["digest"] = "corrupt";
+    write_text(file, corrupt.dump());
+    const auto retried = run_engels_cli(project, "check tidy");
+    require_true(retried.exit_code == 0, retried.output);
+    const auto observed
+        = json::parse(read_text(project / ".ecosystem/reports/tidy.json"));
+    require_true(
+        observed.at("tidy_execution").at(0).at("status") == "executed",
+        "corrupted evidence must execute"
+    );
+    {
+        scoped_env changed_environment(
+            "CPATH", (root.path() / "different-sdk").string()
+        );
+        check(0);
+        check(2);
+    }
+    check(2);
+    const auto tidy = ecosystem::probe_tool("clang-tidy");
+    write_executable_script(
+        root.path() / "bin/clang-tidy",
+        "#!/bin/sh\nexec " + tidy.path + " \"$@\"\n"
+    );
+    {
+        scoped_env unknown_runtime(
+            "PATH", (root.path() / "bin").string() + ":" + current_path_env()
+        );
+        check(0);
+    }
+    write_text(
+        project / "src/companion.cpp",
+        "#error cache_failure_must_remain_visible\n"
+    );
+    for (int repetition = 0; repetition < 2; ++repetition) {
+        const auto failed = run_engels_cli(project, "check tidy");
+        require_true(
+            failed.exit_code == 5,
+            "failed analysis must never produce a reusable pass"
+        );
+        require_contains(
+            failed.output, "cache_failure_must_remain_visible",
+            "actual failure must remain visible"
+        );
+    }
+}
+
 } // namespace ecosystem_test_support

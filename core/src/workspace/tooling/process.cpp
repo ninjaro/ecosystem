@@ -2,6 +2,7 @@
 #include "workspace/tooling.hpp"
 
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <iostream>
 #include <sstream>
@@ -126,6 +127,7 @@ captured_command scoped_command_log::capture(
     const bool echo_output
 ) {
     captured_command result;
+    const auto started = std::chrono::steady_clock::now();
     if (active_ != nullptr) {
         const json command {
             { "argv", args },
@@ -176,7 +178,15 @@ captured_command scoped_command_log::capture(
                                                    : status;
     if (active_ != nullptr) {
         active_->append(
-            "\n<<< " + json { { "exit_code", result.exit_code } }.dump() + "\n"
+            "\n<<< "
+            + json { { "exit_code", result.exit_code },
+                     { "seconds",
+                       std::chrono::duration<double>(
+                           std::chrono::steady_clock::now() - started
+                       )
+                           .count() } }
+                  .dump()
+            + "\n"
         );
         if (!active_->error().empty()) {
             result.exit_code = -1;

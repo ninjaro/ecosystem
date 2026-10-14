@@ -18,6 +18,7 @@ struct tidy_check_report {
     int clang_tidy_exit_code = 0;
     string_list clang_tidy_output;
     std::string clang_tidy_skip_reason;
+    json execution = json::array();
 };
 
 tidy_check_report run_tidy_check(

@@ -424,6 +424,8 @@ int main(int argc, char** argv) {
           test_cli_check_tidy_uses_clang_tidy_when_available },
         { "cli_check_tidy_fails_when_clang_tidy_reports_diagnostics",
           test_cli_check_tidy_fails_when_clang_tidy_reports_diagnostics },
+        { "incremental_verification_keeps_strict_diagnostics",
+          test_incremental_verification_keeps_strict_diagnostics },
         { "tidy_requires_tool_and_complete_compilation_database",
           test_tidy_requires_tool_and_complete_compilation_database },
         { "cli_check_tidy_honors_full_artifact_identity_and_configuration",
@@ -558,7 +560,7 @@ int main(int argc, char** argv) {
         ++selected;
         try {
             test();
-            std::cout << "[ok] " << name << "\n";
+            std::cout << "[ok] " << name << std::endl;
         } catch (const std::exception& error) {
             ++failures;
             std::cerr << "[failed] " << name << ": " << error.what() << "\n";

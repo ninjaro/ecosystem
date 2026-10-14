@@ -165,9 +165,7 @@ std::string render_benchmark_svg(
             max_gflops = std::max(max_gflops, point.gflops);
         }
     }
-    if (!initialized) {
-        max_gflops = 1.0;
-    } else if (max_gflops <= 0.0) {
+    if (!initialized || max_gflops <= 0.0) {
         max_gflops = 1.0;
     }
 

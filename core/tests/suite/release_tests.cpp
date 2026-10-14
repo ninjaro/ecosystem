@@ -509,23 +509,28 @@ void test_prerelease_preserves_published_state_on_late_failures() {
             : (bin / "working-gpg").string();
         write_executable_script(
             bin / name,
-            "#!/bin/sh\n"
-            "if [ \"$1\" != '--version' ] && [ "
-            "\"$MANIFESTO_FAIL_RELEASE_TOOL\" = '"
-                + name + "' ] && { [ '" + name
-                + "' != gzip ] || [ \"$1\" = '-n' ]; }; then\n"
-                  "  printf 'injected release tool failure\\n' >&2\n  exit "
-                  "9\nfi\n"
-                  "'"
-                + real
-                + "' \"$@\" || exit $?\n"
-                  "if [ \"$MANIFESTO_FAIL_RELEASE_TOOL\" = cutover ]; then\n"
-                  "  for arg do\n"
-                  "    case \"$arg\" in *-prerelease.files)\n"
-                  "      repo=$(dirname \"$(dirname \"$arg\")\")\n"
-                  "      mv \"$repo\" \"$repo-interrupted\" || exit $?;;\n"
-                  "    esac\n"
-                  "  done\nfi\n"
+            std::string("#!/bin/sh\n"
+                        "if [ \"$1\" != '--version' ] && [ "
+                        "\"$MANIFESTO_FAIL_RELEASE_TOOL\" = '")
+                .append(name)
+                .append("' ] && { [ '")
+                .append(name)
+                .append(
+                    "' != gzip ] || [ \"$1\" = '-n' ]; }; then\n"
+                    "  printf 'injected release tool failure\\n' >&2\n  exit "
+                    "9\nfi\n'"
+                )
+                .append(real)
+                .append(
+                    "' \"$@\" || exit $?\n"
+                    "if [ \"$MANIFESTO_FAIL_RELEASE_TOOL\" = cutover ]; then\n"
+                    "  for arg do\n"
+                    "    case \"$arg\" in *-prerelease.files)\n"
+                    "      repo=$(dirname \"$(dirname \"$arg\")\")\n"
+                    "      mv \"$repo\" \"$repo-interrupted\" || exit $?;;\n"
+                    "    esac\n"
+                    "  done\nfi\n"
+                )
         );
     }
     scoped_env path("PATH", bin.string() + ":" + current_path_env());

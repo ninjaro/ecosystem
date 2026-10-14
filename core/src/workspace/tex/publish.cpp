@@ -2,6 +2,7 @@
 
 #include "workspace/tooling.hpp"
 
+#include <ranges>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -66,14 +67,15 @@ void publish_documents(
             throw std::runtime_error(error);
     } catch (const std::exception& failure) {
         std::string rollback;
-        for (auto it = replacements.rbegin(); it != replacements.rend(); ++it) {
+        for (auto& replacement : std::views::reverse(replacements)) {
             std::error_code error;
-            if (it->installed)
-                fs::remove(it->target, error);
-            if (!error && it->saved)
-                fs::rename(it->backup, it->target, error);
+            if (replacement.installed)
+                fs::remove(replacement.target, error);
+            if (!error && replacement.saved)
+                fs::rename(replacement.backup, replacement.target, error);
             if (error)
-                rollback += "; " + it->target.string() + ": " + error.message();
+                rollback += "; " + replacement.target.string() + ": "
+                    + error.message();
         }
         if (!rollback.empty())
             throw std::runtime_error(

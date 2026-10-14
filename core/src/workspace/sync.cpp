@@ -469,7 +469,7 @@ namespace sync_support {
             return std::nullopt;
         }
         if (!root.is_object()) {
-            errors->push_back(
+            errors->emplace_back(
                 "manifesto.github.vars.json must contain a JSON object"
             );
             return std::nullopt;
@@ -527,13 +527,13 @@ namespace sync_support {
         );
         if (vars.manifesto_bootstrap != "checkout"
             && vars.manifesto_bootstrap != "repository") {
-            errors->push_back(
+            errors->emplace_back(
                 "manifesto_bootstrap must be checkout or repository in "
                 "manifesto.github.vars.json"
             );
         }
         if (vars.manifesto_repository.empty() != vars.manifesto_ref.empty()) {
-            errors->push_back(
+            errors->emplace_back(
                 "manifesto_repository and manifesto_ref must be configured "
                 "together in manifesto.github.vars.json"
             );
@@ -541,7 +541,7 @@ namespace sync_support {
         if (vars.manifesto_bootstrap == "checkout"
             && (!vars.manifesto_repository.empty()
                 || !vars.manifesto_ref.empty())) {
-            errors->push_back(
+            errors->emplace_back(
                 "checkout bootstrap uses the revision under review; omit "
                 "manifesto_repository and manifesto_ref"
             );
@@ -550,7 +550,7 @@ namespace sync_support {
         if (source_path.empty() || source_path.is_absolute()
             || std::find(source_path.begin(), source_path.end(), fs::path(".."))
                 != source_path.end()) {
-            errors->push_back(
+            errors->emplace_back(
                 "manifesto_source_path must stay within the checkout in "
                 "manifesto.github.vars.json"
             );
@@ -565,7 +565,7 @@ namespace sync_support {
                     }
                 )
                 || field->find("${{") != std::string::npos) {
-                errors->push_back(
+                errors->emplace_back(
                     "bootstrap repository, ref and source path must be literal "
                     "single-line values in manifesto.github.vars.json"
                 );
@@ -580,7 +580,7 @@ namespace sync_support {
                     return std::isdigit(character);
                 }
             )) {
-            errors->push_back(
+            errors->emplace_back(
                 "manifesto_build_parallelism must be a positive integer string "
                 "in manifesto.github.vars.json"
             );
@@ -635,7 +635,7 @@ namespace sync_support {
         const template_bindings& bindings, string_list* errors
     ) {
         std::string error_message;
-        const std::string contents = render_text_template_candidates(
+        std::string contents = render_text_template_candidates(
             relative_paths, bindings, &error_message
         );
         if (!error_message.empty()) {
@@ -1069,6 +1069,7 @@ namespace sync_support {
         const std::vector<std::string>& link_targets
     ) {
         std::vector<std::string> indented_link_targets;
+        indented_link_targets.reserve(link_targets.size());
         for (const std::string& link_target : link_targets) {
             indented_link_targets.push_back("                " + link_target);
         }
@@ -1095,6 +1096,7 @@ namespace sync_support {
         const std::vector<std::string>& dependency_targets
     ) {
         std::vector<std::string> indented_dependency_targets;
+        indented_dependency_targets.reserve(dependency_targets.size());
         for (const std::string& dependency_target : dependency_targets) {
             indented_dependency_targets.push_back(
                 "                " + dependency_target
@@ -1139,6 +1141,7 @@ namespace sync_support {
         const std::optional<std::string>& owned_inputs = std::nullopt
     ) {
         std::vector<std::string> indented_include_dirs;
+        indented_include_dirs.reserve(include_dir_expressions.size());
         for (const std::string& include_dir_expression :
              include_dir_expressions) {
             indented_include_dirs.push_back(
@@ -1355,14 +1358,14 @@ namespace sync_support {
         const component& component_value,
         const std::set<std::string>& selected_artifact_keys
     ) {
-        for (const artifact& artifact_value : component_value.artifacts) {
-            if (selected_artifact_keys.contains(format_artifact_ref(
+        return std::ranges::any_of(
+            component_value.artifacts,
+            [&](const artifact& artifact_value) {
+                return selected_artifact_keys.contains(format_artifact_ref(
                     artifact_ref { component_value.id, artifact_value.id }
-                ))) {
-                return true;
+                ));
             }
-        }
-        return false;
+        );
     }
 
     std::vector<const component*> selected_components(
@@ -1400,7 +1403,7 @@ namespace sync_support {
         const std::set<std::string>& selected_artifact_keys
     ) {
         for (const artifact& artifact_value : component_value.artifacts) {
-            const artifact_ref ref { component_value.id, artifact_value.id };
+            artifact_ref ref { component_value.id, artifact_value.id };
             if (!selected_artifact_keys.contains(format_artifact_ref(ref))) {
                 continue;
             }
@@ -1894,7 +1897,7 @@ namespace sync_support {
                     );
                 }
                 if (export_keys.contains(format_artifact_ref(ref)))
-                    include_dir_lines.push_back(
+                    include_dir_lines.emplace_back(
                         "\"$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>\""
                     );
                 stream << render_required_sync_template(
@@ -2440,7 +2443,7 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
     if (errors == nullptr) {
         throw;
     }
-    errors->push_back(error.what());
+    errors->emplace_back(error.what());
     return {};
 }
 

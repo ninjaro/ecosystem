@@ -40,6 +40,7 @@ runs:
         CURRENT_REF: ${{ github.ref }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        CHECK_KIND: ${{ inputs.kind }}
       run: |
         scope=skip
         case "$EVENT_NAME" in
@@ -69,7 +70,9 @@ runs:
             fi
             ;;
           workflow_dispatch) scope=full ;;
-          schedule) scope=security ;;
+          schedule)
+            if [ "$CHECK_KIND" = codeql ]; then scope=security; else scope=full; fi
+            ;;
         esac
         echo "scope=$scope" >> "$GITHUB_OUTPUT"
         printf 'Verification scope: %s\n' "$scope" >> "$GITHUB_STEP_SUMMARY"

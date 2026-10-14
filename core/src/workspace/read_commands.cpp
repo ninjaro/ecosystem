@@ -91,6 +91,7 @@ namespace command_support {
             }
         }
         std::vector<fs::path> relative_paths;
+        relative_paths.reserve(files.size());
         for (const auto& file : files)
             relative_paths.push_back(file.lexically_relative(project_root));
         const auto path_errors
@@ -149,7 +150,7 @@ namespace command_support {
             std::vector<std::string> args { tool.path,
                                             apply ? "-i" : "--dry-run" };
             if (!apply)
-                args.push_back("--Werror");
+                args.emplace_back("--Werror");
             args.push_back("-style=file:" + configuration.string());
             for (const auto& file : selected_files)
                 args.push_back(file.string());
@@ -176,17 +177,6 @@ namespace command_support {
         return std::find(values.begin(), values.end(), candidate)
             != values.end();
     }
-
-    bool path_is_executable(const fs::path& path);
-    bool path_exists(const fs::path& path);
-    command_error build_target(
-        const fs::path& project_root, const std::string& profile,
-        const std::string& target, std::ostream& err
-    );
-    std::optional<fs::path> runnable_binary_path(
-        const fs::path& project_root, const manifest& manifest_value,
-        const std::string& profile, const resolved_artifact& resolved
-    );
 
     fs::path java_project_dir(const fs::path& project_root) {
         return project_root / "java";
@@ -561,12 +551,9 @@ namespace command_support {
         if (requested.empty()) {
             return true;
         }
-        for (const artifact_ref& filter : requested) {
-            if (artifact_ref_matches_filter(ref, filter)) {
-                return true;
-            }
-        }
-        return false;
+        return std::ranges::any_of(requested, [&](const artifact_ref& filter) {
+            return artifact_ref_matches_filter(ref, filter);
+        });
     }
 
     json matrix_report(
@@ -697,11 +684,6 @@ namespace command_support {
     bool is_runnable_artifact(const artifact& artifact_value) {
         return artifact_value.kind == "exe" || artifact_value.kind == "qt_app";
     }
-
-    command_error build_target(
-        const fs::path& project_root, const std::string& profile,
-        const std::string& target, std::ostream& err
-    );
 
     command_error run_build(
         const fs::path& project_root, const manifest& manifest_value,
@@ -1198,7 +1180,8 @@ namespace command_support {
         std::string timeout_path;
         std::chrono::steady_clock::time_point expires_at;
 
-        captured_command capture(const std::vector<std::string>& args) const {
+        [[nodiscard]] captured_command
+        capture(const std::vector<std::string>& args) const {
             const auto remaining
                 = std::chrono::duration_cast<std::chrono::milliseconds>(
                     expires_at - std::chrono::steady_clock::now()
@@ -1274,8 +1257,10 @@ namespace command_support {
                 if (!mode_matches) {
                     print_error(
                         err, command_error::invalid_request,
-                        "ANDROID_SERIAL=" + requested
-                            + " conflicts with --android-mode " + mode
+                        std::string("ANDROID_SERIAL=")
+                            .append(requested)
+                            .append(" conflicts with --android-mode ")
+                            .append(mode)
                     );
                     return command_error::invalid_request;
                 }

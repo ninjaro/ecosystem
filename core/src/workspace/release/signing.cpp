@@ -8,13 +8,13 @@ effective_signing_key(const prerelease_signing_options& options) {
         return options.key_id;
     }
 
-    const std::string prerelease_key
+    std::string prerelease_key
         = trim(env_value("MANIFESTO_PRERELEASE_SIGN_KEY"));
     if (!prerelease_key.empty()) {
         return prerelease_key;
     }
 
-    const std::string generic_key = trim(env_value("MANIFESTO_GPG_KEY"));
+    std::string generic_key = trim(env_value("MANIFESTO_GPG_KEY"));
     if (!generic_key.empty()) {
         return generic_key;
     }
@@ -40,7 +40,7 @@ std::vector<std::string> gpg_base_command(
     const std::optional<std::string> signing_key
         = effective_signing_key(signing_options);
     if (signing_key.has_value()) {
-        command.push_back("--local-user");
+        command.emplace_back("--local-user");
         command.push_back(*signing_key);
     }
 
@@ -55,9 +55,9 @@ bool gpg_detach_sign(
 ) {
     std::vector<std::string> command
         = gpg_base_command(gpg_tool, signing_options);
-    command.push_back("--output");
+    command.emplace_back("--output");
     command.push_back(output_path.string());
-    command.push_back("--detach-sign");
+    command.emplace_back("--detach-sign");
     command.push_back(input_path.string());
     if (run_command(command, input_path.parent_path()) != 0) {
         *error_message = "unable to sign " + input_path.string();
@@ -74,9 +74,9 @@ bool gpg_clearsign(
 ) {
     std::vector<std::string> command
         = gpg_base_command(gpg_tool, signing_options);
-    command.push_back("--output");
+    command.emplace_back("--output");
     command.push_back(output_path.string());
-    command.push_back("--clearsign");
+    command.emplace_back("--clearsign");
     command.push_back(input_path.string());
     if (run_command(command, input_path.parent_path()) != 0) {
         *error_message = "unable to clear-sign " + input_path.string();

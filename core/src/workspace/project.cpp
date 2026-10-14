@@ -65,6 +65,7 @@ namespace project_support {
         const fs::path& project_root, const std::vector<fs::path>& files
     ) {
         std::vector<fs::path> result;
+        result.reserve(files.size());
         for (const auto& path : files)
             result.push_back((project_root / path).lexically_normal());
         return result;
@@ -89,12 +90,10 @@ namespace project_support {
         if (value.file_units.empty()) {
             return false;
         }
-        for (const file_unit& unit : value.file_units) {
-            if (!starts_with(unit.id, prefix)) {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(
+            value.file_units,
+            [&](const file_unit& unit) { return starts_with(unit.id, prefix); }
+        );
     }
 
     bool
@@ -218,11 +217,8 @@ namespace project_support {
                 continue;
             }
             if (source_paths) {
-                if (unit.kind == "source_only") {
-                    files.push_back(
-                        resolve_source_only_path(component_root, unit.id)
-                    );
-                } else if (unit.kind == "source_pair_h") {
+                if (unit.kind == "source_only"
+                    || unit.kind == "source_pair_h") {
                     files.push_back(
                         resolve_source_only_path(component_root, unit.id)
                     );
@@ -287,10 +283,11 @@ namespace project_support {
     }
 
     bool has_enabled_flag(const json& flags) {
-        for (const auto& [key, flag] : flags.items())
-            if (key != "gtest_main" && flag.is_boolean() && flag.get<bool>())
-                return true;
-        return false;
+        return std::ranges::any_of(flags.items(), [](const auto& item) {
+            const auto& flag = item.value();
+            return item.key() != "gtest_main" && flag.is_boolean()
+                && flag.template get<bool>();
+        });
     }
 
     bool component_has_runnable_artifact(const component& value) {
@@ -711,6 +708,7 @@ component_module_headers(const fs::path& project_root, const component& value) {
 
     std::vector<fs::path> files;
     const fs::path root = component_root_path(project_root, value);
+    files.reserve(value.modules.size());
     for (const std::string& module_path : value.modules) {
         files.push_back(root / "include" / (module_path + ".hpp"));
     }
@@ -730,6 +728,7 @@ component_module_sources(const fs::path& project_root, const component& value) {
 
     std::vector<fs::path> files;
     const fs::path root = component_root_path(project_root, value);
+    files.reserve(value.modules.size());
     for (const std::string& module_path : value.modules) {
         files.push_back(root / "src" / (module_path + ".cpp"));
     }
@@ -1110,10 +1109,10 @@ missing_declared_files(const manifest& value, const fs::path& project_root) {
 std::vector<std::string> supported_build_profiles(const manifest& value) {
     std::vector<std::string> profiles { "debug", "release" };
     if (manifest_has_stack_key(value, "android")) {
-        profiles.push_back("android");
+        profiles.emplace_back("android");
     }
     if (manifest_has_stack_key(value, "kde")) {
-        profiles.push_back("kde");
+        profiles.emplace_back("kde");
     }
     return profiles;
 }
@@ -1121,21 +1120,21 @@ std::vector<std::string> supported_build_profiles(const manifest& value) {
 std::vector<std::string> supported_check_profiles(const manifest& value) {
     std::vector<std::string> profiles;
     if (has_tests_enabled(value)) {
-        profiles.push_back("tests");
-        profiles.push_back("coverage");
-        profiles.push_back("leaks");
+        profiles.emplace_back("tests");
+        profiles.emplace_back("coverage");
+        profiles.emplace_back("leaks");
     }
     if (manifest_has_stack_key(value, "jni")) {
-        profiles.push_back("java");
+        profiles.emplace_back("java");
     }
-    profiles.push_back("tidy");
-    profiles.push_back("format");
-    profiles.push_back("naming");
-    profiles.push_back("style");
-    profiles.push_back("repo");
-    profiles.push_back("doxy");
-    profiles.push_back("sphinx");
-    profiles.push_back("ci");
+    profiles.emplace_back("tidy");
+    profiles.emplace_back("format");
+    profiles.emplace_back("naming");
+    profiles.emplace_back("style");
+    profiles.emplace_back("repo");
+    profiles.emplace_back("doxy");
+    profiles.emplace_back("sphinx");
+    profiles.emplace_back("ci");
     return profiles;
 }
 
@@ -1146,7 +1145,7 @@ std::vector<std::string> supported_report_kinds() {
 std::vector<std::string> supported_platforms(const manifest& value) {
     std::vector<std::string> platforms { "native" };
     if (manifest_has_stack_key(value, "android")) {
-        platforms.push_back("android");
+        platforms.emplace_back("android");
     }
     return platforms;
 }
@@ -1198,12 +1197,12 @@ bool supports_report_kind(const std::string& kind) {
 }
 
 bool manifest_has_stack_key(const manifest& value, const std::string& key) {
-    for (const component& component_value : value.components) {
-        if (component_has_stack_key(component_value, key)) {
-            return true;
+    return std::ranges::any_of(
+        value.components,
+        [&](const component& component_value) {
+            return component_has_stack_key(component_value, key);
         }
-    }
-    return false;
+    );
 }
 
 bool has_tests_enabled(const manifest& value) {

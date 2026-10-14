@@ -682,7 +682,7 @@ void test_clang_analysis_reports_unusable_inputs() {
 void test_clang_analysis_runs_on_sample_project() {
     temp_dir root;
     ecosystem::manifest manifest_value = sample_manifest();
-    manifest_value.components.front().modules.push_back("sample/core");
+    manifest_value.components.front().modules.emplace_back("sample/core");
     std::string error_message;
     require_true(
         ecosystem::save_manifest(

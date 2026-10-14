@@ -106,11 +106,11 @@ void test_cli_benchmark_builds_release_benchmarks_and_writes_reports() {
         "ecos benchmark must persist the raw benchmark log"
     );
     require_contains(
-        read_text(report_root / "summary.json"), "\"algorithm\": \"native\"",
+        read_text(report_root / "summary.json"), R"("algorithm": "native")",
         "ecos benchmark must emit a machine-readable benchmark summary"
     );
     require_contains(
-        read_text(report_root / "summary.json"), "\"algorithm\": \"transpose\"",
+        read_text(report_root / "summary.json"), R"("algorithm": "transpose")",
         "ecos benchmark must include each parsed benchmark series "
         "in the summary"
     );
