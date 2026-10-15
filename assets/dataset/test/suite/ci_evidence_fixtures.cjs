@@ -67,8 +67,9 @@ function fixture(t, delta = 'source') {
     }
     Object.assign(env, overrides);
     for (const name of evidence.fileNames(kind, env.COVERAGE_STATUS).filter(name => !name.startsWith('github/selection/')))
-      write('.ecosystem/' + name, name === 'reports/coverage.json'
-        ? '{"type":"llvm.coverage.json.export","data":[{"files":[{}],"totals":{"lines":{"count":10,"covered":7}}}]}' : 'native evidence\n');
+      write('.ecosystem/' + name, 'native evidence\n');
+    if (kind === 'checks' && env.COVERAGE_STATUS === 'passed')
+      execFileSync('python3', [path.join(__dirname, 'coverage_fixture.py'), root]);
     await evidence.record({github, core, context: {...context, runId}, env, root, runtime});
     if (!outputs.directory) return null;
     return JSON.parse(fs.readFileSync(path.join(outputs.directory, 'receipt.json')));

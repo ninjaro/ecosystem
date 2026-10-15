@@ -38,7 +38,7 @@ class DiagnosticTests(PresentationCase):
         self.assertIn('data-diagnostic-filter="category"', body)
         self.assertIn('data-diagnostic-filter="severity"', body)
         self.assertIn('Raw scope and measurements', body)
-        self.assertIn('No verification evidence was selected', body)
+        self.assertIn('Coverage unavailable', files['coverage/index.html'].decode())
         self.assertIn('diagnostics/filters.js', files)
         self.assertIn('diagnostics/style.css', files)
 

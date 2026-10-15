@@ -90,7 +90,7 @@ for (const mode of ['fresh', 'reuse', 'mixed']) for (const trigger of ['checks',
     await f.revalidate(source);
     f.write('.ecosystem/doxygen/html/index.html', 'fresh API');
     execFileSync('python3', ['-c',
-      'import pathlib,runpy,sys\nsys.dont_write_bytecode=True\nsys.path.insert(0,str(pathlib.Path(sys.argv[1]).parent))\nm=runpy.run_path(sys.argv[1])\nbody,files,pages=m["compose"](pathlib.Path(sys.argv[2]),sys.argv[3])\nassert "70.0%" in body and "03-codeql-analysis" in body and "artifact_digest" in body',
+      'import pathlib,runpy,sys\nsys.dont_write_bytecode=True\nsys.path.insert(0,str(pathlib.Path(sys.argv[1]).parent))\nm=runpy.run_path(sys.argv[1])\nbody,files,pages=m["compose"](pathlib.Path(sys.argv[2]),sys.argv[3])\nassert b"70.0%" in files["coverage/index.html"] and "03-codeql-analysis" not in body and "artifact_digest" not in body',
       path.resolve(__dirname, '../../../templates/tooling/sphinx_presentation.py.tpl'), f.root, f.outputs.directory]);
   });
 
@@ -165,7 +165,9 @@ for (const mode of ['fresh', 'reuse'])
 test('manual deployment also requires the current default-branch revision', async t => {
   const f = await publicationFixture(t);
   f.context.eventName = 'workflow_dispatch';
-  await f.revalidate('');
+  await assert.rejects(f.revalidate(''), /source/);
+  await f.publish();
+  await f.revalidate(f.outputs.source);
   await evidence.checkPublicationTip({github: f.github, context: f.context});
   f.state.tip = f.head;
   await assert.rejects(f.revalidate(''), /tip/);
@@ -193,9 +195,10 @@ for (const change of ['expired', 'rerun']) test('green reuse pushes still reject
 
 test('unsupported coverage remains explicit in automatic publication', async t => {
   const f = await publicationFixture(t);
-  fs.unlinkSync(path.join(f.root, '.ecosystem/github/evidence/checks/reports/coverage.json'));
+  for (const name of ['coverage.json', 'coverage.zip'])
+    fs.unlinkSync(path.join(f.root, '.ecosystem/github/evidence/checks/reports', name));
   f.changeReceipt('checks', receipt => {
-    receipt.coverage = 'skipped'; delete receipt.files['reports/coverage.json'];
+    receipt.coverage = 'skipped'; delete receipt.files['reports/coverage.json']; delete receipt.files['reports/coverage.zip'];
   });
   await f.publish();
   assert.equal(f.outputs.ready, 'true', f.notices.join('\n'));
@@ -216,4 +219,24 @@ test('GitHub ref-qualified workflow paths retain exact receipt identity', async 
   assert.equal(f.outputs.ready, 'true', f.notices.join('\n'));
   f.runs[202].path = '.github/workflows/codeql.yml@unrelated';
   await assert.rejects(f.revalidate(f.outputs.source));
+});
+
+
+test('manual Deploy consumes verified exact-commit Checks and CodeQL artifacts', async t => {
+  const f = await publicationFixture(t, 'fresh');
+  f.context.eventName = 'workflow_dispatch';
+  delete f.context.payload.workflow_run;
+  await f.publish();
+  assert.equal(f.outputs.ready, 'true');
+  assert.ok(fs.existsSync(path.join(f.outputs.directory, 'reports/coverage.zip')));
+  await f.revalidate(f.outputs.source);
+});
+
+test('manual Deploy refuses missing quality gates instead of running coverage', async t => {
+  const f = await publicationFixture(t, 'fresh');
+  f.context.eventName = 'workflow_dispatch';
+  delete f.context.payload.workflow_run;
+  f.runs[202].conclusion = 'failure';
+  await assert.rejects(f.publish(), /failed|success|completed|verification/i);
+  assert.equal(f.outputs.ready, 'false');
 });

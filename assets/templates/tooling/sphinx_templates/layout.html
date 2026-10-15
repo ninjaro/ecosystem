@@ -1,0 +1,9 @@
+{% extends "!layout.html" %}
+{% block menu %}
+{% include "ecosystem-navigation.html" %}
+{% print super() %}
+{% endblock %}
+{% block sidebarextra %}
+{% include "ecosystem-navigation.html" %}
+{% print super() %}
+{% endblock %}

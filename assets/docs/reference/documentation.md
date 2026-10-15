@@ -4,7 +4,7 @@ This maintained reference unit has only internal document dependencies. Its API
 contracts are authored text: reading or rendering them does not require source
 headers, generated API XML, planning records or verification receipts. The project
 presentation command described below additionally composes implementation-derived
-API and results; that output is separate from this unit's authored specifications.
+API and coverage; that output is separate from this unit's authored specifications.
 
 Install Doxygen and Graphviz, then install Sphinx, Breathe, MyST and the chosen
 theme in the Python environment that provides `sphinx-build`. For example:
@@ -38,8 +38,8 @@ self-containment contract; plans, research and history belong outside the unit.
 
 `check sphinx` first runs the same project-wide Doxygen operation as `check doxy`.
 Doxygen generates fresh HTML and XML from manifest-owned implementation inputs.
-The generated project-results section publishes the standalone API reference
-separately from the authored specifications. Authored pages describe stable API
+The global **C++ API (Doxygen)** navigation item opens the native HTML reference,
+including its search, graphs and cross-references, separately from authored pages. Authored pages describe stable API
 contracts directly; they do not import source declarations through Breathe or
 autodoc. The generated configuration retains Breathe for the publication tooling.
 
@@ -57,25 +57,40 @@ Generated path aliases and incompatible types fail before cleanup. A retained
 `html.previous/` directory indicates interrupted publication recovery and must be
 restored or moved before retrying.
 
-Every public page links to **Project results** at `_ecosystem/index.html`, using
-the selected Sphinx theme. This section includes the fresh standalone Doxygen
-reference, selected verification reports, available successful benchmark output,
-and media listed in `assets/showcase/index.tsv`. The `_ecosystem/` documentation
-namespace is reserved for this generated section. Composition completes inside
-the pending site, so a failed composition preserves the
-previous documentation and reports together.
+Every public Sphinx page exposes **Documentation**, **C++ API (Doxygen)** and
+**Code Coverage** in its theme navigation, independently of the authored index.
+Relative URLs work under a Pages project subpath and from nested pages. Doxygen
+pages also link directly to coverage. Native Doxygen pages are never duplicated
+inside Sphinx. The `_ecosystem/` namespace is reserved for generated publication.
+Media, benchmarks and diagnostics remain separate at `_ecosystem/index.html`;
+CI logs and verification receipts are internal evidence, not public dashboards.
 
-Local docs builds do not automatically consume old coverage or check reports.
-To include a selected Checks, combined publication or manual Pages receipt, set
-`ECOSYSTEM_SPHINX_EVIDENCE` to its generated report directory within the project when invoking
-`engels check sphinx`. The renderer checks the project, current Git tree, clean
-tracked inputs, complete report set, sizes and SHA-256 hashes. It displays source
-revision/run facts and computes coverage percentages from LLVM covered/total
-counts; unsupported coverage is explicit. The caller remains responsible for
-authorizing the source workflow/jobs/artifact before selecting downloaded evidence.
-Rendering a local receipt does not authenticate GitHub verification.
-Selected evidence and diagnostics cannot come from root-level `docs/`; working
-documents never become publication inputs indirectly.
+`engels check coverage` requires Python 3 (standard library only) and generates
+actual LLVM export data and detailed LLVM HTML
+while instrumented binaries and merged profiles are available. Production source
+ownership includes instrumented headers/templates; test entrypoints, benchmark
+sources, generated and external code are excluded. All selected test binaries
+contribute to the same export and HTML report. The existing input-file-list merge
+keeps large profile inventories independent of command-line limits.
+
+The public site at `_ecosystem/coverage/index.html` provides overall **Lines**,
+**Functions**, **Branches** and **Regions**, sortable per-file/function tables,
+covered/uncovered functions, and links to LLVM source pages with line execution,
+branch counts, regions and instantiations. Percentages use measured covered/total
+counts; zero denominators are not applicable. No selected evidence or explicitly
+unsupported coverage displays **Coverage unavailable**, never invented percentages.
+
+Checks seals `.ecosystem/reports/coverage.json` and the portable `coverage.zip`
+site into its verification evidence artifact. The large site is uploaded once.
+Deploy downloads this artifact; it never runs tests, instruments binaries, merges
+profiles or invokes LLVM analysis. To render selected evidence locally, set
+`ECOSYSTEM_SPHINX_EVIDENCE` to its project-local report directory. The renderer
+requires the exact current Git commit/tree, clean source, full verification scope,
+complete report set, sizes and SHA-256 hashes. It validates the archive, measured
+summary totals and source/function page targets before integrating it.
+The caller additionally authorizes the GitHub workflow/jobs/artifact. Rendering a
+local receipt alone does not authenticate hosted verification. Root `docs/` can
+never supply authored pages, selected evidence or diagnostics.
 
 Benchmark snapshots come from successful `marx benchmark` results belonging to
 currently declared artifacts. They are labeled separately from verification and
@@ -91,7 +106,7 @@ inputs, path traversal, symlinks and report/media inputs exceeding 256 MiB fail
 composition. Fresh native Doxygen HTML is streamed separately, with a 1 GiB limit.
 Removed media/reports disappear on the next successful fresh build.
 
-Project results links each indexed asset category at
+The media page links each indexed asset category at
 `_ecosystem/catalog/<category>/index.html`. Its optional `readme.md` renders with
 MyST around a `<carousel/>` block outside code; absent readmes provide the carousel
 alone. Relative links resolve to the category's selected files. Register and reorder entries with
@@ -133,14 +148,13 @@ job receives Pages write/OIDC permissions; its concurrency group serializes
 deployments. Checkouts are pinned to the selected revision without persisted
 credentials. Scheduled CodeQL does not trigger publication.
 
-Manual default-branch dispatch remains available. It checks repository state,
-runs coverage when the manifest supports tests and freezes those successful
-results before Sphinx runs. The page identifies these narrower prerequisites;
-it does not claim that a manual dispatch performed full Checks/CodeQL verification.
-Both paths require the selected snapshot and a successful current Sphinx build
-with a composed results page. Missing docs, failed stages, incomplete result
-records and retained publication recovery state block deployment, even if old
-HTML exists. Diagnostic reports and native logs are retained on failure.
+Manual default-branch dispatch uses the same successful exact-commit Checks and
+CodeQL evidence and revalidation gates as automatic publication. It cannot create
+its own weaker receipt or recompute coverage. Missing verified prerequisites fail
+manual publication explicitly. Both paths require a successful current composed
+site, including API and coverage pages. Failed stages, incomplete evidence and
+publication recovery state block deployment even if old HTML exists. Internal
+diagnostic reports and native logs are retained on failure.
 
 The native integration regression is opt-in so ordinary C++ checks need no Python
 documentation environment. After building the test target, run:

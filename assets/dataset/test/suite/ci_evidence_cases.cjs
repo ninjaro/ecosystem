@@ -169,66 +169,6 @@ test('service aliases are rejected without modifying their destination', async t
   assert.deepEqual(fs.readdirSync(path.join(f.root, 'retained')), []);
 });
 
-function manualFixture(t) {
-  const f = fixture(t);
-  const context = {repo: {owner: 'owner', repo: 'project'}, runId: 999, sha: f.tested,
-    ref: 'refs/heads/main', eventName: 'workflow_dispatch', payload: {repository: f.repository}};
-  const env = {GITHUB_RUN_ATTEMPT: '1', REPOSITORY_OUTCOME: 'success', REPOSITORY_STATUS: 'passed', REPOSITORY_EXIT_CODE: '0',
-    COVERAGE_OUTCOME: 'success', COVERAGE_STATUS: 'passed', COVERAGE_EXIT_CODE: '0'};
-  for (const stage of ['01-tracked-surface', '02-coverage-check'])
-    for (const file of ['summary.md', 'output.log']) f.write(`.ecosystem/github/reports/${stage}/${file}`, 'current prerequisite');
-  f.write('.ecosystem/reports/coverage.json', '{"type":"llvm.coverage.json.export","data":[{"files":[{}],"totals":{"lines":{"count":10,"covered":7}}}]}');
-  return {...f, context, env, snapshot: () => evidence.presentation({root: f.root, context, env, core: f.core})};
-}
-
-test('manual Pages snapshots only its current successful prerequisites', async t => {
-  const f = manualFixture(t);
-  await f.snapshot();
-  const receipt = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, 'receipt.json')));
-  assert.equal(receipt.kind, 'pages');
-  assert.equal(receipt.tested_tree, f.tree);
-  assert.equal(receipt.run_attempt, 1);
-  assert.equal(receipt.coverage, 'passed');
-  assert.ok(!Object.keys(receipt.files).some(name => name.includes('required-checks')));
-  for (const [name, info] of Object.entries(receipt.files))
-    assert.equal(evidence.hash(fs.readFileSync(path.join(f.outputs.directory, name))), info.sha256);
-  assert.equal(f.outputs.name, undefined, 'manual presentation must not create a reusable CI artifact');
-  f.write('.ecosystem/doxygen/html/index.html', 'fresh API');
-  execFileSync('python3', ['-c',
-    'import pathlib,runpy,sys\nsys.dont_write_bytecode=True\nsys.path.insert(0,str(pathlib.Path(sys.argv[1]).parent))\nm=runpy.run_path(sys.argv[1])\nbody,files,pages=m["compose"](pathlib.Path(sys.argv[2]),sys.argv[3])\nassert "70.0%" in body and "01-tracked-surface" in body\nassert "doxygen/index.html" in files',
-    path.resolve(__dirname, '../../../templates/tooling/sphinx_presentation.py.tpl'), f.root, f.outputs.directory]);
-});
-
-test('manual unsupported coverage excludes an old export', async t => {
-  const f = manualFixture(t);
-  f.env.COVERAGE_STATUS = 'skipped'; f.env.COVERAGE_EXIT_CODE = '3';
-  await f.snapshot();
-  const receipt = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, 'receipt.json')));
-  assert.equal(receipt.coverage, 'skipped');
-  assert.ok(!fs.existsSync(path.join(f.outputs.directory, 'reports/coverage.json')));
-});
-
-for (const [name, change] of Object.entries({
-  'wrong branch': f => { f.context.ref = 'refs/heads/feature'; },
-  'PR event': f => { f.context.eventName = 'pull_request'; },
-  'wrong checkout': f => { f.context.sha = f.head; },
-  'failed repository stage': f => { f.env.REPOSITORY_STATUS = 'failed'; },
-  'missing repository outcome': f => { delete f.env.REPOSITORY_OUTCOME; },
-  'failed coverage': f => { f.env.COVERAGE_OUTCOME = 'failure'; },
-  'false unsupported coverage': f => { f.env.COVERAGE_STATUS = 'skipped'; f.env.COVERAGE_EXIT_CODE = '4'; },
-  'missing attempt': f => { delete f.env.GITHUB_RUN_ATTEMPT; },
-  'missing report': f => { fs.unlinkSync(path.join(f.root, '.ecosystem/github/reports/02-coverage-check/summary.md')); },
-  'dirty tracked source': f => { f.write('src/main.cpp', 'changed'); },
-  'untracked authored source': f => { f.write('unexpected.cpp', 'changed'); },
-  'previous presentation': f => { f.write('.ecosystem/github/presentation/receipt.json', 'previous'); },
-})) test('manual Pages rejects ' + name, async t => {
-  const f = manualFixture(t);
-  change(f);
-  await assert.rejects(f.snapshot());
-  assert.equal(f.outputs.directory, undefined);
-});
-
-
 for (const strategy of ['merge', 'squash', 'rebase'])
   test(strategy + ' reuses both verified PR runs when the tested and merged trees match', async t => {
     const f = await consumerFixture(t, strategy);

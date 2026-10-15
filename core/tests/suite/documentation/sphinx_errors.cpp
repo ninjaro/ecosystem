@@ -12,6 +12,10 @@ void test_sphinx_output_aliases() {
            ".ecosystem/sphinx/ecosystem_documentation_boundary.py",
            ".ecosystem/sphinx/sphinx_presentation",
            ".ecosystem/sphinx/sphinx_presentation/assets.py",
+           ".ecosystem/sphinx/sphinx_presentation/coverage.py",
+           ".ecosystem/sphinx/coverage_site.py",
+           ".ecosystem/sphinx/templates",
+           ".ecosystem/sphinx/templates/layout.html",
            ".ecosystem/sphinx/sphinx_presentation/benchmarks.py",
            ".ecosystem/sphinx/sphinx_presentation/benchmark_data.py",
            ".ecosystem/sphinx/sphinx_presentation/diagnostics.py",
@@ -134,8 +138,9 @@ void test_sphinx_failure_recovery() {
         );
     }
     fs::remove(project / "assets/docs/sphinx.json");
-    for (const auto* mode : { "fail", "empty", "empty-index", "index-only",
-                              "empty-results", "missing-api", "empty-api" }) {
+    for (const auto* mode :
+         { "fail", "empty", "empty-index", "index-only", "empty-results",
+           "missing-api", "empty-api", "missing-coverage", "empty-coverage" }) {
         for (const auto* name : { "index.html", "_ecosystem/index.html",
                                   "_ecosystem/doxygen/index.html" })
             write_text(directory / "html.pending" / name, "stale candidate\n");

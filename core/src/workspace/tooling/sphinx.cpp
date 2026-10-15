@@ -207,10 +207,10 @@ bool write_local_sphinx_conf(
         ))
         return false;
     for (const auto* name :
-         { "__init__.py", "inputs.py", "reports.py", "benchmarks.py",
-           "benchmark_data.py", "diagnostics.py", "diagnostics.js",
-           "diagnostics.css", "assets.py", "readme.py", "previews.py",
-           "carousel.css", "carousel.js" }) {
+         { "__init__.py", "inputs.py", "reports.py", "coverage.py",
+           "benchmarks.py", "benchmark_data.py", "diagnostics.py",
+           "diagnostics.js", "diagnostics.css", "assets.py", "readme.py",
+           "previews.py", "carousel.css", "carousel.js" }) {
         const auto relative = fs::path("sphinx_presentation") / name;
         std::string module;
         if (!render_template(
@@ -221,6 +221,27 @@ bool write_local_sphinx_conf(
             ))
             return false;
     }
+    for (const auto* name : { "layout.html", "ecosystem-navigation.html" }) {
+        std::string page;
+        if (!render_template(
+                fs::path("tooling/sphinx_templates") / name, {}, &page,
+                error_message
+            )
+            || !write_text_file(
+                local_sphinx_dir(project_root) / "templates" / name, page,
+                error_message
+            ))
+            return false;
+    }
+    std::string coverage;
+    if (!render_template(
+            "tooling/coverage_site.py", {}, &coverage, error_message
+        )
+        || !write_text_file(
+            local_sphinx_dir(project_root) / "coverage_site.py", coverage,
+            error_message
+        ))
+        return false;
     return write_text_file(
                local_sphinx_dir(project_root) / "ecosystem_presentation.py",
                presentation, error_message
@@ -262,7 +283,8 @@ bool publish_local_sphinx_output(
     try {
         validate_outputs(root);
         for (const auto* name : { "index.html", "_ecosystem/index.html",
-                                  "_ecosystem/doxygen/index.html" })
+                                  "_ecosystem/doxygen/index.html",
+                                  "_ecosystem/coverage/index.html" })
             if (!fs::is_regular_file(pending / name)
                 || fs::file_size(pending / name) == 0)
                 throw template_render_error(

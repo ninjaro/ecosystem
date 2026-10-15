@@ -32,13 +32,39 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
     write_executable_script(
         bin / "llvm-cov",
         probe
-            + "printf '%s' \"$COVERAGE_TEST_EXPORT\"\n"
+            + "if [ \"$1\" = show ]; then\n"
+              "  if [ \"${COVERAGE_TEST_SHOW_EXIT:-0}\" != 0 ]; then echo "
+              "'HTML render failed' >&2; exit \"$COVERAGE_TEST_SHOW_EXIT\"; "
+              "fi\n"
+              "  if [ \"${COVERAGE_TEST_HTML:-yes}\" = no ]; then exit 0; fi\n"
+              "  for argument do case \"$argument\" in -output-dir=*) "
+              "output=${argument#-output-dir=};; esac; done\n"
+              "  mkdir -p \"$output/coverage$PWD/src/sample\"\n"
+              "  printf '<html><body>LLVM</body></html>' > "
+              "\"$output/index.html\"\n"
+              "  printf '<html><body>source</body></html>' > "
+              "\"$output/coverage$PWD/src/sample/core.cpp.html\"\n"
+              "  exit 0\nfi\n"
+              "printf '%s' \"$COVERAGE_TEST_EXPORT\"\n"
               "exit \"${COVERAGE_TEST_EXPORT_EXIT:-0}\"\n"
     );
     scoped_env path("PATH", bin.string() + ":" + current_path_env());
-    const std::string valid = R"({"type":"llvm.coverage.json.export",
-        "version":"2.0.1","data":[{"files":[{"filename":"tests/main_tests.cpp"}],
-        "totals":{"lines":{"count":1,"covered":1,"percent":100}}}]})";
+    const json metrics { { "lines", { { "count", 1 }, { "covered", 1 } } },
+                         { "functions", { { "count", 1 }, { "covered", 1 } } },
+                         { "branches", { { "count", 0 }, { "covered", 0 } } },
+                         { "regions", { { "count", 1 }, { "covered", 1 } } } };
+    const std::string valid = json {
+        { "type", "llvm.coverage.json.export" },
+        { "version", "2.0.1" },
+        { "data",
+          json::array(
+              { { { "files",
+                    json::array({ { { "filename", "src/sample/core.cpp" },
+                                    { "summary", metrics } } }) },
+                  { "totals", metrics },
+                  { "functions", json::array() } } }
+          ) }
+    }.dump();
     scoped_env export_output("COVERAGE_TEST_EXPORT", valid);
     const auto profiles
         = ecosystem::local_build_dir(project, "coverage") / "profiles";
@@ -46,6 +72,10 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
     const auto log = project / ".ecosystem/reports/coverage.log";
     const auto prepare = [&]() {
         write_text(report, "stale report");
+        write_text(
+            project / ".ecosystem/reports/coverage.zip", "stale archive"
+        );
+        write_text(project / ".ecosystem/coverage/stale.html", "stale site");
         write_text(
             project / ".ecosystem/reports/coverage-merge.json",
             "stale merge report"
@@ -61,6 +91,9 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
                "llvm-profdata merge failed (exit 7)" },
              { "COVERAGE_TEST_MERGE_OUTPUT", "no",
                "no usable coverage profile" },
+             { "COVERAGE_TEST_SHOW_EXIT", "6",
+               "llvm-cov show failed (exit 6): HTML render failed" },
+             { "COVERAGE_TEST_HTML", "no", "llvm-cov produced no HTML index" },
              { "COVERAGE_TEST_EXPORT_EXIT", "9",
                "llvm-cov export failed (exit 9)" },
              { "COVERAGE_TEST_EXPORT", "error: export failed",
@@ -87,7 +120,9 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
         );
         require_contains(result.output, diagnostic, "retain the failing stage");
         require_true(
-            !fs::exists(report) && !fs::exists(profiles / "old.profraw"),
+            !fs::exists(report) && !fs::exists(profiles / "old.profraw")
+                && !fs::exists(project / ".ecosystem/reports/coverage.zip")
+                && !fs::exists(project / ".ecosystem/coverage/stale.html"),
             "failed coverage cannot reuse an old report or old profiles"
         );
         require_not_contains(
@@ -133,8 +168,39 @@ void test_cli_check_coverage_requires_fresh_valid_evidence() {
 
 void test_cli_check_coverage_merges_large_profile_inventory() {
     temp_dir root;
-    const auto project = root.path() / "project with spaces";
+    const auto project = root.path() / "project with # spaces";
     write_sample_leak_check_project(project);
+    auto manifest = sample_leak_check_manifest();
+    auto second = manifest.components.back();
+    second.id = "second";
+    second.file_units
+        = { ecosystem::file_unit { "tests/second_tests", "source_only" } };
+    manifest.components.push_back(second);
+    std::string error;
+    require_true(
+        ecosystem::save_manifest(project / "manifest.json", manifest, &error),
+        error
+    );
+    write_text(
+        project / "include/sample/core.hpp",
+        "#pragma once\nint meaning();\nint unused();\ninline int choose(int x) "
+        "{ return x > 0 ? x : -x; }\n"
+    );
+    write_text(
+        project / "src/sample/core.cpp",
+        "#include \"sample/core.hpp\"\nint meaning() { return 42; }\nint "
+        "unused() { return 0; }\n"
+    );
+    write_text(
+        project / "tests/main_tests.cpp",
+        "#include \"sample/core.hpp\"\nint main() { return meaning() == 42 && "
+        "choose(1) == 1 ? 0 : 1; }\n"
+    );
+    write_text(
+        project / "tests/second_tests.cpp",
+        "#include \"sample/core.hpp\"\nint main() { return meaning() == 42 && "
+        "choose(-1) == 1 ? 0 : 1; }\n"
+    );
     const auto ctest = ecosystem::find_command_path("ctest");
     require_true(
         !ctest.empty() && ecosystem::command_exists("llvm-profdata")
@@ -176,7 +242,7 @@ void test_cli_check_coverage_merges_large_profile_inventory() {
     );
     const auto& command = merge.at("command");
     require_true(
-        merge.at("profile_count") == 2049 && merge.at("exit_code") == 0
+        merge.at("profile_count") == 2050 && merge.at("exit_code") == 0
             && merge.at("input_list_bytes").get<std::size_t>() > 131072U
             && command.size() == 7 && command.at(3) == "--input-files",
         "merge command stays bounded and preserves every runtime profile"
@@ -184,7 +250,7 @@ void test_cli_check_coverage_merges_large_profile_inventory() {
     const auto inputs = read_text(command.at(4).get<std::string>());
     require_true(
         static_cast<std::size_t>(std::count(inputs.begin(), inputs.end(), '\n'))
-            == 2049U,
+            == 2050U,
         "input list must not truncate or drop profiles"
     );
     const auto coverage
@@ -194,6 +260,34 @@ void test_cli_check_coverage_merges_large_profile_inventory() {
             && !coverage.at("data").at(0).at("files").empty(),
         "real llvm-cov export must contain measured authored test data"
     );
+    require_true(
+        fs::is_regular_file(project / ".ecosystem/reports/coverage.zip")
+            && fs::is_regular_file(
+                project / ".ecosystem/coverage/llvm/index.html"
+            ),
+        "real coverage must produce portable source HTML"
+    );
+    const auto summary
+        = json::parse(read_text(project / ".ecosystem/coverage/summary.json"));
+    require_true(
+        summary.at("files").size() == 2 && summary.at("functions").size() == 3,
+        "coverage includes inline production headers and excludes both test "
+        "entrypoints"
+    );
+    require_true(
+        summary.at("totals").at("branches").at("covered") == 2,
+        "both binaries contribute their executed inline branch"
+    );
+    require_contains(
+        read_text(project / ".ecosystem/coverage/index.html"), "Uncovered",
+        "unexecuted production functions remain visible"
+    );
+    for (const auto* page : { "index.html", "llvm/index.html" })
+        require_contains(
+            read_text(project / ".ecosystem/coverage" / page), "%23",
+            "literal source path fragments must be URL-encoded before function "
+            "anchors"
+        );
     scoped_env corrupt("COVERAGE_TEST_CORRUPT_PROFILE", "1");
     const auto failed = run_engels_cli(project, "check coverage");
     const auto failed_merge = json::parse(
@@ -201,7 +295,7 @@ void test_cli_check_coverage_merges_large_profile_inventory() {
     );
     require_true(
         failed.exit_code == 5 && failed_merge.at("exit_code") == 1
-            && failed_merge.at("profile_count") == 2050
+            && failed_merge.at("profile_count") == 2051
             && !fs::exists(project / ".ecosystem/reports/coverage.json"),
         "a bad profile must fail the complete merge, even with valid profiles"
     );
@@ -221,7 +315,9 @@ void test_cli_check_coverage_rejects_aliased_service_outputs() {
            ".ecosystem/build/project/desktop/debug/coverage/profiles",
            ".ecosystem/reports", ".ecosystem/reports/coverage.json",
            ".ecosystem/reports/coverage.log",
-           ".ecosystem/reports/coverage-merge.json" }) {
+           ".ecosystem/reports/coverage-merge.json",
+           ".ecosystem/reports/coverage.zip", ".ecosystem/coverage",
+           ".ecosystem/coverage/llvm" }) {
         temp_dir root;
         const auto project = root.path() / "project";
         write_sample_leak_check_project(project);

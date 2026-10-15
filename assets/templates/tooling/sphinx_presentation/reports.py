@@ -1,12 +1,11 @@
-"""Selected verification evidence and separate local benchmark snapshots."""
+"""Validate selected verification evidence without publishing internal reports."""
 import hashlib
-import html
 import json
 from pathlib import Path
 import re
 import subprocess
 
-from .inputs import pre, require, safe_path
+from .inputs import require
 
 
 def change_selection(selection, identity, project, manifest):
@@ -42,22 +41,23 @@ def change_selection(selection, identity, project, manifest):
         require(report['classification'] == 'full' and report.get('format', {}).get('scope') == 'full', 'unvalidated narrow classification')
 
 
-def verification(inputs, evidence):
+def verified_coverage(inputs, evidence):
     if not evidence:
-        return '<p>No verification evidence was selected for this documentation build.</p>'
+        return None
     # Selection is explicit. Local files are integrity checked, not a substitute
     # for the CI caller's workflow/job/artifact authorization checks.
     directory = Path(evidence).absolute().relative_to(inputs.root.absolute())
     prefix = directory.as_posix() + '/'
     receipt = json.loads(inputs.read(prefix + 'receipt.json'))
     kind = receipt.get('kind')
-    require(kind in ('checks', 'pages', 'publication')
+    require(kind in ('checks', 'publication')
             and 'schema' not in receipt, 'unknown receipt')
     project = json.loads(inputs.read('manifest.json'))['id']
     require(receipt.get('policy', {}).get('project') == project, 'receipt project differs')
     def git(*args):
         return subprocess.check_output(['git', '-C', str(inputs.root), *args], text=True).strip()
-    require(receipt.get('tested_tree') == git('rev-parse', 'HEAD^{tree}'), 'receipt tree differs')
+    require(receipt.get('tested_tree') == git('rev-parse', 'HEAD^{tree}')
+            and receipt.get('tested_commit') == git('rev-parse', 'HEAD'), 'receipt revision differs')
     git('diff', '--quiet', '--ignore-submodules=none', 'HEAD')
     require(not git('ls-files', '--others', '--exclude-standard'), 'untracked authored inputs differ')
     require(re.fullmatch('[0-9a-f]{40}', receipt.get('tested_commit', '')), 'invalid tested revision')
@@ -71,7 +71,7 @@ def verification(inputs, evidence):
         full_scope(receipt.get('verification'), check_stages)
     coverage = receipt.get('coverage')
     require(coverage in ('passed', 'skipped'), 'coverage is incomplete')
-    stages = ['01-tracked-surface', '02-coverage-check'] if receipt['kind'] == 'pages' else ['01-required-checks', '02-coverage-check']
+    stages = ['01-required-checks', '02-coverage-check']
     stage_files = {stage: ('summary.md', 'output.log') for stage in stages}
     if receipt['kind'] == 'publication':
         source = receipt.get('verification', {})
@@ -84,10 +84,10 @@ def verification(inputs, evidence):
         stage_files['02-codeql-build'] = ('summary.md', 'output.log')
         stage_files['03-codeql-analysis'] = ('summary.md',)
     expected = {f'github/reports/{stage}/{name}' for stage, names in stage_files.items() for name in names}
-    selections = ['checks', 'codeql'] if kind == 'publication' else ['checks'] if kind == 'checks' else []
+    selections = ['checks', 'codeql'] if kind == 'publication' else ['checks']
     expected.update(f'github/selection/{selected}.json' for selected in selections)
     if coverage == 'passed':
-        expected.add('reports/coverage.json')
+        expected.update(('reports/coverage.json', 'reports/coverage.zip'))
     require(isinstance(receipt.get('files'), dict) and set(receipt['files']) == expected, 'incomplete report set')
     reports = {}
     for name, record in sorted(receipt['files'].items()):
@@ -103,36 +103,7 @@ def verification(inputs, evidence):
             require(isinstance(identity, dict) and all(identity.get(key) == receipt['files'][name][key]
                     for key in ('bytes', 'sha256')), 'classification provenance differs')
         change_selection(json.loads(reports[name]), identity, project, git('rev-parse', 'HEAD:manifest.json'))
-    source = {key: receipt.get(key) for key in ('kind', 'repository', 'run_id', 'run_attempt', 'tested_commit', 'tested_tree')}
-    if receipt['kind'] in ('checks', 'publication'):
-        source['verification'] = receipt['verification']
-    body = '<h3>Source</h3>' + pre(json.dumps(source, indent=2))
-    body += '<h3>Coverage</h3>'
     if coverage == 'skipped':
-        body += '<p>Unsupported by this project; no coverage percentage is claimed.</p>'
-    else:
-        report = json.loads(reports['reports/coverage.json'])
-        require(report.get('type') == 'llvm.coverage.json.export' and report.get('data'), 'invalid LLVM coverage export')
-        totals = {}
-        for entry in report['data']:
-            require(entry.get('files') and isinstance(entry.get('totals'), dict), 'incomplete LLVM coverage export')
-            for metric in ('lines', 'functions', 'regions', 'branches'):
-                value = entry['totals'].get(metric)
-                if value is None:
-                    continue
-                count, covered = value.get('count'), value.get('covered')
-                require(type(count) is int and type(covered) is int and 0 <= covered <= count, 'invalid coverage count')
-                old = totals.get(metric, (0, 0))
-                totals[metric] = (old[0] + count, old[1] + covered)
-        require(totals, 'coverage has no totals')
-        body += '<table><tr><th>Metric</th><th>Covered / total</th><th>Percent</th></tr>'
-        for metric, (count, covered) in totals.items():
-            percent = f'{100 * covered / count:.1f}%' if count else 'Not applicable'
-            body += f'<tr><td>{metric}</td><td>{covered} / {count}</td><td>{percent}</td></tr>'
-        body += '</table>'
-    for stage, names in stage_files.items():
-        body += '<h3>' + html.escape(stage) + '</h3>'
-        for name in names:
-            # Markdown/logs are displayed as data, never interpreted as HTML.
-            body += '<details><summary>' + name + '</summary>' + pre(reports[f'github/reports/{stage}/{name}'].decode('utf-8', errors='replace')) + '</details>'
-    return body
+        return {'status': 'skipped'}
+    return {'status': 'passed', 'report': json.loads(reports['reports/coverage.json']),
+            'archive': reports['reports/coverage.zip']}

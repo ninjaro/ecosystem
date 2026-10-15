@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import ecosystem_presentation as presentation
 from .media import image
+from coverage_fixture import fixture as coverage_fixture
 
 
 def preview_converter(case):
@@ -42,7 +43,7 @@ class PresentationCase(unittest.TestCase):
     def write(self, name, value):
         file = self.root / name
         file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(value)
+        file.write_bytes(value) if isinstance(value, bytes) else file.write_text(value)
 
     def evidence(self, status='passed', kind='checks'):
         prefix = '.ecosystem/evidence/'
@@ -62,10 +63,11 @@ class PresentationCase(unittest.TestCase):
                 'report': {'project': 'example', 'delta_validated': False,
                            'classification': 'full', 'format': {'scope': 'full'}}})
         if status == 'passed':
-            files['reports/coverage.json'] = json.dumps({'type': 'llvm.coverage.json.export', 'data': [{'files': [{}], 'totals': {'lines': {'count': 10, 'covered': 7}, 'branches': {'count': 0, 'covered': 0}}}]})
+            files['reports/coverage.json'], files['reports/coverage.zip'] = coverage_fixture(self.root)
         for name, data in files.items():
             self.write(prefix + name, data)
-            receipt['files'][name] = {'bytes': len(data.encode()), 'sha256': hashlib.sha256(data.encode()).hexdigest()}
+            encoded = data if isinstance(data, bytes) else data.encode()
+            receipt['files'][name] = {'bytes': len(encoded), 'sha256': hashlib.sha256(encoded).hexdigest()}
         self.write(prefix + 'receipt.json', json.dumps(receipt))
         return self.root / prefix, receipt
 

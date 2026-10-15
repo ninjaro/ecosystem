@@ -48,7 +48,7 @@ mkdir -p "$build_dir"
 printf '<html>fresh Sphinx documentation</html>\n' > "$build_dir/index.html"
 if [ "${SPHINX_TEST_MODE:-}" = index-only ]; then exit 0; fi
 mkdir -p "$build_dir/_ecosystem/doxygen"
-printf '<html>Project results</html>\n' > "$build_dir/_ecosystem/index.html"
+printf '<html>Media and benchmarks</html>\n' > "$build_dir/_ecosystem/index.html"
 if [ "${SPHINX_TEST_MODE:-}" = empty-results ]; then
   : > "$build_dir/_ecosystem/index.html"
 fi
@@ -57,6 +57,13 @@ if [ "${SPHINX_TEST_MODE:-}" != missing-api ]; then
 fi
 if [ "${SPHINX_TEST_MODE:-}" = empty-api ]; then
   : > "$build_dir/_ecosystem/doxygen/index.html"
+fi
+if [ "${SPHINX_TEST_MODE:-}" != missing-coverage ]; then
+  mkdir -p "$build_dir/_ecosystem/coverage"
+  printf '<html>Code Coverage</html>\n' > "$build_dir/_ecosystem/coverage/index.html"
+fi
+if [ "${SPHINX_TEST_MODE:-}" = empty-coverage ]; then
+  : > "$build_dir/_ecosystem/coverage/index.html"
 fi
 echo 'fixture Sphinx finished'
 )sh");

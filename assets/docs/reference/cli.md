@@ -388,12 +388,13 @@ rerunning tests, coverage or CodeQL. Evidence is revalidated after docs and befo
 deployment, and tip checks reject superseded revisions. Deployment alone receives
 Pages write/OIDC permissions and serializes with other deployments.
 
-Manual default-branch dispatch remains available. It freezes current repository
-and coverage prerequisites into a hashed snapshot; its reports describe those
-prerequisites rather than full Checks/CodeQL verification. The Sphinx Project
-results section combines authored docs, standalone Doxygen, selected coverage/check
-reports, local benchmark snapshots and indexed showcase media. Both publication
-paths require a complete selected snapshot and a successful current composed site.
+Manual default-branch dispatch uses the same exact-commit Checks/CodeQL evidence
+and revalidation as automatic publication. Neither path reruns tests or coverage.
+Sphinx navigation always links Documentation, the native C++ API and Code Coverage.
+Coverage uses the prebuilt LLVM HTML and four-metric summary sealed by Checks;
+raw logs and receipts remain internal. Media and benchmark snapshots remain
+separate. Both publication paths require a complete selected snapshot and a
+successful current composed site.
 
 ---
 
@@ -1050,14 +1051,18 @@ The graph and parser worker counts are bounded by the shared template.
 
 
 `coverage` runs instrumented tests in its separate coverage build tree. Each
-test-enabled invocation clears old raw/merged profiles and the previous
-`.ecosystem/reports/coverage.json` before running tools. A failing or empty test
-run, missing profiles, failed/empty merge, nonzero export, or malformed/empty LLVM
-JSON returns `task_failed`. Only a successful export with measured file data is
-published as `coverage.json`; export output is retained in `coverage.log`, including
-rejected output. Coverage service paths cannot use symlinks or incompatible types;
-report/log hard links are also rejected before cleanup. A successful report covers
-only the selected tests and the paths they execute.
+test-enabled invocation clears old raw/merged profiles, the previous
+`.ecosystem/reports/coverage.json`, `coverage.zip` and generated `.ecosystem/coverage/`
+site before running tools. Failing tests, missing profiles, failed/empty merge,
+nonzero LLVM export/show or malformed/incomplete output return `task_failed`.
+The merge uses an input-file list; its exact exit status and diagnostics survive.
+All selected test binaries contribute to LLVM export and detailed HTML. Only
+manifest-owned production code, including instrumented headers/templates, appears
+in coverage. The four measured metrics are lines, functions, branches and regions.
+`coverage.json` retains structured LLVM data; `coverage.zip` contains the portable
+summary and native HTML source pages. Commands, durations and native diagnostics
+remain internal. Service aliases and incompatible types are rejected before
+cleanup. Deploy consumes verified artifacts and never recomputes coverage.
 
 `leaks` builds the selected test targets and their dependencies in the separate
 `.ecosystem/build/project/desktop/debug/leaks/` tree. It does not build an unrelated

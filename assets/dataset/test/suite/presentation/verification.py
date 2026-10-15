@@ -8,23 +8,30 @@ from .fixtures import PresentationCase, presentation
 class VerificationTests(PresentationCase):
     def test_checked_coverage_and_escaped_reports(self):
         directory, _ = self.evidence()
-        body, _, _ = presentation.compose(self.root, directory)
-        self.assertIn('70.0%', body)
-        self.assertIn('Not applicable', body)
-        self.assertIn('&lt;script&gt;', body)
-        self.assertNotIn('<script>', body)
+        body, files, _ = presentation.compose(self.root, directory)
+        coverage = files['coverage/index.html'].decode()
+        for metric in ('Lines', 'Functions', 'Branches', 'Regions'):
+            self.assertIn(metric, coverage)
+        self.assertIn('70.0%', coverage)
+        self.assertIn('data-sortable', coverage)
+        self.assertIn('covered()', coverage)
+        self.assertIn('uncovered()', coverage)
+        self.assertIn('Covered', coverage)
+        self.assertIn('Uncovered', coverage)
+        self.assertNotIn('01-required-checks', body + coverage)
+        self.assertNotIn('do not execute', body + coverage)
+        self.assertNotIn('artifact_digest', body + coverage)
 
-    def test_manual_prerequisites_do_not_claim_full_checks(self):
+    def test_manual_only_receipt_cannot_authorize_publication(self):
         directory, _ = self.evidence(kind='pages')
-        body, _, _ = presentation.compose(self.root, directory)
-        self.assertIn('01-tracked-surface', body)
-        self.assertNotIn('01-required-checks', body)
+        with self.assertRaisesRegex(ValueError, 'unknown receipt'):
+            presentation.compose(self.root, directory)
 
     def test_unsupported_coverage_ignores_old_export(self):
         directory, _ = self.evidence('skipped')
         self.write('.ecosystem/evidence/reports/coverage.json', 'old export')
-        body, _, _ = presentation.compose(self.root, directory)
-        self.assertIn('Unsupported', body)
+        body, files, _ = presentation.compose(self.root, directory)
+        self.assertIn('Coverage unavailable', files['coverage/index.html'].decode())
         self.assertNotIn('old export', body)
 
     def test_receipt_failures(self):
@@ -89,3 +96,62 @@ class VerificationTests(PresentationCase):
                     presentation.compose(self.root, directory)
 
 
+    def test_foreign_commit_with_identical_tree_is_rejected(self):
+        directory, receipt = self.evidence()
+        receipt['tested_commit'] = '0' * 40
+        self.write('.ecosystem/evidence/receipt.json', json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, 'revision differs'):
+            presentation.compose(self.root, directory)
+
+    def test_html_artifact_integrity_and_contents(self):
+        import io
+        import zipfile
+        directory, receipt = self.evidence()
+        name = 'reports/coverage.zip'
+        original = (directory / name).read_bytes()
+        self.write('.ecosystem/evidence/' + name, original + b'tampered')
+        with self.assertRaisesRegex(ValueError, 'digest'):
+            presentation.compose(self.root, directory)
+        with zipfile.ZipFile(io.BytesIO(original)) as archive:
+            files = {entry: archive.read(entry) for entry in archive.namelist()}
+        for change in ('traversal', 'internal-receipt', 'missing-source', 'missing-function', 'wrong-totals'):
+            selected = dict(files)
+            summary = json.loads(selected['summary.json'])
+            if change == 'traversal':
+                selected['../outside.html'] = b'forbidden'
+            elif change == 'internal-receipt':
+                selected['receipt.json'] = b'internal evidence'
+            elif change == 'missing-source':
+                selected.pop(summary['files'][0]['html'])
+            elif change == 'missing-function':
+                summary['functions'][0]['html'] = 'llvm/missing.html#L1'
+            else:
+                summary['totals']['lines']['covered'] = 0
+            selected['summary.json'] = json.dumps(summary).encode()
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+                for path, data in selected.items():
+                    archive.writestr(path, data)
+            data = output.getvalue()
+            self.write('.ecosystem/evidence/' + name, data)
+            receipt['files'][name] = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+            self.write('.ecosystem/evidence/receipt.json', json.dumps(receipt))
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                presentation.compose(self.root, directory)
+    def test_publication_consumes_coverage_without_analysis_tools(self):
+        from unittest.mock import patch
+        original = subprocess.run
+        directory, _ = self.evidence()
+        def only_identity_commands(args, *positional, **options):
+            self.assertEqual(args[0], 'git', 'publication may inspect Git identity but must not execute tests or LLVM')
+            return original(args, *positional, **options)
+        with patch('subprocess.run', side_effect=only_identity_commands):
+            _, files, _ = presentation.compose(self.root, directory)
+        self.assertIn('70.0%', files['coverage/index.html'].decode())
+
+    def test_empty_denominators_are_not_invented_percentages(self):
+        from coverage_site import metric, percentage
+        self.assertIsNone(metric({'count': 0, 'covered': 0})['percent'])
+        self.assertEqual(percentage(metric({'count': 0, 'covered': 0})), 'Not applicable')
+        with self.assertRaises(ValueError):
+            metric({'count': 1, 'covered': 2})

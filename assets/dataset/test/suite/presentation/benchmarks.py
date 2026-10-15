@@ -41,7 +41,7 @@ class BenchmarkTests(PresentationCase):
         self.assertIn('two words', body)
         self.assertIn('&lt;script&gt;raw log', body)
         self.assertIn('separate from', body)
-        self.assertIn('No verification evidence was selected', body)
+        self.assertIn('Coverage unavailable', files['coverage/index.html'].decode())
         for name, value in expected.items():
             self.assertEqual(files[self.destination + name], value.encode())
         self.assertIn(self.destination + 'presentation.json', files)

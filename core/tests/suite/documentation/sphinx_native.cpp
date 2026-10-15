@@ -47,16 +47,20 @@ Implementation-derived API pages are published separately.
     const auto directory = ecosystem::local_sphinx_dir(project);
     const auto api = read_text(directory / "html/api.html");
     require_contains(
-        api, "_ecosystem/index.html", "public pages must link project results"
+        api, "_ecosystem/doxygen/index.html",
+        "public pages must link the native C++ API"
     );
     require_true(
         fs::is_regular_file(directory / "html/_ecosystem/doxygen/index.html"),
         "standalone Doxygen HTML must be available from the same site"
     );
     require_contains(
-        read_text(directory / "html/_ecosystem/index.html"),
-        "No verification evidence was selected",
+        read_text(directory / "html/_ecosystem/coverage/index.html"),
+        "Coverage unavailable",
         "local docs must not claim unselected verification"
+    );
+    require_contains(
+        api, "_ecosystem/coverage/index.html", "every page links coverage"
     );
     const auto native_api = read_text(first_recursive_file_with_suffix(
         directory / "html/_ecosystem/doxygen",
@@ -69,6 +73,9 @@ Implementation-derived API pages are published separately.
     require_contains(
         native_api, "Selected public type",
         "generated API preserves Doxygen comments"
+    );
+    require_contains(
+        native_api, "coverage/index.html", "Doxygen links directly to coverage"
     );
     require_not_contains(
         api, "unselected_public_type",
@@ -145,6 +152,14 @@ Implementation-derived API pages are published separately.
         "RST-only projects need no Markdown parser"
     );
     const auto published = read_text(directory / "html/index.html");
+    require_contains(
+        published, "_ecosystem/doxygen/index.html",
+        "Alabaster retains global API navigation"
+    );
+    require_contains(
+        published, "_ecosystem/coverage/index.html",
+        "Alabaster retains global coverage navigation"
+    );
     write_text(
         project / "assets/showcase/index.tsv",
         "id\tpath\ttype\tdescription\tdatetime\n"

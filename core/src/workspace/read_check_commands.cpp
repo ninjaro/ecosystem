@@ -27,7 +27,10 @@ namespace {
         const fs::path& log, const fs::path& merge_report, std::string* error
     ) {
         try {
-            for (const auto& target : { profiles, report, log, merge_report }) {
+            const auto site = root / ".ecosystem/coverage";
+            const auto archive = root / ".ecosystem/reports/coverage.zip";
+            for (const auto& target :
+                 { profiles, report, log, merge_report, site, archive }) {
                 auto path = root;
                 for (const auto& part : target.lexically_relative(root)) {
                     path /= part;
@@ -38,7 +41,8 @@ namespace {
                             + path.string()
                         );
                     if (fs::exists(status)
-                        && ((path != target || target == profiles)
+                        && ((path != target
+                             || (target == profiles || target == site))
                                 ? !fs::is_directory(status)
                                 : !fs::is_regular_file(status)))
                         throw std::runtime_error(
@@ -53,6 +57,19 @@ namespace {
                         );
                 }
             }
+            if (fs::is_directory(site))
+                for (const auto& entry : fs::recursive_directory_iterator(site))
+                    if (entry.is_symlink()
+                        || (!entry.is_directory() && !entry.is_regular_file())
+                        || (entry.is_regular_file()
+                            && fs::hard_link_count(entry.path()) > 1))
+                        throw std::runtime_error(
+                            "coverage site output must not use a symlink, hard "
+                            "link or incompatible type: "
+                            + entry.path().string()
+                        );
+            fs::remove_all(site);
+            fs::remove(archive);
             fs::remove(report);
             fs::remove(log);
             fs::remove(merge_report);
@@ -63,26 +80,6 @@ namespace {
             *error = exception.what();
             return false;
         }
-    }
-
-    bool valid_coverage_export(const std::string& output) {
-        const auto report = json::parse(output, nullptr, false);
-        if (!report.is_object() || !report.contains("type")
-            || report.at("type") != "llvm.coverage.json.export"
-            || !report.contains("version") || !report.at("version").is_string()
-            || report.at("version").get<std::string>().empty()
-            || !report.contains("data") || !report.at("data").is_array()
-            || report.at("data").empty())
-            return false;
-        return std::all_of(
-            report.at("data").begin(), report.at("data").end(),
-            [](const json& entry) {
-                return entry.is_object() && entry.contains("files")
-                    && entry.at("files").is_array()
-                    && !entry.at("files").empty() && entry.contains("totals")
-                    && entry.at("totals").is_object();
-            }
-        );
     }
 
 } // namespace
@@ -367,11 +364,12 @@ command_error run_check_coverage(
     const tool_status ctest_tool = probe_tool("ctest");
     const tool_status profdata_tool = probe_tool("llvm-profdata");
     const tool_status cov_tool = probe_tool("llvm-cov");
-    if (!ctest_tool.available || !profdata_tool.available
-        || !cov_tool.available) {
+    const tool_status python_tool = probe_tool("python3");
+    if (!ctest_tool.available || !profdata_tool.available || !cov_tool.available
+        || !python_tool.available) {
         print_error(
             err, command_error::missing_local_tooling,
-            "coverage requires ctest, llvm-profdata, and llvm-cov"
+            "coverage requires ctest, llvm-profdata, llvm-cov, and python3"
         );
         return command_error::missing_local_tooling;
     }
@@ -523,38 +521,54 @@ command_error run_check_coverage(
     }
 
     ensure_local_artifacts(project_root, false, false);
-    std::vector<std::string> export_args {
-        cov_tool.path,
-        "export",
-        (build_dir / test_targets.front().binary_name).string(),
-        "-instr-profile",
-        profile_data.string(),
-        "-format=text",
+    auto production = manifest_value;
+    std::erase_if(production.components, [](const component& owner) {
+        return component_is_test_only(owner)
+            || component_is_benchmark_only(owner);
+    });
+    std::set<fs::path> excluded;
+    for (const auto& owner : production.components) {
+        for (const auto& path : component_test_sources(project_root, owner))
+            excluded.insert(path.lexically_normal());
+        for (const auto& path :
+             component_benchmark_sources(project_root, owner))
+            excluded.insert(path.lexically_normal());
+    }
+    json sources = json::array();
+    for (const auto& path : declared_cpp_files(production, project_root))
+        if (!excluded.contains(path.lexically_normal()))
+            sources.push_back(fs::absolute(path).lexically_normal().string());
+    json binaries = json::array();
+    for (const auto& target : test_targets)
+        binaries.push_back((build_dir / target.binary_name).string());
+    const auto request_path = profile_dir / "coverage-request.json";
+    const json request {
+        { "root", project_root.string() },
+        { "sources", sources },
+        { "binaries", binaries },
+        { "profile", profile_data.string() },
+        { "llvm_cov", cov_tool.path },
+        { "log", log_path.string() },
+        { "report", report_path.string() },
+        { "archive",
+          (local_report_dir(project_root) / "coverage.zip").string() }
     };
-    for (std::size_t index = 1U; index < test_targets.size(); ++index) {
-        export_args.emplace_back("-object");
-        export_args.push_back(
-            (build_dir / test_targets[index].binary_name).string()
-        );
-    }
-    const auto exported = capture_command_result(export_args, build_dir);
-    if (!write_text_file(log_path, exported.output, &error_message)) {
+    if (!write_text_file(
+            request_path, request.dump(2) + "\n", &error_message
+        )) {
         print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
-    if (exported.exit_code != 0 || !valid_coverage_export(exported.output)) {
-        err << exported.output;
+    const auto generator = locate_template_path("tooling/coverage_site.py");
+    const auto generated = capture_command_result(
+        { python_tool.path, generator.string(), request_path.string() },
+        project_root
+    );
+    out << generated.output;
+    if (generated.exit_code != 0) {
         print_error(
-            err, command_error::task_failed,
-            exported.exit_code != 0
-                ? "llvm-cov export failed (exit "
-                    + std::to_string(exported.exit_code) + ")"
-                : "llvm-cov produced no valid coverage export"
+            err, command_error::task_failed, "coverage site generation failed"
         );
-        return command_error::task_failed;
-    }
-    if (!write_text_file(report_path, exported.output, &error_message)) {
-        print_error(err, command_error::task_failed, error_message);
         return command_error::task_failed;
     }
     out << "coverage report: "

@@ -27,7 +27,7 @@ breathe_projects = {
     project: os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'doxygen', 'xml')),
 }
 breathe_default_project = project
-templates_path = []
+templates_path = [str(Path(__file__).parent / 'templates')]
 exclude_patterns = {{exclude_patterns}}
 myst_heading_anchors = 6
 source_suffix = {

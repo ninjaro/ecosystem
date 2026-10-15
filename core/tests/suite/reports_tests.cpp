@@ -410,6 +410,10 @@ void test_cli_doctor_reports_all_profile_requirements_before_configure() {
                 result.output, "llvm-profdata: missing [required]",
                 "coverage needs profdata"
             );
+            require_contains(
+                result.output, "python3: missing [required]",
+                "coverage HTML generation requires Python before configuring"
+            );
         }
         if (profile == "tidy" || profile == "ci")
             require_contains(
