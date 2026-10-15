@@ -93,7 +93,7 @@ namespace template_text_support {
 
     fs::path source_template_root() { return ECOSYSTEM_SOURCE_TEMPLATE_ROOT; }
 
-    fs::path version_template_root() {
+    fs::path runtime_template_root() {
         const auto executable = executable_path();
         if (!executable.empty()) {
             std::error_code error;
@@ -128,7 +128,7 @@ namespace template_text_support {
             append_unique_path(&candidates, &seen, fs::path(env_root));
         }
 
-        append_unique_path(&candidates, &seen, version_template_root());
+        append_unique_path(&candidates, &seen, runtime_template_root());
         return candidates;
     }
 
@@ -145,34 +145,27 @@ fs::path template_root_path() {
     return {};
 }
 
-fs::path locate_template_path(const std::vector<fs::path>& relative_paths) {
+fs::path locate_template_path(const fs::path& relative_path) {
     for (const fs::path& root : template_root_candidates()) {
-        if (!path_exists(root)) {
-            continue;
-        }
-        for (const fs::path& relative_path : relative_paths) {
-            const fs::path candidate = root / relative_path;
-            if (path_exists(candidate)) {
-                return candidate;
-            }
-        }
+        const auto candidate = root / relative_path;
+        if (path_exists(candidate))
+            return candidate;
     }
     return {};
 }
 
-std::string render_text_template_candidates(
-    const std::vector<fs::path>& relative_paths,
-    const template_bindings& bindings, std::string* error_message
+std::string render_text_template(
+    const fs::path& relative_path, const template_bindings& bindings,
+    std::string* error_message
 ) {
-    const fs::path template_path = locate_template_path(relative_paths);
+    const fs::path template_path = locate_template_path(relative_path);
     if (template_path.empty()) {
         if (error_message != nullptr) {
             *error_message
                 = "unable to locate ecosystem template file; searched";
             for (const auto& root : template_root_candidates())
                 *error_message += " " + root.generic_string();
-            for (const auto& relative : relative_paths)
-                *error_message += " [" + relative.generic_string() + "]";
+            *error_message += " [" + relative_path.generic_string() + "]";
         }
         return {};
     }
@@ -210,15 +203,6 @@ std::string render_text_template_candidates(
     }
 
     return contents;
-}
-
-std::string render_text_template(
-    const fs::path& relative_path, const template_bindings& bindings,
-    std::string* error_message
-) {
-    return render_text_template_candidates(
-        { relative_path }, bindings, error_message
-    );
 }
 
 std::string render_required_text_template(

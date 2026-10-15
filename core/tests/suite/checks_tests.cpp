@@ -984,7 +984,7 @@ void test_cli_format_shares_verifier_selection_and_tool() {
         "int main(){int result=1;if(result){result+=2;}return result;}\n"
     );
     const auto canonical_style
-        = ecosystem::locate_template_path({ "tooling/clang-format.tpl" });
+        = ecosystem::locate_template_path("tooling/clang-format.tpl");
     const auto expected = ecosystem::capture_command_result(
         { real_formatter, "-style=file:" + canonical_style.string(),
           (project / "src/main.cpp").string() }
@@ -1252,7 +1252,7 @@ void test_incremental_verification_keeps_strict_diagnostics() {
     check(2);
     write_text(
         project / ".clang-tidy",
-        read_text(ecosystem::locate_template_path({ "tooling/clang-tidy.tpl" }))
+        read_text(ecosystem::locate_template_path("tooling/clang-tidy.tpl"))
             + "\n# changed configuration\n"
     );
     check(0);

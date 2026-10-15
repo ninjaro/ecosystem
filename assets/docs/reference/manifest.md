@@ -35,6 +35,11 @@ this file. Keep local tool paths in the existing environment/cache configuration
 prerelease counters and generated data stay under `.ecosystem/`. Unknown root and
 artifact fields are rejected, including obsolete fields mixed into a new manifest.
 
+Each `namespace:artifact` identifies one canonical current artifact. There is no
+internal version selector or family of historical facade definitions. Project
+release/package metadata does not select an implementation. Current producers and
+consumers must be updated together; historical authored schemas are rejected.
+
 ## Generated repository and local surfaces
 
 The manifest drives canonical repository generation; the current schema has no

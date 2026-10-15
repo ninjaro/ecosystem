@@ -135,7 +135,7 @@ namespace command_support {
             }
             if (configuration.empty())
                 configuration
-                    = locate_template_path({ "tooling/clang-format.tpl" });
+                    = locate_template_path("tooling/clang-format.tpl");
             if (configuration.empty()) {
                 print_error(
                     err, command_error::task_failed,

@@ -46,7 +46,7 @@ class PresentationCase(unittest.TestCase):
 
     def evidence(self, status='passed', kind='checks'):
         prefix = '.ecosystem/evidence/'
-        receipt = {'schema': 3 if kind == 'checks' else 1, 'kind': kind, 'policy': {'project': 'example'},
+        receipt = {'kind': kind, 'policy': {'project': 'example'},
                    'tested_commit': self.git('rev-parse', 'HEAD'), 'tested_tree': self.git('rev-parse', 'HEAD^{tree}'),
                    'coverage': status, 'files': {}}
         if kind == 'checks':
@@ -57,10 +57,9 @@ class PresentationCase(unittest.TestCase):
         files = {f'github/reports/{stage}/{name}': '<script>do not execute</script>' for stage in stages for name in ['summary.md', 'output.log']}
         if kind == 'checks':
             receipt['event'] = 'workflow_dispatch'
-            files['github/selection/checks.json'] = json.dumps({'schema': 1,
-                'input': {'schema': 1, 'event': receipt['event'], 'event_commit': receipt['tested_commit'],
+            files['github/selection/checks.json'] = json.dumps({'input': {'event': receipt['event'], 'event_commit': receipt['tested_commit'],
                           'checkout': None, 'complete': False, 'paths': [], 'changes': []},
-                'report': {'schema': 1, 'project': 'example', 'delta_validated': False,
+                'report': {'project': 'example', 'delta_validated': False,
                            'classification': 'full', 'format': {'scope': 'full'}}})
         if status == 'passed':
             files['reports/coverage.json'] = json.dumps({'type': 'llvm.coverage.json.export', 'data': [{'files': [{}], 'totals': {'lines': {'count': 10, 'covered': 7}, 'branches': {'count': 0, 'covered': 0}}}]})

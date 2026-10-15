@@ -23,13 +23,9 @@ std::string render_required_text_template(
 
 std::filesystem::path template_root_path();
 std::filesystem::path
-locate_template_path(const std::vector<std::filesystem::path>& relative_paths);
+locate_template_path(const std::filesystem::path& relative_path);
 std::string render_text_template(
     const std::filesystem::path& relative_path,
-    const template_bindings& bindings, std::string* error_message
-);
-std::string render_text_template_candidates(
-    const std::vector<std::filesystem::path>& relative_paths,
     const template_bindings& bindings, std::string* error_message
 );
 

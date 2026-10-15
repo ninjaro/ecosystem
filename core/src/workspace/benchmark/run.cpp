@@ -157,7 +157,6 @@ command_error run_benchmark(
         = render_benchmark_svg(summary, title, &error_message);
     const auto summary_text = to_json(summary).dump(2) + "\n";
     const json presentation {
-        { "schema", 1 },
         { "kind", "flops" },
         { "artifact", format_artifact_ref(resolved.ref) },
         { "files",

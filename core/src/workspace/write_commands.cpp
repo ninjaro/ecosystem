@@ -829,8 +829,7 @@ command_error run_prerelease(
         << "\n";
     out << "prerelease commands: "
         << log_path.lexically_relative(project_root).generic_string() << "\n";
-    json summary { { "schema_version", 1 },
-                   { "status", "running" },
+    json summary { { "status", "running" },
                    { "stage", "validate" },
                    { "started_unix_ms", started },
                    { "project", manifest_value.id },

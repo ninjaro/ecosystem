@@ -145,7 +145,7 @@ tidy_check_report run_tidy_check(
     // unrelated parent's defaults or silently lose the canonical diagnostics.
     fs::path configuration = project_root / ".clang-tidy";
     if (!path_exists(configuration)) {
-        configuration = locate_template_path({ "tooling/clang-tidy.tpl" });
+        configuration = locate_template_path("tooling/clang-tidy.tpl");
     }
     if (configuration.empty()) {
         report.clang_tidy_configuration_error = true;

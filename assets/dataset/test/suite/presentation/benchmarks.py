@@ -18,7 +18,7 @@ class BenchmarkTests(PresentationCase):
         svg = svg if svg is not None else '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540"><text x="10" y="20">GFLOPs/s</text></svg>'
         files = {'result.json': json.dumps(result), 'bench_log.txt': '<script>raw log</script>',
                  'summary.json': json.dumps(summary), 'bench_plot.svg': svg}
-        record = {'schema': 1, 'kind': 'flops', 'artifact': 'bench:speed',
+        record = {'kind': 'flops', 'artifact': 'bench:speed',
                   'files': {name: file_stamp(value.encode()) for name, value in files.items()}}
         for name, value in files.items():
             self.write(self.prefix + name, value)

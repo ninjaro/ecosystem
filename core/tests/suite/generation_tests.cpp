@@ -871,7 +871,7 @@ void test_tracked_surface_generation_supports_remote_setup_action() {
 void test_required_template_failures_preserve_generated_state() {
     for (const std::string path :
          { "cmake/apply_defaults.tpl", "cmake/visitor_facade.tpl",
-           "tracked/.gitignore.tpl", ".github/workflows/tests.yml",
+           "tracked/.gitignore.tpl", "tracked/.github/workflows/tests.yml.tpl",
            "cmake/package_surface/add_interface_library.tpl" }) {
         temp_dir root;
         temp_dir templates;
@@ -1039,8 +1039,35 @@ void test_sync_project_removes_obsolete_tracked_surface_files() {
 }
 
 void test_template_loader_renders_repo_owned_templates() {
+    {
+        temp_dir obsolete;
+        write_text(obsolete.path() / ".clang-format", "obsolete format policy");
+        write_text(
+            obsolete.path() / ".github/workflows/tests.yml", "obsolete workflow"
+        );
+        scoped_env override(
+            "ECOSYSTEM_TEMPLATE_ROOT", obsolete.path().string()
+        );
+        const auto current = ecosystem::generate_tracked_surface_files(
+            sample_manifest(), obsolete.path()
+        );
+        const auto* format
+            = find_tracked_surface_file(current, ".clang-format");
+        const auto* workflow
+            = find_tracked_surface_file(current, ".github/workflows/tests.yml");
+        require_true(
+            format && workflow,
+            "canonical current template inputs must remain available"
+        );
+        require_true(
+            format->contents != "obsolete format policy"
+                && workflow->contents != "obsolete workflow",
+            "old template filenames must not override the current canonical "
+            "inputs"
+        );
+    }
     const fs::path mutation_template
-        = ecosystem::locate_template_path({ "mutation/source.cpp.tpl" });
+        = ecosystem::locate_template_path("mutation/source.cpp.tpl");
     require_true(
         !mutation_template.empty(),
         "template loader must resolve mutation templates from the repo"
@@ -1087,8 +1114,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_format_template
-        = ecosystem::locate_template_path({ ".clang-format",
-                                            "tooling/clang-format.tpl" });
+        = ecosystem::locate_template_path("tooling/clang-format.tpl");
     require_true(
         !shared_format_template.empty(),
         "template loader must resolve the shared format template"
@@ -1100,8 +1126,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_workflow_template = ecosystem::locate_template_path(
-        { ".github/workflows/tests.yml",
-          "tracked/.github/workflows/tests.yml.tpl" }
+        "tracked/.github/workflows/tests.yml.tpl"
     );
     require_true(
         !shared_workflow_template.empty(),
@@ -1115,8 +1140,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_action_template = ecosystem::locate_template_path(
-        { ".github/actions/setup-ecosystem/action.yml",
-          "tracked/.github/actions/setup-ecosystem/action.yml.tpl" }
+        "tracked/.github/actions/setup-ecosystem/action.yml.tpl"
     );
     require_true(
         !shared_action_template.empty(),
@@ -1131,8 +1155,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_doxygen_template
-        = ecosystem::locate_template_path({ "Doxyfile", "tooling/Doxyfile.tpl" }
-        );
+        = ecosystem::locate_template_path("tooling/Doxyfile.tpl");
     require_true(
         !shared_doxygen_template.empty(),
         "template loader must resolve the shared Doxygen template"
@@ -1144,17 +1167,16 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     error_message.clear();
-    const std::string doxygen_contents
-        = ecosystem::render_text_template_candidates(
-            { "Doxyfile", "tooling/Doxyfile.tpl" },
-            { { "project_name", "\"sample\"" },
-              { "project_version", "\"2.3.4\"" },
-              { "input_files", "\"src/main.cpp\"" },
-              { "output_dir", "\".ecosystem/doxygen\"" },
-              { "warning_log", "\".ecosystem/doxygen/warnings.log\"" },
-              { "clang_database", "\"\"" } },
-            &error_message
-        );
+    const std::string doxygen_contents = ecosystem::render_text_template(
+        "tooling/Doxyfile.tpl",
+        { { "project_name", "\"sample\"" },
+          { "project_version", "\"2.3.4\"" },
+          { "input_files", "\"src/main.cpp\"" },
+          { "output_dir", "\".ecosystem/doxygen\"" },
+          { "warning_log", "\".ecosystem/doxygen/warnings.log\"" },
+          { "clang_database", "\"\"" } },
+        &error_message
+    );
     require_true(
         error_message.empty(),
         "template loader must render the shared Doxygen template"
@@ -1170,7 +1192,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_cmake_template
-        = ecosystem::locate_template_path({ "cmake/surface_prefix.tpl" });
+        = ecosystem::locate_template_path("cmake/surface_prefix.tpl");
     require_true(
         !shared_cmake_template.empty(),
         "template loader must resolve shared CMake surface templates"
@@ -1208,7 +1230,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_release_template
-        = ecosystem::locate_template_path({ "release/debian_control.tpl" });
+        = ecosystem::locate_template_path("release/debian_control.tpl");
     require_true(
         !shared_release_template.empty(),
         "template loader must resolve shared release templates"
@@ -1250,7 +1272,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_benchmark_template
-        = ecosystem::locate_template_path({ "benchmark/plot.svg.tpl" });
+        = ecosystem::locate_template_path("benchmark/plot.svg.tpl");
     require_true(
         !shared_benchmark_template.empty(),
         "template loader must resolve shared benchmark templates"
@@ -1298,7 +1320,7 @@ void test_template_loader_renders_repo_owned_templates() {
 
     const fs::path shared_package_surface_template
         = ecosystem::locate_template_path(
-            { "cmake/package_surface/add_interface_library.tpl" }
+            "cmake/package_surface/add_interface_library.tpl"
         );
     require_true(
         !shared_package_surface_template.empty(),
@@ -1335,8 +1357,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_sync_surface_template
-        = ecosystem::locate_template_path({ "cmake/generated_tests_block.tpl" }
-        );
+        = ecosystem::locate_template_path("cmake/generated_tests_block.tpl");
     require_true(
         !shared_sync_surface_template.empty(),
         "template loader must resolve shared sync CMake templates"
@@ -1388,7 +1409,7 @@ void test_template_loader_renders_repo_owned_templates() {
     );
 
     const fs::path shared_artifact_template
-        = ecosystem::locate_template_path({ "cmake/artifact/library.tpl" });
+        = ecosystem::locate_template_path("cmake/artifact/library.tpl");
     require_true(
         !shared_artifact_template.empty(),
         "template loader must resolve shared artifact CMake templates"
@@ -1425,9 +1446,9 @@ void test_template_loader_renders_repo_owned_templates() {
         "artifact templates must preserve injected link targets"
     );
 
-    const fs::path shared_component_template = ecosystem::locate_template_path(
-        { "cmake/component/tests_guard_open.tpl" }
-    );
+    const fs::path shared_component_template
+        = ecosystem::locate_template_path("cmake/component/tests_guard_open.tpl"
+        );
     require_true(
         !shared_component_template.empty(),
         "template loader must resolve shared component CMake templates"

@@ -627,14 +627,13 @@ namespace sync_support {
         return vars;
     }
 
-    std::optional<std::string> render_sync_template_candidates(
-        const std::vector<fs::path>& relative_paths,
-        const template_bindings& bindings, string_list* errors
+    std::optional<std::string> render_sync_template(
+        const fs::path& relative_path, const template_bindings& bindings,
+        string_list* errors
     ) {
         std::string error_message;
-        std::string contents = render_text_template_candidates(
-            relative_paths, bindings, &error_message
-        );
+        std::string contents
+            = render_text_template(relative_path, bindings, &error_message);
         if (!error_message.empty()) {
             errors->push_back(error_message);
             return std::nullopt;
@@ -1197,11 +1196,11 @@ namespace sync_support {
 
     void append_tracked_template_file(
         std::vector<tracked_surface_file>* files, const fs::path& output_path,
-        const std::vector<fs::path>& template_paths,
-        const template_bindings& bindings, string_list* errors
+        const fs::path& template_path, const template_bindings& bindings,
+        string_list* errors
     ) {
         const std::optional<std::string> contents
-            = render_sync_template_candidates(template_paths, bindings, errors);
+            = render_sync_template(template_path, bindings, errors);
         if (!contents.has_value()) {
             return;
         }
@@ -2350,83 +2349,71 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
     });
 
     append_tracked_template_file(
-        &files, ".clang-format",
-        { ".clang-format", "tooling/clang-format.tpl" }, {}, error_sink
+        &files, ".clang-format", "tooling/clang-format.tpl", {}, error_sink
     );
     append_tracked_template_file(
-        &files, ".clang-tidy", { ".clang-tidy", "tooling/clang-tidy.tpl" }, {},
+        &files, ".clang-tidy", "tooling/clang-tidy.tpl", {}, error_sink
+    );
+    append_tracked_template_file(
+        &files, ".github/SECURITY.md", "tracked/.github/SECURITY.md.tpl", {},
         error_sink
     );
     append_tracked_template_file(
-        &files, ".github/SECURITY.md", { "tracked/.github/SECURITY.md.tpl" },
-        {}, error_sink
-    );
-    append_tracked_template_file(
-        &files, ".github/renovate.json", { ".github/renovate.json" }, {},
-        error_sink
+        &files, ".github/renovate.json", ".github/renovate.json", {}, error_sink
     );
 
     const template_bindings workflow_bindings
         = github_actions_bindings(value, *vars);
     append_tracked_template_file(
         &files, ".github/actions/select-ecosystem-ci/action.yml",
-        { ".github/actions/select-ecosystem-ci/action.yml",
-          "tracked/.github/actions/select-ecosystem-ci/action.yml.tpl" },
+        "tracked/.github/actions/select-ecosystem-ci/action.yml.tpl",
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
         &files, ".github/actions/select-ecosystem-ci/changes.cjs",
-        { "tracked/.github/actions/select-ecosystem-ci/changes.cjs.tpl" },
+        "tracked/.github/actions/select-ecosystem-ci/changes.cjs.tpl",
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
         &files, ".github/actions/select-ecosystem-ci/evidence.cjs",
-        { "tracked/.github/actions/select-ecosystem-ci/evidence.cjs.tpl" },
+        "tracked/.github/actions/select-ecosystem-ci/evidence.cjs.tpl",
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
         &files, ".github/actions/run-ecosystem-stage/action.yml",
-        { ".github/actions/run-ecosystem-stage/action.yml",
-          "tracked/.github/actions/run-ecosystem-stage/action.yml.tpl" },
+        "tracked/.github/actions/run-ecosystem-stage/action.yml.tpl",
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
         &files, ".github/actions/publish-ecosystem-report/action.yml",
-        { ".github/actions/publish-ecosystem-report/action.yml",
-          "tracked/.github/actions/publish-ecosystem-report/action.yml.tpl" },
+        "tracked/.github/actions/publish-ecosystem-report/action.yml.tpl",
         workflow_bindings, error_sink
     );
     append_tracked_template_file(
         &files, ".github/actions/publish-ecosystem-report/diagnostics.cjs",
-        { "tracked/.github/actions/publish-ecosystem-report/"
-          "diagnostics.cjs.tpl" },
+        "tracked/.github/actions/publish-ecosystem-report/"
+        "diagnostics.cjs.tpl",
         workflow_bindings, error_sink
     );
     if (github_actions_use_local_setup_action(*vars)) {
         append_tracked_template_file(
             &files, ".github/actions/setup-ecosystem/action.yml",
-            { ".github/actions/setup-ecosystem/action.yml",
-              "tracked/.github/actions/setup-ecosystem/action.yml.tpl" },
+            "tracked/.github/actions/setup-ecosystem/action.yml.tpl",
             workflow_bindings, error_sink
         );
     }
     append_tracked_template_file(
         &files, ".github/workflows/tests.yml",
-        { ".github/workflows/tests.yml",
-          "tracked/.github/workflows/tests.yml.tpl" },
-        workflow_bindings, error_sink
+        "tracked/.github/workflows/tests.yml.tpl", workflow_bindings, error_sink
     );
     append_tracked_template_file(
         &files, ".github/workflows/codeql.yml",
-        { ".github/workflows/codeql.yml",
-          "tracked/.github/workflows/codeql.yml.tpl" },
-        workflow_bindings, error_sink
+        "tracked/.github/workflows/codeql.yml.tpl", workflow_bindings,
+        error_sink
     );
     append_tracked_template_file(
         &files, ".github/workflows/html.yml",
-        { ".github/workflows/html.yml",
-          "tracked/.github/workflows/html.yml.tpl" },
-        workflow_bindings, error_sink
+        "tracked/.github/workflows/html.yml.tpl", workflow_bindings, error_sink
     );
 
     if (!error_sink->empty()) {

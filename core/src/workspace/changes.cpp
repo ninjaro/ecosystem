@@ -84,7 +84,7 @@ namespace {
     std::map<std::string, std::string>
     validate_delta(const fs::path& root, const json& input) {
         require(
-            input.at("schema") == 1 && input.at("complete") == true,
+            !input.contains("schema") && input.at("complete") == true,
             "incomplete-change-record"
         );
         for (const auto* key :
@@ -246,8 +246,7 @@ json change_report(const fs::path& root, const manifest& value) {
         for (const auto& artifact : owner.artifacts)
             all_artifacts.insert(format_artifact_ref({ owner.id, artifact.id })
             );
-    json result { { "schema", 1 },
-                  { "project", value.id },
+    json result { { "project", value.id },
                   { "delta_validated", false },
                   { "classification", "full" },
                   { "reason", "missing-change-record" },

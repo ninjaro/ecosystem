@@ -11,7 +11,7 @@ test('record successful checks and CodeQL with immutable identity and report has
   const f = fixture(t);
   for (const kind of ['checks', 'codeql']) {
     const receipt = await f.record(kind);
-    assert.equal(receipt.schema, 4);
+    assert.ok(!Object.hasOwn(receipt, 'schema'));
     assert.deepEqual(receipt.verification, {scope: 'full',
       selection: {kind: 'whole-tree', tree: f.tree, manifest: f.git('rev-parse', 'HEAD:manifest.json')},
       stages: kind === 'checks'
@@ -397,7 +397,7 @@ else:
 for (const name of ['unknown environment', 'changed compiler', 'changed dependencies', 'changed ignored configuration']) {
   test('unchanged Git inputs cannot reuse ' + name, async t => {
     const f = await consumerFixture(t);
-    const identity = name === 'unknown environment' ? {schema: 1, known: false}
+    const identity = name === 'unknown environment' ? {known: false}
       : name === 'changed compiler' ? {...f.runtime, tools: {...f.runtime.tools, clang: 'different'}}
       : name === 'changed dependencies' ? {...f.runtime, dependencies: 'b'.repeat(64)}
       : {...f.runtime, configuration: {...f.runtime.configuration, '.clang-tidy': 'c'.repeat(64)}};

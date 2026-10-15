@@ -28,7 +28,7 @@ def time_dependent(file):
 
 def inputs(root, database, pid, configuration, tidy):
     root = Path(root).resolve()
-    shared = {"schema": 1, "manifest": digest(root / "manifest.json"),
+    shared = {"manifest": digest(root / "manifest.json"),
               "helper": digest(__file__), "configuration": digest(configuration),
               "tidy": digest(tidy), "actor": digest(f"/proc/{pid}/exe"),
               "environment": {name: os.environ.get(name) for name in

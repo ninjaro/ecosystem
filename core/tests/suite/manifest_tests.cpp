@@ -635,9 +635,7 @@ void test_owned_test_targets_are_independent() {
 void test_owned_scope_discovery_and_build() {
     require_true(
         fs::equivalent(
-            ecosystem::locate_template_path(
-                { "cmake/generated_tests_block.tpl" }
-            ),
+            ecosystem::locate_template_path("cmake/generated_tests_block.tpl"),
             fs::path(ECOS_TEST_SOURCE_DIR)
                 / "assets/templates/cmake/generated_tests_block.tpl"
         ),

@@ -82,8 +82,7 @@ def load_plot(inputs, prefix, identity, result, log):
         return None
     data = read_bounded(inputs, marker)
     record = json.loads(data)
-    require(isinstance(record, dict) and type(record.get('schema')) is int
-            and record['schema'] == 1 and record.get('kind') == 'flops'
+    require(isinstance(record, dict) and 'schema' not in record and record.get('kind') == 'flops'
             and record.get('artifact') == identity, 'invalid benchmark presentation identity')
     expected = {'result.json', 'bench_log.txt', 'summary.json', 'bench_plot.svg'}
     require(isinstance(record.get('files'), dict) and set(record['files']) == expected,

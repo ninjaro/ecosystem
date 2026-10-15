@@ -210,8 +210,8 @@ relative to its executable, including through a symlink launcher. Move the entir
 install prefix when relocating the tool. Missing installed data or template members
 fail with the requested name and searched location; parent workspaces and other
 source versions do not fill gaps. `ECOSYSTEM_TEMPLATE_ROOT` supplies deliberate
-partial overrides before that bundle; `ECOSYSTEM_TEMPLATE_ROOT` remains its legacy
-alias when the primary variable is unset.
+partial overrides at canonical template paths before that bundle. There are no
+old filename candidates or environment aliases.
 
 The tracked input `ecosystem.github.vars.json` configures the GitHub adapter. This
 tooling repository uses `{"ecosystem_bootstrap": "checkout"}`: setup builds the
@@ -316,7 +316,7 @@ fresh verification. Receipt/artifact creation is required when eligible; diagnos
 report publication remains advisory. The tooling repository's native test suite uses
 Node (without npm dependencies) for its generated GitHub evidence adapter fixtures.
 
-Full Checks and CodeQL receipts use schema 4 and explicitly bind whole-project scope
+Full Checks and CodeQL receipts have one current, versionless layout and bind whole-project scope
 for each verified stage to the tested Git tree and manifest blob. The producer
 requires full verification scope. Reuse and automatic Pages reject legacy receipts,
 missing scope, changed-file scope, skipped analysis and mismatched selection inputs;
@@ -324,11 +324,14 @@ they cannot promote narrower results to full verification. Reuse summaries and
 publication provenance retain these scopes. Full scope means every applicable
 input; the separate coverage result still records explicit unsupported coverage.
 Hashed snapshots bind event and native-classification inputs to the tested revision
-and manifest. Repository-only PR CodeQL uses a separate `codeql-delta` schema 1
-receipt in `ecosystem-delta-codeql-<run>-<attempt>`, with build/analysis scope `none`.
+and manifest. Repository-only PR CodeQL uses a distinct `codeql-delta` receipt kind in `ecosystem-delta-codeql-<run>-<attempt>`, with build/analysis scope `none`.
 These artifacts do not authorize full-verification reuse or automatic Pages; a
 subsequent default-branch push establishes fresh full evidence.
-Manual Pages prerequisite receipts retain their separate schema and meaning.
+Manual Pages prerequisites retain their distinct receipt kind and meaning. Numeric
+internal schema tags are not emitted or accepted. Required fields, verification
+scope, input digests and provenance determine validity; historical layouts are
+rejected rather than converted. Package/release versions, dependency pins, Git
+revisions and external tool/protocol versions remain independent requirements.
 
 Evidence is retained for 30 days. The consumer searches up to 100 recent PR runs per
 workflow and requires the latest matching run's successful selection and required
@@ -731,7 +734,7 @@ report policy, and it is retired before the next execution.
 
 Sphinx presents successful manifest-owned local runs with their captured command,
 raw log and result downloads. A matching specialized snapshot adds the native SVG,
-series JSON and a table of `n` and GFLOPs/s measurements. Legacy and generic runs
+series JSON and a table of `n` and GFLOPs/s measurements. FLOPs and generic runs
 retain the raw view. Missing, stale or unsupported optional plots explain their
 omission without failing documentation; plot inputs are limited to 8 MiB per file
 within the presentation's total input budget. These local snapshots do not claim

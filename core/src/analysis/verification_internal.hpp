@@ -21,12 +21,11 @@ inline bool may_reuse() {
 inline json fresh_input_keys(const std::filesystem::path& root) {
     if (!may_reuse())
         return json::object();
-    const auto helper
-        = locate_template_path({ "tooling/verification_inputs.py" });
+    const auto helper = locate_template_path("tooling/verification_inputs.py");
     const auto tidy = probe_tool("clang-tidy");
     auto configuration = root / ".clang-tidy";
     if (!std::filesystem::is_regular_file(configuration))
-        configuration = locate_template_path({ "tooling/clang-tidy.tpl" });
+        configuration = locate_template_path("tooling/clang-tidy.tpl");
     if (helper.empty() || configuration.empty() || !tidy.available)
         return json::object();
     const auto result = capture_command_result(
@@ -73,8 +72,7 @@ inline std::filesystem::path cache_file(
 }
 
 inline std::string payload_digest(const json& payload) {
-    const auto helper
-        = locate_template_path({ "tooling/verification_inputs.py" });
+    const auto helper = locate_template_path("tooling/verification_inputs.py");
     if (helper.empty())
         return {};
     auto result = capture_command_result({ "python3", helper.string(),
@@ -95,8 +93,7 @@ inline json read_success(const std::filesystem::path& file) {
             || std::filesystem::file_size(file) > 256U * 1024U)
             return nullptr;
         const auto row = json::parse(read_text_file(file, &error));
-        if (error.empty() && row.at("schema") == 1
-            && row.at("status") == "clean"
+        if (error.empty() && row.size() == 3 && row.at("status") == "clean"
             && row.at("digest") == payload_digest(row.at("payload")))
             return row.at("payload");
     } catch (const std::exception&) { }
@@ -120,8 +117,7 @@ publish_success(const std::filesystem::path& file, const json& payload) {
         return;
     if (write_text_file(
             temporary,
-            json { { "schema", 1 },
-                   { "status", "clean" },
+            json { { "status", "clean" },
                    { "digest", digest },
                    { "payload", payload } }
                 .dump(),

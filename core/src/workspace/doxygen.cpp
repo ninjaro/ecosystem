@@ -147,8 +147,8 @@ bool write_local_doxygen_config(
         std::error_code error;
         const bool has_database
             = fs::is_regular_file(database / "compile_commands.json", error);
-        const std::string contents = render_text_template_candidates(
-            { "tooling/Doxyfile.tpl" },
+        const std::string contents = render_text_template(
+            "tooling/Doxyfile.tpl",
             { { "project_name", quote(value.id) },
               { "project_version", quote(value.version) },
               { "input_files", inputs },

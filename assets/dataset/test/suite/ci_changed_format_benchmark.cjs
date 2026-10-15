@@ -33,7 +33,7 @@ try {
   for (let i = 0; i < 5; ++i)
     for (const mode of i % 2 ? ['changed', 'full'] : ['full', 'changed']) samples[mode].push(measure(mode));
   const median = data => [...data].sort((a, b) => a - b)[Math.floor(data.length / 2)];
-  console.log(JSON.stringify({schema: 1, measured_at: new Date().toISOString(),
+  console.log(JSON.stringify({measured_at: new Date().toISOString(),
     platform: `${os.platform()} ${os.arch()}`, node: process.version,
     git: exec('git', ['--version']).trim(), formatter: exec('clang-format', ['--version']).trim(),
     fixture: {owned_cpp_files: files.length + 200, changed_cpp_files: 1,

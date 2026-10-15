@@ -10,13 +10,13 @@ from .inputs import pre, require, safe_path
 
 
 def change_selection(selection, identity, project, manifest):
-    require(isinstance(selection, dict) and selection.get('schema') == 1, 'invalid change selection')
+    require(isinstance(selection, dict) and 'schema' not in selection, 'invalid change selection')
     require(identity.get('event') in ('push', 'pull_request', 'workflow_dispatch', 'schedule')
             and isinstance(identity.get('commit'), str)
             and re.fullmatch('[0-9a-f]{40}', identity['commit']), 'invalid classification provenance')
     event, report = selection.get('input'), selection.get('report')
     require(isinstance(event, dict) and isinstance(report, dict), 'missing classification inputs')
-    require(event.get('schema') == 1 and report.get('schema') == 1
+    require('schema' not in event and 'schema' not in report
             and event.get('event') == identity.get('event') and event.get('event_commit') == identity.get('commit')
             and event.get('checkout') in (None, identity.get('commit'))
             and type(event.get('complete')) is bool and isinstance(event.get('paths'), list)
@@ -52,7 +52,7 @@ def verification(inputs, evidence):
     receipt = json.loads(inputs.read(prefix + 'receipt.json'))
     kind = receipt.get('kind')
     require(kind in ('checks', 'pages', 'publication')
-            and receipt.get('schema') == {'checks': 3, 'publication': 2, 'pages': 1}[kind], 'unknown receipt')
+            and 'schema' not in receipt, 'unknown receipt')
     project = json.loads(inputs.read('manifest.json'))['id']
     require(receipt.get('policy', {}).get('project') == project, 'receipt project differs')
     def git(*args):
@@ -75,7 +75,7 @@ def verification(inputs, evidence):
     stage_files = {stage: ('summary.md', 'output.log') for stage in stages}
     if receipt['kind'] == 'publication':
         source = receipt.get('verification', {})
-        require(source.get('schema') == 1 and source.get('commit') == receipt['tested_commit']
+        require('schema' not in source and source.get('commit') == receipt['tested_commit']
                 and source.get('tree') == receipt['tested_tree'] and source.get('pushes')
                 and source.get('checks') and source.get('codeql'), 'missing publication provenance')
         full_scope(source['checks'].get('verification'), check_stages)

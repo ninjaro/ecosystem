@@ -126,7 +126,7 @@ void test_cli_benchmark_builds_release_benchmarks_and_writes_reports() {
     const auto presentation
         = json::parse(read_text(report_root / "presentation.json"));
     require_true(
-        presentation.at("schema") == 1 && presentation.at("kind") == "flops"
+        !presentation.contains("schema") && presentation.at("kind") == "flops"
             && presentation.at("artifact") == "benchmarks:bench"
             && presentation.at("files").size() == 4,
         "optional presentation must bind its owner and all four inputs"

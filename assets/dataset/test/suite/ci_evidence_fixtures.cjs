@@ -7,7 +7,7 @@ const {execFileSync} = require('node:child_process');
 const evidence = require(path.resolve(process.argv[2]));
 const changes = require(path.join(path.dirname(path.resolve(process.argv[2])), 'changes.cjs'));
 const engels = path.resolve(process.argv[3]);
-const runtime = {schema: 1, known: true, image: 'fixture-reviewed-image', node: process.version, architecture: process.arch,
+const runtime = {known: true, image: 'fixture-reviewed-image', node: process.version, architecture: process.arch,
   configuration: {'.clang-format': 'absent', '.clang-tidy': 'absent'}, build_environment: {},
   tools: Object.fromEntries(['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format', 'llvm-cov', 'llvm-profdata'].map(name => [name, 'reviewed'])), dependencies: evidence.hash('fixture-sdk')};
 
@@ -50,7 +50,7 @@ function fixture(t, delta = 'source') {
     write('.ecosystem/github/changes.json', JSON.stringify(input));
     const report = changes.inspect({root, binary: engels});
     write('.ecosystem/github/classification.json', JSON.stringify(report));
-    return {schema: 1, input, report};
+    return {input, report};
   }
   selection();
   async function record(kind = 'checks', overrides = {}) {

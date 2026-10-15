@@ -75,7 +75,7 @@ for (const mode of ['fresh', 'reuse', 'mixed']) for (const trigger of ['checks',
     const source = f.outputs.source;
     const receipt = JSON.parse(fs.readFileSync(path.join(f.outputs.directory, 'receipt.json')));
     assert.equal(receipt.kind, 'publication');
-    assert.equal(receipt.schema, 2);
+    assert.ok(!Object.hasOwn(receipt, 'schema'));
     assert.equal(receipt.tested_commit, f.context.sha);
     assert.equal(receipt.files['github/reports/03-codeql-analysis/summary.md'].bytes, 16);
     assert.equal(receipt.coverage, 'passed');

@@ -12,7 +12,7 @@ const skipped = {VERIFICATION_SCOPE: 'delta', CODEQL_INIT_STATUS: 'skipped',
 test('non-code PR records repository-only CodeQL evidence', async t => {
   const f = fixture(t, 'docs');
   const receipt = await f.record('codeql', skipped);
-  assert.equal(receipt.schema, 1);
+  assert.ok(!Object.hasOwn(receipt, 'schema'));
   assert.equal(receipt.kind, 'codeql-delta');
   assert.deepEqual(receipt.verification, {scope: 'delta', selection: {kind: 'event-delta', tree: f.tree,
     manifest: receipt.policy.manifest, comparison_base: f.base, head: f.head},
