@@ -175,19 +175,19 @@ For a node `v` in `T`, let `R(v)` denote the number of `referent`s in the subtre
 
 For a `module` `v` with direct children $c_1, \ldots, c_{B(v)}$, define
 
-```math
+```{math}
 p_i = \frac{R(c_i)}{R(v)}.
 ```
 
 The local referent-count imbalance is zero for $B(v)\le1$:
 
-```math
+```{math}
 I_R(v)=0.
 ```
 
 For $B(v)>1$, it is
 
-```math
+```{math}
 I_R(v)=1+\sum_{i=1}^{B(v)} p_i \log_{B(v)} p_i.
 ```
 
@@ -195,7 +195,7 @@ This is the complement of a normalized Shannon-entropy balance signal: it is min
 
 The soft ideal depth is
 
-```math
+```{math}
 H_{\mathrm{ideal}}(v)=\max(1,\lceil \log_{\max(2,B(v))}R(v)\rceil).
 ```
 
@@ -203,25 +203,25 @@ The lower bound of one follows from measuring depth in edges: a `module` with on
 
 For a measured value `x` and positive soft target `t`, define the relative excess
 
-```math
+```{math}
 E(x,t)=\max(0,\frac{x-t}{t}).
 ```
 
 Depth excess is
 
-```math
+```{math}
 D(v)=E(H(v),H_{\mathrm{ideal}}(v)).
 ```
 
 To detect excessive flatness, define
 
-```math
+```{math}
 B_{\mathrm{soft}}(v)=\lceil\sqrt{R(v)}\rceil,
 ```
 
 and
 
-```math
+```{math}
 W(v)=E(B(v),B_{\mathrm{soft}}(v)).
 ```
 
@@ -229,7 +229,7 @@ The soft width of a module is defined by the square-root rule. It makes increasi
 
 The local structural hint is
 
-```math
+```{math}
 L(v)=\frac{1}{2}I_R(v)+\frac{1}{3}D(v)+\frac{1}{6}W(v).
 ```
 
@@ -241,7 +241,7 @@ Tree shape cannot reveal an oversized terminal `referent`, so textual volume is 
 
 For a source file `f`, let $P(f)$ denote its physical line count, including blank and comment-only lines, and let $S(f)$ denote its effective source line count: lines containing source tokens, including preprocessor directives, while excluding blank and comment-only lines. Let $C_{\mathrm{comment}}(f)$ denote comment-only lines and $B_{\mathrm{blank}}(f)$ blank lines. A line containing code and an inline comment belongs to $S(f)$ rather than being counted twice. Thus
 
-```math
+```{math}
 P(f)=S(f)+C_{\mathrm{comment}}(f)+B_{\mathrm{blank}}(f).
 ```
 
@@ -251,13 +251,13 @@ Modern editors can fold functions, comments, and other regions, so raw physical 
 
 For a referent `r` and layer $`\ell\in\{\mathrm{src},\mathrm{tests},\mathrm{benchmarks}\}`$, let $`\mathcal{G}_\ell(r)`$ denote the layer’s bunch of files associated with `r`. Define
 
-```math
+```{math}
 K_\ell(r)=|\mathcal{G}_\ell(r)|,
 ```
 
 and
 
-```math
+```{math}
 P_\ell(r)=\sum_{f\in\mathcal{G}_\ell(r)}P(f), \qquad
 S_\ell(r)=\sum_{f\in\mathcal{G}_\ell(r)}S(f).
 ```
@@ -266,13 +266,13 @@ The same aggregation may be retained for comment-only and blank lines. File coun
 
 When $S_\ell(r)>0$, define the effective-source share of a file
 
-```math
+```{math}
 w_f=\frac{S(f)}{S_\ell(r)}.
 ```
 
 The within-bunch entropy and effective file count are
 
-```math
+```{math}
 H_\ell(r)=-\sum_{f\in\mathcal{G}_\ell(r)} w_f\ln w_f,
 \qquad
 K^{\mathrm{eff}}_\ell(r)=e^{H_\ell(r)}.
@@ -282,7 +282,7 @@ with the usual convention $0\ln 0=0$.
 
 The largest-file share is
 
-```math
+```{math}
 \Delta_\ell(r)=\max_{f\in\mathcal{G}_\ell(r)} w_f.
 ```
 
@@ -290,31 +290,31 @@ $K_\ell(r)$ measures literal fragmentation, $K^{\mathrm{eff}}_\ell(r)$ measures 
 
 For a `referent` $r$, let $`\mathcal{P}(r)`$ denote its production files: its header and production companions, excluding tests and benchmarks. Define
 
-```math
+```{math}
 P(r)=\sum_{f\in\mathcal{P}(r)}P(f), \qquad S(r)=\sum_{f\in\mathcal{P}(r)}S(f).
 ```
 
 For a `module` $v$, let $`\mathcal{R}(v)`$ denote its descendant `referent`s and define
 
-```math
+```{math}
 S(v)=\sum_{r\in\mathcal{R}(v)}S(r).
 ```
 
 For the direct children $c_i$ of $v$, define
 
-```math
+```{math}
 q_i=\frac{S(c_i)}{S(v)}.
 ```
 
 The corresponding implementation-volume imbalance is zero when $B(v)\le1$ or $S(v)=0$:
 
-```math
+```{math}
 I_S(v)=0.
 ```
 
 Otherwise,
 
-```math
+```{math}
 I_S(v)=1+\sum_{i=1}^{B(v)} q_i \log_{B(v)}q_i,
 ```
 
@@ -334,13 +334,13 @@ For a function `g`, let $P(g)$ denote the physical line span of its definition.
 
 Cyclomatic complexity follows McCabe. For a control-flow graph `G` with `e` edges, `n` nodes, and `p` connected components,
 
-```math
+```{math}
 \mu(G)=e-n+2p.
 ```
 
 For the connected control-flow graph of one function,
 
-```math
+```{math}
 \mu(g)=e_g-n_g+2.
 ```
 
@@ -394,7 +394,7 @@ Generated documentation configuration is tooling material rather than handwritte
 
 Let $`\mathcal{W}(P)`$ denote the set of active style and structural deviations from MANIFESTO in a project snapshot $P$, and let
 
-```math
+```{math}
 N(P)=|\mathcal{W}(P)|.
 ```
 
