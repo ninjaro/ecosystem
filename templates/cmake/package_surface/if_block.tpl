@@ -1,2 +1,0 @@
-if ({{condition}})
-{{body}}endif ()

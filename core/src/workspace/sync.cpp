@@ -2358,7 +2358,8 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
         error_sink
     );
     append_tracked_template_file(
-        &files, ".github/SECURITY.md", { ".github/SECURITY.md" }, {}, error_sink
+        &files, ".github/SECURITY.md", { "tracked/.github/SECURITY.md.tpl" },
+        {}, error_sink
     );
     append_tracked_template_file(
         &files, ".github/renovate.json", { ".github/renovate.json" }, {},

@@ -1,1 +1,0 @@
-install(DIRECTORY "{{include_dir}}/" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

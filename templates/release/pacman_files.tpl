@@ -1,3 +1,0 @@
-%FILES%
-{{files_block}}
-
