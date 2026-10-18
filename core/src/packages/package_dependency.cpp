@@ -24,6 +24,8 @@ const dependency_entry& dependency_entry_for_id(
         return dependencies.jni;
     case dependency_id::cxxopts:
         return dependencies.cxxopts;
+    case dependency_id::zlib:
+        return dependencies.zlib;
     case dependency_id::gtest:
         return dependencies.gtest;
     case dependency_id::benchmark:
@@ -55,6 +57,8 @@ dependency_entry& dependency_entry_for_id(
         return dependencies.jni;
     case dependency_id::cxxopts:
         return dependencies.cxxopts;
+    case dependency_id::zlib:
+        return dependencies.zlib;
     case dependency_id::gtest:
         return dependencies.gtest;
     case dependency_id::benchmark:

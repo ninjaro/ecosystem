@@ -151,6 +151,7 @@ void test_cli_mutate_add_component_supports_artifact_id_and_link_options();
 void test_package_surface_includes_qttest_component();
 void test_component_package_link_targets_include_qttest_target();
 void test_component_package_link_targets_include_cxxopts_target();
+void test_zlib_dependency_is_required_and_links_imported_target();
 void test_component_package_link_targets_follow_descriptor_rules();
 void test_summarize_dependencies_follows_descriptor_sources();
 void test_summarize_dependencies_collects_cxxopts_stack_values();

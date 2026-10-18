@@ -13,6 +13,7 @@ enum class package_surface_block {
     eigen,
     jni,
     cxxopts,
+    zlib,
     gtest,
     benchmark,
 };

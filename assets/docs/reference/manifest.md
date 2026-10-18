@@ -488,6 +488,10 @@ a mandatory module version.
 
 Package requirements remain artifact-local. For example:
 
+`packages.zlib: ["zlib"]` declares the required system compression library.
+CMake discovers it with `find_package(ZLIB REQUIRED)` and links `ZLIB::ZLIB`;
+no implicit Qt or KDE dependency is introduced.
+
 ```json
 {
   "id": "app:desktop",

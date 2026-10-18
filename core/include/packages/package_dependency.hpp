@@ -23,6 +23,7 @@ struct dependency_summary {
     dependency_entry eigen;
     dependency_entry jni;
     dependency_entry cxxopts;
+    dependency_entry zlib;
     dependency_entry gtest;
     dependency_entry benchmark;
 };

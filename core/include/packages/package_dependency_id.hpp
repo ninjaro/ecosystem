@@ -12,6 +12,7 @@ enum class dependency_id {
     eigen,
     jni,
     cxxopts,
+    zlib,
     gtest,
     benchmark,
 };

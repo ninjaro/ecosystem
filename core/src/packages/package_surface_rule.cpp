@@ -221,6 +221,10 @@ namespace package_surface_rule_support {
                 }),
             },
             {
+                package_surface_block::zlib,
+                make_static_surface_rule({ "find_package(ZLIB REQUIRED)" }),
+            },
+            {
                 package_surface_block::gtest,
                 make_static_surface_rule({ "find_package(GTest QUIET)" }),
             },

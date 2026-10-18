@@ -231,6 +231,8 @@ int main(int argc, char** argv) {
           test_component_package_link_targets_include_qttest_target },
         { "component_package_link_targets_include_cxxopts_target",
           test_component_package_link_targets_include_cxxopts_target },
+        { "zlib_dependency_is_required_and_links_imported_target",
+          test_zlib_dependency_is_required_and_links_imported_target },
         { "component_package_link_targets_follow_descriptor_rules",
           test_component_package_link_targets_follow_descriptor_rules },
         { "summarize_dependencies_follows_descriptor_sources",

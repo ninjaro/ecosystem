@@ -286,6 +286,36 @@ const std::vector<package_descriptor>& package_descriptors() {
             "cxxopts CONFIG package",
         },
         {
+            package_kind::zlib,
+            dependency_id::zlib,
+            {
+                {
+                    package_summary_source::component_stack,
+                    "zlib",
+                    package_summary_effect::stack_values,
+                    {},
+                    false,
+                },
+            },
+            {
+                {
+                    package_link_target_source::fixed,
+                    "ZLIB::ZLIB",
+                },
+            },
+            {
+                package_status_source::all_found_keys,
+                { "ZLIB_INCLUDE_DIR", "ZLIB_LIBRARY_RELEASE" },
+                {},
+                {},
+                {},
+                {},
+            },
+            package_group::required,
+            package_surface_block::zlib,
+            "ZLIB package",
+        },
+        {
             package_kind::gtest,
             dependency_id::gtest,
             {

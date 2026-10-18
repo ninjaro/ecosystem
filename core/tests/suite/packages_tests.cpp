@@ -3,6 +3,38 @@
 
 namespace ecosystem_test_support {
 
+void test_zlib_dependency_is_required_and_links_imported_target() {
+    ecosystem::manifest value = sample_cxxopts_manifest();
+    value.components.front().stack
+        = json::object({ { "zlib", json::array({ "zlib" }) } });
+    const auto dependencies
+        = ecosystem::summarize_dependencies(value, std::nullopt);
+    require_true(dependencies.zlib.enabled, "declared zlib must be discovered");
+    const auto targets
+        = ecosystem::component_package_link_targets(value.components.front());
+    require_true(
+        std::find(targets.begin(), targets.end(), "ZLIB::ZLIB")
+            != targets.end(),
+        "zlib must use the standard imported target"
+    );
+    const auto surface = ecosystem::render_package_surface_block(
+        ecosystem::package_surface_block::zlib, dependencies, {}
+    );
+    require_contains(
+        surface, "find_package(ZLIB REQUIRED)",
+        "zlib is a required dependency, not a silent optional fallback"
+    );
+    temp_dir root;
+    require_contains(
+        ecosystem::generate_cmakelists(value, root.path()), "ZLIB::ZLIB",
+        "production generation must link zlib"
+    );
+    require_contains(
+        ecosystem::generate_developer_cmakelists(value, root.path()),
+        "find_package(ZLIB REQUIRED)", "developer generation must find zlib"
+    );
+}
+
 void test_package_surface_includes_qttest_component() {
     const ecosystem::manifest manifest_value = sample_qttest_manifest();
     const ecosystem::dependency_summary dependencies

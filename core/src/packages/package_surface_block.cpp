@@ -14,6 +14,7 @@ const std::vector<package_surface_block>& package_surface_block_order() {
         package_surface_block::eigen,
         package_surface_block::jni,
         package_surface_block::cxxopts,
+        package_surface_block::zlib,
         package_surface_block::gtest,
         package_surface_block::benchmark,
     };

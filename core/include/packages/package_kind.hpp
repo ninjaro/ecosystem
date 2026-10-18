@@ -12,6 +12,7 @@ enum class package_kind {
     eigen,
     jni,
     cxxopts,
+    zlib,
     gtest,
     benchmark,
 };
