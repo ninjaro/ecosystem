@@ -217,6 +217,8 @@ void test_cli_workspace_personal_reports_keep_all_selected_results();
 // Source dependencies.
 void test_external_project_generates_imported_library();
 void test_source_facade_outer_preserves_installed_consumer();
+void test_source_facade_separates_visitor_and_distribution();
+void test_check_support_paths_stay_out_of_production();
 void test_source_facade_outer_delegates_library_install();
 void test_source_facade_pins_revisions_and_rejects_stale_packages();
 void test_source_facade_preserves_shared_and_interface_contracts();

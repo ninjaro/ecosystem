@@ -51,7 +51,8 @@ std::filesystem::path component_root_path(
     const std::filesystem::path& project_root, const component& value
 );
 std::vector<std::filesystem::path> component_include_dirs(
-    const std::filesystem::path& project_root, const component& value
+    const std::filesystem::path& project_root, const component& value,
+    bool include_tests, bool include_benchmarks
 );
 std::vector<std::filesystem::path> component_module_headers(
     const std::filesystem::path& project_root, const component& value

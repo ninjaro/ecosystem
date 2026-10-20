@@ -480,13 +480,6 @@ set(ECOSYSTEM_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/internal.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/ci.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/documentation.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_cases.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/suite/test_support.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/assets.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/release.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/tests/workspace/tex.hpp
 )
 set(ECOSYSTEM_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/clang.cpp
@@ -632,30 +625,6 @@ set(ECOSYSTEM_FRONTEND_SUPPORT_CLI_SUPPORT_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/actor_cli.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/common_args.cpp
 )
-set(ECOSYSTEM_ENGELS_CLI_HEADERS
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/engels_args.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/engels_cli.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/engels_command.hpp
-)
-set(ECOSYSTEM_ENGELS_CLI_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_args.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_cli.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_command.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_report_args.cpp
-)
-set(ECOSYSTEM_ENGELS_CLI_RUNTIME_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_args.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_cli.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_command.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_report_args.cpp
-)
-set(ECOSYSTEM_ENGELS_ENGELS_HEADERS
-)
-set(ECOSYSTEM_ENGELS_ENGELS_SOURCES
-)
-set(ECOSYSTEM_ENGELS_ENGELS_RUNTIME_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/cli/engels_main.cpp
-)
 set(ECOSYSTEM_MARX_CLI_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/marx_args.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/cli/marx_cli.hpp
@@ -720,50 +689,6 @@ target_link_libraries(frontend_support__cli_support PUBLIC
 set_target_properties(frontend_support__cli_support PROPERTIES OUTPUT_NAME ecosystem_frontend_support)
 
 ecosystem_apply_defaults(frontend_support__cli_support)
-
-
-add_library(engels__cli STATIC
-    ${ECOSYSTEM_ENGELS_CLI_HEADERS}
-    ${ECOSYSTEM_ENGELS_CLI_SOURCES}
-)
-
-target_compile_features(engels__cli PUBLIC cxx_std_20)
-
-target_include_directories(engels__cli PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/include
-)
-
-target_link_libraries(engels__cli PUBLIC
-    cxxopts::cxxopts
-    core__core
-    frontend_support__cli_support
-)
-
-set_target_properties(engels__cli PROPERTIES OUTPUT_NAME engels_cli)
-
-ecosystem_apply_defaults(engels__cli)
-
-
-add_executable(engels__engels
-    ${ECOSYSTEM_ENGELS_ENGELS_HEADERS}
-    ${ECOSYSTEM_ENGELS_ENGELS_RUNTIME_SOURCES}
-)
-
-target_compile_features(engels__engels PRIVATE cxx_std_20)
-
-target_include_directories(engels__engels PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/core/include
-)
-
-target_link_libraries(engels__engels PRIVATE
-    engels__cli
-)
-
-set_target_properties(engels__engels PROPERTIES OUTPUT_NAME engels)
-
-ecosystem_apply_defaults(engels__engels)
-
-ecosystem_stage_assets(engels__engels)
 
 
 add_library(marx__cli STATIC
@@ -853,12 +778,6 @@ file(WRITE "${FACADE_DIR}/CMakeFiles/ecosystem-${FACADE_NAME}.owned" "generated\
         "${CMAKE_CURRENT_BINARY_DIR}/${ECOSYSTEM_FACADE_NAME}"
         "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/ecosystem-${ECOSYSTEM_FACADE_NAME}.owned")
 endif()
-
-install(TARGETS engels__engels
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-)
 
 install(TARGETS marx__marx
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

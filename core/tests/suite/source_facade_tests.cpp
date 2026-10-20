@@ -57,6 +57,132 @@ namespace {
     }
 }
 
+void test_source_facade_separates_visitor_and_distribution() {
+    for (const bool console : { false, true }) {
+        temp_dir root;
+        write_source_dependency_fixture(root.path());
+        const auto project = root.path() / "provider";
+        auto manifest = json::parse(read_text(project / "manifest.json"));
+        manifest["install_artifacts"] = json::array({ "qt:adapter" });
+        manifest["artifacts"].push_back(
+            { { "id", "qt:adapter" },
+              { "kind", "static_lib" },
+              { "owns", json::array({ "adapter" }) },
+              { "dependencies", json::array({ "math:library" }) },
+              { "packages", { { "qt", json::array({ "Core" }) } } } }
+        );
+        if (console) {
+            manifest["facade"] = "app:console";
+            manifest["artifacts"].push_back(
+                { { "id", "app:console" },
+                  { "kind", "exe" },
+                  { "owns", json::array() },
+                  { "entry", "src/main.cpp" },
+                  { "dependencies", json::array({ "math:library" }) } }
+            );
+            write_text(
+                project / "src/main.cpp",
+                "#include <answer.hpp>\nint main() { return answer({}) == 42 "
+                "? 0 : 1; }\n"
+            );
+        }
+        write_text(project / "manifest.json", manifest.dump(2));
+        write_text(
+            project / "include/adapter.hpp",
+            "#pragma once\nint adapter_answer();\n"
+        );
+        write_text(
+            project / "src/adapter.cpp",
+            "#include <QObject>\n#include <answer.hpp>\n#include "
+            "<adapter.hpp>\nint adapter_answer() { QObject value; "
+            "return answer({}) + (value.parent() ? 1 : 0); }\n"
+        );
+        write_tracked_cmake(project);
+        const auto loaded = ecosystem::load_manifest(project / "manifest.json");
+        ecosystem::string_list errors;
+        const auto surfaces = ecosystem::generate_tracked_surface_files(
+            *loaded.value, project, &errors
+        );
+        require_true(errors.empty(), join_lines(errors));
+        const auto* setup = find_tracked_surface_file(
+            surfaces, ".github/actions/setup-ecosystem/action.yml"
+        );
+        require_true(setup != nullptr, "tooling bootstrap must be generated");
+        require_contains(
+            setup->contents, "build debug engels:engels",
+            "tooling bootstrap must build Engels through Marx"
+        );
+        require_not_contains(
+            read_text(project / "CMakeLists.txt"), "qt__adapter",
+            "tracked visitor must not contain a dormant SDK graph"
+        );
+        require_not_contains(
+            setup->contents, "ECOSYSTEM_BUILD_DISTRIBUTION",
+            "bootstrap must not depend on a root SDK selector"
+        );
+        const auto visitor = root.path() / "visitor";
+        facade_command(
+            root.path(),
+            { "cmake", "-S", project.string(), "-B", visitor.string(),
+              "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON" }
+        );
+        facade_command(root.path(), { "cmake", "--build", visitor.string() });
+        require_not_contains(
+            read_text(visitor / "compile_commands.json"), "adapter.cpp",
+            "visitor must not build an unrelated SDK companion"
+        );
+        if (console)
+            facade_command(root.path(), { (visitor / "mvp").string() });
+        const auto sdk = root.path() / "sdk";
+        const auto prefix = root.path() / "installed";
+        std::string error;
+        require_true(
+            ecosystem::ensure_local_developer_surface(
+                project, *loaded.value, &error
+            ) == ecosystem::command_error::ok,
+            error
+        );
+        facade_command(
+            root.path(),
+            { "cmake", "-S",
+              ecosystem::local_developer_source_dir(project).string(), "-B",
+              sdk.string(), "-DECOSYSTEM_BUILD_TESTS=OFF" }
+        );
+        facade_command(root.path(), { "cmake", "--build", sdk.string() });
+        facade_command(
+            root.path(),
+            { "cmake", "--install", sdk.string(), "--prefix", prefix.string() }
+        );
+        require_true(
+            fs::exists(prefix / "include/adapter.hpp"),
+            "explicit SDK must retain the companion's installed interface"
+        );
+        const auto relocated = root.path() / "relocated";
+        fs::rename(prefix, relocated);
+        const auto consumer = root.path() / "sdk-consumer";
+        write_text(
+            consumer / "CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.20)\nproject(sdk LANGUAGES "
+            "CXX)\nfind_package(numbers CONFIG REQUIRED)\nadd_executable(probe "
+            "main.cpp)\ntarget_link_libraries(probe PRIVATE "
+            "numbers::qt__adapter)\n"
+        );
+        write_text(
+            consumer / "main.cpp",
+            "#include <adapter.hpp>\nint main() { return adapter_answer() == "
+            "42 ? 0 : 1; }\n"
+        );
+        const auto build = root.path() / "sdk-consumer-build";
+        facade_command(
+            root.path(),
+            { "cmake", "-S", consumer.string(), "-B", build.string(),
+              "-DCMAKE_PREFIX_PATH=" + relocated.string() }
+        );
+        facade_command(root.path(), { "cmake", "--build", build.string() });
+        facade_command(root.path(), { (build / "probe").string() });
+    }
+}
+
 void test_source_facade_outer_preserves_installed_consumer() {
     for (const bool multi : { false, true }) {
         if (multi && !ecosystem::probe_tool("ninja").available)
@@ -151,6 +277,48 @@ void test_source_facade_outer_preserves_installed_consumer() {
                     .exit_code
                 == 7,
             "outer install delegates the selected executable and --prefix"
+        );
+        // Switching this same outer tree to an installed SDK must not retain
+        // source-provider build/install work from its previous configuration.
+        const auto external_sdk = project / "external SDK";
+        const auto sdk_build = project / "external-sdk-build";
+        facade_command(
+            project,
+            { "cmake", "-S", (project / "hidden-provider").string(), "-B",
+              sdk_build.string() }
+        );
+        facade_command(project, { "cmake", "--build", sdk_build.string() });
+        facade_command(
+            project,
+            { "cmake", "--install", sdk_build.string(), "--prefix",
+              external_sdk.string() }
+        );
+        std::vector<fs::path> stale_installs;
+        for (const auto& entry :
+             fs::recursive_directory_iterator(build / ".ecosystem-facade")) {
+            if (entry.path().filename() == "cmake_install.cmake"
+                && entry.path().parent_path().parent_path().filename()
+                    == "providers")
+                stale_installs.push_back(entry.path());
+        }
+        require_true(
+            !stale_installs.empty(),
+            "fixture must retain a previous source-provider build"
+        );
+        for (const auto& script : stale_installs)
+            write_text(script, "message(FATAL_ERROR stale-provider-install)\n");
+        facade_command(
+            project,
+            { "cmake", "-S", consumer.string(), "-B", build.string(),
+              "-DCMAKE_PREFIX_PATH=" + external_sdk.string() }
+        );
+        facade_command(
+            project, { "cmake", "--build", build.string(), "--config", "Debug" }
+        );
+        facade_command(
+            project,
+            { "cmake", "--install", build.string(), "--config", "Debug",
+              "--prefix", (project / "reselected client").string() }
         );
         write_text(consumer / "src/main.cpp", "#error inner-compile-failure\n");
         const auto failed = ecosystem::capture_command_result(
@@ -407,6 +575,33 @@ void test_source_facade_preserves_shared_and_interface_contracts() {
             );
         }
         write_tracked_cmake(provider);
+        const auto prefix = root.path() / "installed SDK";
+        if (std::string(kind) == "interface_lib") {
+            const auto loaded
+                = ecosystem::load_manifest(provider / "manifest.json");
+            std::string error;
+            require_true(
+                ecosystem::ensure_local_developer_surface(
+                    provider, *loaded.value, &error
+                ) == ecosystem::command_error::ok,
+                error
+            );
+            const auto sdk = root.path() / "sdk";
+            facade_command(
+                root.path(),
+                { "cmake", "-S",
+                  ecosystem::local_developer_source_dir(provider).string(),
+                  "-B", sdk.string() }
+            );
+            facade_command(root.path(), { "cmake", "--build", sdk.string() });
+            facade_command(
+                root.path(),
+                { "cmake", "--install", sdk.string(), "--prefix",
+                  prefix.string() }
+            );
+        }
+        // Ignore actor-owned scratch before the source-only fixture commit.
+        write_text(provider / ".gitignore", "/.ecosystem/\n");
         use_facade_repository(provider, consumer);
         if (std::string(kind) == "interface_lib") {
             auto manifest = json::parse(read_text(consumer / "manifest.json"));
@@ -426,10 +621,61 @@ void test_source_facade_preserves_shared_and_interface_contracts() {
         }
         write_tracked_cmake(consumer);
         fs::remove(consumer / "manifest.json");
+        if (std::string(kind) == "interface_lib") {
+            const auto missing_sdk = root.path() / "missing-sdk";
+            facade_command(
+                root.path(),
+                { "cmake", "-S", consumer.string(), "-B", missing_sdk.string() }
+            );
+            const auto failed = ecosystem::capture_command_result(
+                { "cmake", "--build", missing_sdk.string() }, root.path()
+            );
+            require_true(
+                failed.exit_code != 0,
+                "source-only facade must reject an unavailable non-facade SDK "
+                "export"
+            );
+            require_contains(
+                failed.output, "non-facade exports",
+                "failure must explain provider preparation"
+            );
+            const auto partial_build = root.path() / "facade-sdk-build";
+            const auto partial_prefix = root.path() / "facade-sdk";
+            facade_command(
+                root.path(),
+                { "cmake", "-S", provider.string(), "-B",
+                  partial_build.string() }
+            );
+            facade_command(
+                root.path(),
+                { "cmake", "--install", partial_build.string(), "--prefix",
+                  partial_prefix.string() }
+            );
+            const auto incompatible = ecosystem::capture_command_result(
+                { "cmake", "-S", consumer.string(), "-B",
+                  (root.path() / "incompatible-sdk").string(),
+                  "-DCMAKE_PREFIX_PATH=" + partial_prefix.string() },
+                root.path()
+            );
+            require_true(
+                incompatible.exit_code != 0,
+                "an installed SDK missing the requested export must not fall "
+                "back to source acquisition"
+            );
+            require_contains(
+                incompatible.output, "Installed SDK numbers does not export",
+                "incompatible SDK must identify its missing target"
+            );
+            require_contains(
+                incompatible.output, "numbers::extra__library",
+                "incompatible SDK must name the required target"
+            );
+        }
         facade_command(
             root.path(),
             { "cmake", "-S", consumer.string(), "-B", build.string(),
-              "-DCMAKE_INSTALL_LIBDIR=lib64" }
+              "-DCMAKE_INSTALL_LIBDIR=lib64",
+              "-DCMAKE_PREFIX_PATH=" + prefix.string() }
         );
         facade_command(root.path(), { "cmake", "--build", build.string() });
         facade_command(root.path(), { (build / "mvp").string() });
@@ -444,9 +690,11 @@ void test_source_facade_preserves_shared_and_interface_contracts() {
                 ++provider_builds;
         }
         require_true(
-            checkouts == 1 && provider_builds == 1,
-            "multiple requested artifacts share one provider acquisition and "
-            "build"
+            checkouts == (std::string(kind) == "interface_lib" ? 0 : 1)
+                && provider_builds
+                    == (std::string(kind) == "interface_lib" ? 0 : 1),
+            "facade exports share one acquisition; installed SDK exports must "
+            "not clone or build a provider"
         );
     }
 }

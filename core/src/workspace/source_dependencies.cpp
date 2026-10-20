@@ -260,14 +260,34 @@ namespace {
         std::map<std::string, json> selected_packages;
 
         string_list prepare(
-            const fs::path& project, const manifest& value, const fs::path& root
+            const fs::path& project, const manifest& value,
+            const fs::path& root, const bool distribution_only = false,
+            const std::optional<artifact_ref>& requested_artifact = std::nullopt
         ) {
             if (!active.insert(value.id).second)
                 throw std::runtime_error(
                     "source dependency cycle at " + value.id
                 );
             string_list options;
-            for (const auto& owner : value.components) {
+            const auto owners = distribution_only
+                ? distribution_component_closure(value)
+                : developer_component_closure(value, requested_artifact);
+
+            struct request {
+                const component* owner;
+                source_dependency dependency;
+            };
+
+            struct package_selection {
+                std::string local;
+                json intent;
+                std::vector<request> requests;
+            };
+
+            std::map<std::string, package_selection> packages;
+            // Collect and check selection conflicts before preparing any SDK.
+            for (const auto* selected_owner : owners) {
+                const auto& owner = *selected_owner;
                 const auto dependency = source_dependency_for(owner);
                 if (!dependency)
                     continue;
@@ -288,8 +308,16 @@ namespace {
                         "conflicting source selections for package "
                         + dependency->package
                     );
-                const auto state
-                    = root / dependency->package / intent_key(intent);
+                auto& selection = packages[dependency->package];
+                selection.local = local;
+                selection.intent = intent;
+                selection.requests.push_back({ selected_owner, *dependency });
+            }
+            for (const auto& [package, selection] : packages) {
+                const auto* dependency = &selection.requests.front().dependency;
+                const auto& local = selection.local;
+                const auto& intent = selection.intent;
+                const auto state = root / package / intent_key(intent);
                 string_list paths;
                 for (const auto& destination :
                      { state, state / "source", state / "selection.json",
@@ -324,30 +352,32 @@ namespace {
                         "provider package identity mismatch: expected "
                         + dependency->package + ", found " + provider.id
                     );
-                const auto artifact
-                    = resolve_artifact(provider, dependency->artifact);
-                if (!artifact
-                    || artifact->artifact_value->kind
-                        != owner.artifacts.front().kind)
-                    throw std::runtime_error(
-                        "provider artifact missing or kind mismatch: "
-                        + format_artifact_ref(dependency->artifact)
-                    );
-                if (!artifact_has_cmake_export(
-                        provider, dependency->artifact
-                    )) {
-                    throw std::runtime_error(
-                        "provider artifact is not exported: "
-                        + format_artifact_ref(dependency->artifact)
-                        + "; select its library as facade or install_artifacts"
-                    );
+                // Every requested export must be valid before any configure,
+                // build, install or recursive preparation for this package.
+                for (const auto& requested : selection.requests) {
+                    const auto& ref = requested.dependency.artifact;
+                    const auto artifact = resolve_artifact(provider, ref);
+                    if (!artifact
+                        || artifact->artifact_value->kind
+                            != requested.owner->artifacts.front().kind)
+                        throw std::runtime_error(
+                            "provider artifact missing or kind mismatch: "
+                            + format_artifact_ref(ref)
+                        );
+                    if (!artifact_has_cmake_export(provider, ref))
+                        throw std::runtime_error(
+                            "provider artifact is not exported: "
+                            + format_artifact_ref(ref)
+                            + "; select its library as facade or "
+                              "install_artifacts"
+                        );
                 }
                 const auto provider_paths
                     = validate_manifest_paths(provider, source);
                 if (!provider_paths.empty())
                     throw std::runtime_error(provider_paths.front());
                 const auto provider_dependencies
-                    = prepare(source, provider, state / "dependencies");
+                    = prepare(source, provider, state / "dependencies", true);
                 auto provider_options = provider_dependencies;
                 options.insert(
                     options.end(), provider_dependencies.begin(),
@@ -358,13 +388,11 @@ namespace {
                 const auto prefix = state / "install" / profile;
                 write(
                     generated / "CMakeLists.txt",
-                    generate_developer_cmakelists(provider, source)
+                    generate_distribution_cmakelists(provider, source)
                 );
                 provider_options.insert(
                     provider_options.end(),
                     { "-DECOSYSTEM_PROJECT_ROOT:PATH=" + source.string(),
-                      "-DECOSYSTEM_BUILD_TESTS=OFF",
-                      "-DECOSYSTEM_BUILD_BENCHMARKS=OFF",
                       "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
                       "-DCMAKE_INSTALL_LIBDIR=lib",
                       "-DCMAKE_INSTALL_INCLUDEDIR=include",
@@ -426,13 +454,15 @@ std::optional<source_dependency> source_dependency_for(const component& value) {
 command_error prepare_source_dependencies(
     const fs::path& project_root, const manifest& value,
     const std::string& profile, string_list* cmake_options,
-    std::string* error_message
+    std::string* error_message,
+    const std::optional<artifact_ref>& requested_artifact
 ) try {
     preparation state {
         profile, project_root, read_local_sources(project_root), {}, {}
     };
     *cmake_options = state.prepare(
-        project_root, value, local_state_dir(project_root) / "dependencies"
+        project_root, value, local_state_dir(project_root) / "dependencies",
+        false, requested_artifact
     );
     return command_error::ok;
 } catch (const std::exception& error) {

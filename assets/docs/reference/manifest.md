@@ -15,7 +15,7 @@ and `link` are not accepted authored fields. Only this schema is supported.
 | `artifacts` | Required nonempty array of artifact definitions |
 | `version` | Optional project/package version, such as `1.2.3` |
 | `cpp_standard` | Optional integer of at least 17; defaults to 20 |
-| `install_artifacts` | Optional additional artifact identities to build/install with the facade |
+| `install_artifacts` | Optional additional distribution artifact identities |
 | `install_assets` | Optional boolean enabling installation of the project's `assets/` tree |
 | `android_application_id` | Optional stable Android application identity |
 | `android` | Optional Android package metadata; see below |
@@ -23,6 +23,40 @@ and `link` are not accepted authored fields. Only this schema is supported.
 `install_artifacts` expresses distribution intent without linking independent
 executables together. Its entries must be unique and resolve. The self manifest
 uses this list to distribute Marx and Engels together.
+
+A plain visitor CMake build contains only `facade` and its mandatory dependency
+closure. Unrelated `install_artifacts` add neither dormant CMake graphs nor
+package discovery to the tracked root. Marx generates the complete developer
+graph under ignored `.ecosystem/source/`. An explicit native
+`marx build <profile> <component:artifact>` or `marx run` selection generates only
+that artifact and its mandatory closure. Unscoped operations restore the complete
+developer graph; test/coverage/benchmark and distribution operations retain their
+existing scopes. The ignored graph reflects the most recent actor operation.
+Explicit native build/run preparation acquires only providers in the same selected
+closure. Selecting an unavailable provider still fails.
+
+Provider preparation generates a separate SDK graph under the consumer's
+`.ecosystem/dependencies/`: only the
+provider facade, declared `install_artifacts` and their mandatory dependencies.
+Unrelated developer tools and their dependencies are not configured or acquired;
+`marx prerelease` retains the declared distribution roots. To install a full SDK,
+build its declared artifacts first, finish with an unscoped `marx build <profile>`
+to restore the complete install graph, then install the actor-owned build tree.
+
+Imports of the same package and source selection within one manifest are
+validated together and prepare one SDK per operation. Conflicting selections or
+unavailable exports fail explicitly. Installed usage requirements describe the
+libraries actually exported, including their transitive dependencies.
+
+Plain CMake first looks for an installed provider package in the configured
+package locations and checks all requested exported targets. Package discovery
+runs in an isolated configure so imported targets cannot leak into the outer
+orchestrator. If no package is found, source acquisition builds only that
+provider's own visitor facade. An export outside that facade requires an
+installed SDK or Marx-prepared provider; a root distribution switch is not
+supported. An installed package missing a requested target fails explicitly;
+source acquisition does not silently replace an incompatible installed SDK.
+An unavailable package-directory hint retains ordinary CMake search behavior.
 
 When `version` is set, compiled targets receive `ECOSYSTEM_PROJECT_VERSION` as a
 private definition for their own sources. Interface libraries and installed usage

@@ -27,8 +27,20 @@ std::string generate_cmakelists(
     const manifest& value, const std::filesystem::path& project_root = "."
 );
 std::string generate_developer_cmakelists(
-    const manifest& value, const std::filesystem::path& project_root = "."
+    const manifest& value, const std::filesystem::path& project_root = ".",
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
+// Actor-owned SDK source: facade + declared distribution roots, without the
+// unrelated developer graph. Configure with ECOSYSTEM_PROJECT_ROOT explicitly.
+std::string generate_distribution_cmakelists(
+    const manifest& value, const std::filesystem::path& project_root
+);
+// Uses the identical mandatory selection as developer CMake generation.
+std::vector<const component*> developer_component_closure(
+    const manifest& value, const std::optional<artifact_ref>& requested_artifact
+);
+std::vector<const component*>
+distribution_component_closure(const manifest& value);
 std::string generate_gitignore();
 // Canonical generated configurations which may exist locally, but are ignored
 // and are never required tracked surfaces. Paths are relative to the project.

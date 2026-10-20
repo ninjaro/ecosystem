@@ -91,6 +91,8 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::vector<std::pair<std::string, std::function<void()>>> tests {
+        { "check_support_paths_stay_out_of_production",
+          test_check_support_paths_stay_out_of_production },
         { "owned_check_artifacts_compile_and_execute_all_sources",
           test_owned_check_artifacts_compile_and_execute_all_sources },
         { "framework_dependencies_are_scoped_and_relocatable",
@@ -177,6 +179,8 @@ int main(int argc, char** argv) {
           test_tracked_facade_limits_surface_to_entry_artifact_closure },
         { "external_project_generates_imported_library",
           test_external_project_generates_imported_library },
+        { "source_facade_separates_visitor_and_distribution",
+          test_source_facade_separates_visitor_and_distribution },
         { "source_facade_outer_preserves_installed_consumer",
           test_source_facade_outer_preserves_installed_consumer },
         { "source_facade_outer_delegates_library_install",

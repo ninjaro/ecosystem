@@ -599,7 +599,8 @@ command_error run_build(
         = component_is_benchmark_only(*resolved->component_value);
     command_error status = command_support::run_configure_build_tree(
         project_root, manifest_value, profile, with_tests, false,
-        with_benchmarks, err
+        with_benchmarks, err,
+        profile == "android" ? std::nullopt : requested_artifact
     );
     if (status != command_error::ok) {
         return status;
@@ -968,7 +969,7 @@ command_error run_run(
         = component_is_benchmark_only(*resolved->component_value);
     command_error status = command_support::run_configure_build_tree(
         project_root, manifest_value, profile, with_tests, false,
-        with_benchmarks, err
+        with_benchmarks, err, requested_artifact
     );
     if (status != command_error::ok) {
         return status;

@@ -235,8 +235,10 @@ ref. Local generation remains available without remote configuration, but CI set
 fails with configuration guidance until both values are supplied. `checkout` mode
 rejects remote repository/ref inputs. Source paths must stay inside the selected
 checkout, and the selected directory must contain `CMakeLists.txt`, `manifest.json`
-and `assets/templates`. Bootstrap requires fresh executable `marx` and `engels`
-outputs at the build root. Inputs are quoted literal values; parallelism must be a positive
+and `assets/templates`. Bootstrap builds visitor Marx first, then uses
+`marx build debug engels:engels` to generate and build the ignored developer
+graph. It copies the resulting Engels binary to the advertised tooling build
+root; stale actor outputs cannot satisfy bootstrap. Inputs are quoted literal values; parallelism must be a positive
 integer string and also limits child CMake builds. Run `marx sync` after changes.
 
 Ubuntu bootstrap installs LLVM development metadata and the declared JSON 3.12

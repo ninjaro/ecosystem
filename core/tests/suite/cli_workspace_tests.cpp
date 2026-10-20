@@ -656,22 +656,63 @@ void test_cli_run_executes_facade_entry() {
 void test_cli_run_executes_requested_artifact_with_passthrough_args() {
     temp_dir root;
     write_sample_dual_run_project(root.path());
-
-    const cli_result result
-        = run_cli(root.path(), "run debug tool:cli -- alpha --then beta");
-    require_true(
-        result.exit_code == 0,
-        "ecos run must execute an explicitly selected runnable artifact"
+    auto authored = json::parse(read_text(root.path() / "manifest.json"));
+    authored["artifacts"][0]["packages"]["qt"] = json::array({ "Core" });
+    write_text(root.path() / "manifest.json", authored.dump(2));
+    const auto real_cmake = ecosystem::find_command_path("cmake");
+    const auto tools = root.path() / "tools";
+    write_executable_script(
+        tools / "cmake",
+        "#!/bin/sh\nif [ \"$1\" = -S ]; then\n"
+        "exec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\" "
+        "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON\n"
+        "fi\nexec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\"\n"
     );
-    require_contains(
-        result.output, "tool-run alpha --then beta",
-        "ecos run must forward passthrough arguments to the child artifact"
-    );
-    require_not_contains(
-        result.output, "app-run",
-        "ecos run must not execute the facade entry when "
-        "another artifact was requested"
-    );
+    scoped_env cmake("ECOSYSTEM_TEST_REAL_CMAKE", real_cmake);
+    scoped_env path("PATH", tools.string() + ":" + current_path_env());
+    for (const auto* profile : { "debug", "release" }) {
+        const auto selected = std::string(profile) + " tool:cli";
+        const auto build = run_cli(root.path(), "build " + selected);
+        require_true(
+            build.exit_code == 0,
+            "selected tool must build without the unrelated Qt facade: "
+                + build.output
+        );
+        const auto result
+            = run_cli(root.path(), "run " + selected + " -- alpha --then beta");
+        require_true(
+            result.exit_code == 0,
+            "selected runnable must execute without unrelated packages: "
+                + result.output
+        );
+        require_contains(
+            result.output, "tool-run alpha --then beta",
+            "explicit run must forward child arguments"
+        );
+        require_not_contains(
+            result.output, "app-run", "explicit run must not execute the facade"
+        );
+        const auto generated
+            = read_text(root.path() / ".ecosystem/source/CMakeLists.txt");
+        require_not_contains(
+            generated, "find_package(Qt6",
+            "unselected packages must not be configured"
+        );
+        require_not_contains(
+            generated, "add_executable(app__app",
+            "unselected graph must not be emitted"
+        );
+        const auto required = run_cli(
+            root.path(), std::string("build ") + profile + " app:app"
+        );
+        require_true(
+            required.exit_code == 5, "selecting the Qt facade must require Qt"
+        );
+        require_contains(
+            required.output, "Qt6",
+            "missing selected package must remain explicit"
+        );
+    }
 }
 
 void test_cli_workspace_run_executes_selected_project() {

@@ -61,6 +61,7 @@ if(NOT ECOSYSTEM_FACADE_INNER)
         set(prefix "${_ecosystem_state}/${config_id}/packages")
         set(providers "")
         set(packages "")
+        set(provider_builds "")
         foreach(identity IN LISTS _ecosystem_providers)
             set(package "${_ecosystem_package_${identity}}")
             set(provider "_ecosystem_provider_${package}_${identity}_${config_id}")
@@ -95,14 +96,19 @@ if(NOT ECOSYSTEM_FACADE_INNER)
                 COMMAND "${CMAKE_COMMAND}" -E echo "${_ecosystem_description_${identity}} (configure)"
                 DEPENDEES update DEPENDERS configure)
             ExternalProject_Add_StepDependencies(${provider} configure "${_ecosystem_state}/${config_id}/${identity}-cache.cmake")
+            list(APPEND provider_builds "${_ecosystem_state}/${config_id}/providers/${identity}")
             list(APPEND providers "${provider}")
             list(APPEND packages "${_ecosystem_package_${identity}}")
         endforeach()
         # Script arguments carry lists through a cache file, not command argv.
+        _ecosystem_bracket(selected_installed "${_ecosystem_installed_cache}")
         _ecosystem_bracket(package_names "${packages}")
         _ecosystem_bracket(previous_prefix "${CMAKE_PREFIX_PATH}")
         file(WRITE "${_ecosystem_state}/${config_id}/package-inputs.cmake"
-            "set(PACKAGES ${package_names})\nset(PREVIOUS_PREFIX ${previous_prefix})\n")
+            "set(PACKAGES ${package_names})\nset(PREVIOUS_PREFIX ${previous_prefix})\nset(INSTALLED_CACHE ${selected_installed})\n")
+        _ecosystem_bracket(selected_builds "${provider_builds}")
+        file(WRITE "${_ecosystem_state}/${config_id}/install-providers.cmake"
+            "set(providers ${selected_builds})\n")
         ExternalProject_Add(${target}
             SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
             BINARY_DIR "${inner}"
@@ -164,7 +170,7 @@ endforeach()
 string(SHA256 config_id "${CMAKE_INSTALL_CONFIG_NAME}")
 # Installing an outer library must also make its provider closure available to
 # another visitor. Each provider delegates recursively through its own facade.
-file(GLOB providers LIST_DIRECTORIES TRUE "@_ecosystem_state@/${config_id}/providers/*")
+include("@_ecosystem_state@/${config_id}/install-providers.cmake")
 foreach(provider IN LISTS providers)
     execute_process(COMMAND "${CMAKE_COMMAND}" --install "${provider}"
         --config "${CMAKE_INSTALL_CONFIG_NAME}" --prefix "${CMAKE_INSTALL_PREFIX}"

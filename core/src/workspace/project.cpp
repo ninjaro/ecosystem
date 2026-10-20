@@ -675,29 +675,13 @@ component_root_path(const fs::path& project_root, const component& value) {
     return (project_root / value.root).lexically_normal();
 }
 
-std::vector<fs::path>
-component_include_dirs(const fs::path& project_root, const component& value) {
-    std::vector<fs::path> include_dirs;
-    const fs::path root = component_root_path(project_root, value);
-    const fs::path project_include = root / "include";
-    const fs::path test_include = root / "tests" / "include";
-    const fs::path benchmark_include = root / "benchmarks" / "include";
-    std::error_code error;
-    if (fs::exists(project_include, error) && !error) {
-        include_dirs.push_back(project_include);
-    }
-    error.clear();
-    if (fs::exists(test_include, error) && !error) {
-        include_dirs.push_back(test_include);
-    }
-    error.clear();
-    if (fs::exists(benchmark_include, error) && !error) {
-        include_dirs.push_back(benchmark_include);
-    }
-    if (include_dirs.empty()) {
-        include_dirs.push_back(project_include);
-    }
-    return include_dirs;
+std::vector<fs::path> component_include_dirs(
+    const fs::path& project_root, const component& value,
+    const bool include_tests, const bool include_benchmarks
+) {
+    return component_analysis_include_dirs(
+        project_root, value, include_tests, include_benchmarks
+    );
 }
 
 std::vector<fs::path>

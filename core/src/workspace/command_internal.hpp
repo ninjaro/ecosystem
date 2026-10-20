@@ -127,7 +127,8 @@ bool is_runnable_artifact(const artifact& artifact_value);
 command_error run_configure_build_tree(
     const fs::path& project_root, const manifest& manifest_value,
     const std::string& profile, bool with_tests, bool with_coverage,
-    bool with_benchmarks, std::ostream& err
+    bool with_benchmarks, std::ostream& err,
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
 command_error build_target(
     const fs::path& project_root, const std::string& profile,

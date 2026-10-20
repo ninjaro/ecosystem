@@ -130,18 +130,19 @@ command_error configure_build_tree(
     const fs::path& project_root, const manifest& manifest_value,
     const std::string& profile, const bool with_tests, const bool with_coverage,
     const bool with_benchmarks, std::string* error_message,
-    const bool capture_output
+    const bool capture_output,
+    const std::optional<artifact_ref>& requested_artifact
 ) {
     ensure_local_artifacts(project_root, false, false);
     const command_error surface_status = ensure_local_developer_surface(
-        project_root, manifest_value, error_message
+        project_root, manifest_value, error_message, requested_artifact
     );
     if (surface_status != command_error::ok)
         return surface_status;
     string_list dependency_options;
     const auto dependency_status = prepare_source_dependencies(
         project_root, manifest_value, profile, &dependency_options,
-        error_message
+        error_message, requested_artifact
     );
     if (dependency_status != command_error::ok)
         return dependency_status;
@@ -180,11 +181,13 @@ command_error configure_build_tree(
 
 command_error ensure_local_developer_surface(
     const fs::path& project_root, const manifest& manifest_value,
-    std::string* error_message
+    std::string* error_message,
+    const std::optional<artifact_ref>& requested_artifact
 ) try {
     const fs::path cmake_path = local_developer_cmakelists_path(project_root);
-    const std::string generated_cmake
-        = generate_developer_cmakelists(manifest_value, project_root);
+    const std::string generated_cmake = generate_developer_cmakelists(
+        manifest_value, project_root, requested_artifact
+    );
     ensure_local_artifacts(project_root, false, false);
     std::string read_error;
     const std::string current_contents

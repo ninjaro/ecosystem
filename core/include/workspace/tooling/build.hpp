@@ -52,11 +52,13 @@ command_error configure_build_tree(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::string& profile, bool with_tests, bool with_coverage,
     bool with_benchmarks, std::string* error_message,
-    bool capture_output = false
+    bool capture_output = false,
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
 command_error ensure_local_developer_surface(
     const std::filesystem::path& project_root, const manifest& manifest_value,
-    std::string* error_message
+    std::string* error_message,
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
 
 } // namespace ecosystem

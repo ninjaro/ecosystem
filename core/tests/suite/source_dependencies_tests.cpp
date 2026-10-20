@@ -20,15 +20,125 @@ namespace {
 
 void test_source_dependency_local_override_builds_and_installs_before_consumer(
 ) {
+    {
+        temp_dir selected;
+        write_source_dependency_fixture(selected.path());
+        const auto project = selected.path() / "consumer";
+        map_provider(project, selected.path() / "provider");
+        auto authored = json::parse(read_text(project / "manifest.json"));
+        const auto missing
+            = (selected.path() / "must-not-acquire-consumer").string();
+        authored["artifacts"].push_back(
+            { { "id", "spare:imported" },
+              { "kind", "static_lib" },
+              { "owns", json::array() },
+              { "packages",
+                { { "external_project",
+                    { { "repository", missing },
+                      { "revision", "main" },
+                      { "package", "aaa_unused" },
+                      { "artifact", "unused:library" } } } } } }
+        );
+        write_text(project / "manifest.json", authored.dump(2));
+        for (const auto* profile : { "debug", "release" }) {
+            const auto choice = std::string(profile) + " app:main";
+            const auto built = run_marx_cli(project, "build " + choice);
+            require_true(
+                built.exit_code == 0,
+                "selected consumer must not acquire unrelated providers: "
+                    + built.output
+            );
+            require_true(
+                run_marx_cli(project, "run " + choice).exit_code == 0,
+                "selected consumer must execute using its real mandatory "
+                "provider"
+            );
+            require_not_contains(
+                read_text(project / ".ecosystem/source/CMakeLists.txt"),
+                "aaa_unused",
+                "unselected provider must be absent from the generated graph"
+            );
+            const auto requested = run_marx_cli(
+                project, std::string("build ") + profile + " spare:imported"
+            );
+            require_true(
+                requested.exit_code == 5,
+                "explicitly requested missing provider must still fail"
+            );
+            require_contains(
+                requested.output, missing,
+                "acquisition failure must identify the selected source"
+            );
+        }
+        const auto complete = run_marx_cli(project, "build debug");
+        require_true(
+            complete.exit_code == 5,
+            "unscoped preparation retains all declared provider requirements"
+        );
+        require_contains(
+            complete.output, missing,
+            "unscoped failure must preserve the real acquisition diagnostic"
+        );
+    }
     temp_dir root;
     write_source_dependency_fixture(root.path());
     const auto provider = root.path() / "provider";
     const auto consumer = root.path() / "consumer";
+    auto provider_manifest = json::parse(read_text(provider / "manifest.json"));
+    provider_manifest["artifacts"].push_back(
+        { { "id", "diagnostics:tool" },
+          { "kind", "qt_app" },
+          { "owns", json::array({ "diagnostics" }) },
+          { "entry", "src/diagnostics.cpp" },
+          { "packages", { { "qt", json::array({ "Core" }) } } } }
+    );
+    provider_manifest["artifacts"].push_back(
+        { { "id", "unrelated:imported" },
+          { "kind", "static_lib" },
+          { "owns", json::array() },
+          { "packages",
+            { { "external_project",
+                { { "repository", (root.path() / "must-not-acquire").string() },
+                  { "revision", "main" },
+                  { "package", "unused" },
+                  { "artifact", "unused:library" } } } } } }
+    );
+    write_text(provider / "manifest.json", provider_manifest.dump(2));
+    write_text(
+        provider / "src/diagnostics.cpp",
+        "#error unrelated-developer-tool-must-not-build\n"
+    );
     map_provider(consumer, provider);
     auto result = run_marx_cli(consumer, "build debug");
     require_true(
         result.exit_code == 0,
         "provider must install before consumer configuration: " + result.output
+    );
+    bool inspected_sdk = false;
+    for (const auto& entry : fs::recursive_directory_iterator(
+             consumer / ".ecosystem/dependencies"
+         )) {
+        if (entry.path().filename() != "CMakeLists.txt"
+            || entry.path().parent_path().filename() != "project")
+            continue;
+        inspected_sdk = true;
+        const auto generated = read_text(entry.path());
+        require_not_contains(
+            generated, "diagnostics__tool",
+            "provider SDK must exclude unrelated developer targets"
+        );
+        require_not_contains(
+            generated, "find_package(Qt6",
+            "provider SDK must not discover unrelated Qt packages"
+        );
+        require_not_contains(
+            generated, "ECOSYSTEM_BUILD_TESTS",
+            "provider SDK must not expose an unused test graph switch"
+        );
+    }
+    require_true(
+        inspected_sdk,
+        "actor-owned SDK source must be inspectable in consumer state"
     );
     require_true(
         run_marx_cli(consumer, "build debug imported:math").exit_code == 0,
@@ -54,6 +164,13 @@ void test_source_dependency_local_override_builds_and_installs_before_consumer(
     require_not_contains(
         cmake, provider.string(),
         "consumer generation must not bind provider private sources"
+    );
+    const auto release = run_marx_cli(consumer, "build release");
+    require_true(
+        release.exit_code == 0
+            && run_marx_cli(consumer, "run release").exit_code == 0,
+        "the same isolated provider SDK must build and execute in Release: "
+            + release.output
     );
     write_text(
         provider / "src/answer.cpp",
@@ -322,10 +439,59 @@ void test_source_dependency_shared_and_interface_usage_requirements() {
         const auto consumer = root.path() / "consumer";
         auto provider_manifest
             = json::parse(read_text(provider / "manifest.json"));
+        provider_manifest["install_artifacts"]
+            = json::array({ "companion:qt" });
+        provider_manifest["artifacts"].push_back(
+            { { "id", "companion:qt" },
+              { "kind", "static_lib" },
+              { "owns", json::array({ "adapter" }) },
+              { "dependencies", json::array({ "math:library" }) },
+              { "packages", { { "qt", json::array({ "Core" }) } } } }
+        );
+        write_text(
+            provider / "include/adapter.hpp",
+            "#pragma once\nint adapter_answer();\n"
+        );
+        write_text(
+            provider / "src/adapter.cpp",
+            "#include <QObject>\n#include <answer.hpp>\n#include "
+            "<adapter.hpp>\nint adapter_answer() { QObject object; return "
+            "answer({}) + (object.parent() ? 1 : 0); }\n"
+        );
         provider_manifest["artifacts"][0]["kind"] = kind;
         auto consumer_manifest
             = json::parse(read_text(consumer / "manifest.json"));
         consumer_manifest["artifacts"][0]["kind"] = kind;
+        auto adapter_import = consumer_manifest["artifacts"][0];
+        adapter_import["id"] = "adapter:imported";
+        adapter_import["kind"] = "static_lib";
+        adapter_import["packages"]["external_project"]["artifact"]
+            = "companion:qt";
+        consumer_manifest["artifacts"].push_back(adapter_import);
+        consumer_manifest["artifacts"][1]["dependencies"].push_back(
+            "adapter:imported"
+        );
+        write_text(
+            consumer / "src/main.cpp",
+            "#include <answer.hpp>\n#include <adapter.hpp>\nint main() { "
+            "return "
+            "answer({}) == 42 && adapter_answer() == 42 ? 0 : 1; }\n"
+        );
+        const auto log = root.path() / "cmake.log";
+        const auto tools = root.path() / "tools";
+        write_executable_script(
+            tools / "cmake",
+            "#!/bin/sh\ncase \"$1\" in\n"
+            "-S) echo configure >> \"$ECOSYSTEM_TEST_CMAKE_LOG\" ;;\n"
+            "--build) echo build >> \"$ECOSYSTEM_TEST_CMAKE_LOG\" ;;\n"
+            "--install) echo install >> \"$ECOSYSTEM_TEST_CMAKE_LOG\" ;;\n"
+            "esac\nexec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\"\n"
+        );
+        scoped_env cmake(
+            "ECOSYSTEM_TEST_REAL_CMAKE", ecosystem::find_command_path("cmake")
+        );
+        scoped_env command_log("ECOSYSTEM_TEST_CMAKE_LOG", log.string());
+        scoped_env path("PATH", tools.string() + ":" + current_path_env());
         write_text(provider / "manifest.json", provider_manifest.dump(2));
         write_text(consumer / "manifest.json", consumer_manifest.dump(2));
         if (std::string(kind) == "interface_lib") {
@@ -339,10 +505,79 @@ void test_source_dependency_shared_and_interface_usage_requirements() {
         map_provider(consumer, provider);
         const auto result = run_marx_cli(consumer, "build debug");
         require_true(
+            result.exit_code == 0,
+            "declared SDK must build successfully: " + result.output
+        );
+        const auto calls = read_text(log);
+        require_true(
+            calls.find("install\n") != std::string::npos
+                && calls.find("install\n", calls.find("install\n") + 1)
+                    == std::string::npos,
+            "two imports of one package must prepare and install its SDK "
+            "exactly once: "
+                + calls
+        );
+        bool companion_installed = false;
+        for (const auto& entry : fs::recursive_directory_iterator(
+                 consumer / ".ecosystem/dependencies"
+             )) {
+            if (entry.path().filename() == "numbersTargets.cmake") {
+                require_contains(
+                    read_text(entry.path()), "numbers::companion__qt",
+                    "declared SDK companions must retain their installed "
+                    "exports"
+                );
+                companion_installed = true;
+            }
+        }
+        require_true(
+            companion_installed,
+            "full declared SDK must install its Qt companion"
+        );
+        require_true(
             result.exit_code == 0
                 && run_marx_cli(consumer, "run debug").exit_code == 0,
             std::string("installed usage requirements must work for ") + kind
                 + ": " + result.output
+        );
+        consumer_manifest["artifacts"][2]["packages"]["external_project"]
+                         ["artifact"]
+            = "missing:export";
+        write_text(consumer / "manifest.json", consumer_manifest.dump(2));
+        write_text(log, "");
+        const auto invalid = run_marx_cli(consumer, "build debug");
+        require_true(
+            invalid.exit_code == 5,
+            "invalid second import must fail preparation"
+        );
+        require_contains(
+            invalid.output,
+            "provider artifact missing or kind mismatch: missing:export",
+            "every import must be validated before preparation"
+        );
+        require_true(
+            read_text(log).empty(),
+            "invalid import must fail before any CMake command"
+        );
+        consumer_manifest["artifacts"][2]["packages"]["external_project"]
+                         ["artifact"]
+            = "companion:qt";
+        consumer_manifest["artifacts"][2]["packages"]["external_project"]
+                         ["revision"]
+            = "conflicting-revision";
+        write_text(consumer / "manifest.json", consumer_manifest.dump(2));
+        const auto conflict = run_marx_cli(consumer, "build debug");
+        require_true(
+            conflict.exit_code == 5, "conflicting package revisions must fail"
+        );
+        require_contains(
+            conflict.output,
+            "conflicting source selections for package numbers",
+            "conflicting aliases must report the package"
+        );
+        require_true(
+            read_text(log).empty(),
+            "conflicting import must fail before any CMake command"
         );
     }
 }

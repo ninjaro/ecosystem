@@ -296,6 +296,102 @@ void test_automatic_tests_preserve_optional_features() {
     validate_optional_test_fixture(true, true);
 }
 
+void test_check_support_paths_stay_out_of_production() {
+    temp_dir root;
+    const auto project = root.path() / "project";
+    write_text(project / "manifest.json", R"({
+        "id":"check_paths", "description":"Check support isolation",
+        "facade":"core:lib", "install_artifacts":["core:lib"],
+        "artifacts":[
+          {"id":"core:lib", "kind":"static_lib", "owns":["include", "src", "tests"],
+           "packages":{"qt":["Core"]}, "tests":{"qttest":true}},
+          {"id":"bench:run", "kind":"exe", "owns":["benchmarks"],
+           "entry":"benchmarks/main.cpp", "dependencies":["core:lib"]}
+        ]
+    })");
+    write_text(
+        project / "include/tests_are_data.hpp",
+        "#pragma once\nint current_answer();\n"
+    );
+    write_text(
+        project / "src/answer.cpp",
+        "#include <tests_are_data.hpp>\nint current_answer() { return 42; }\n"
+    );
+    write_text(
+        project / "tests/include/check_fixture.hpp",
+        "#pragma once\n#include <QtTest>\n#include <tests_are_data.hpp>\n"
+        "class check_fixture : public QObject {\nQ_OBJECT\nprivate slots:\n"
+        "void current() { QCOMPARE(current_answer(), 42); }\n};\n"
+    );
+    write_text(
+        project / "tests/check_tests.cpp",
+        "#include <check_fixture.hpp>\nQTEST_APPLESS_MAIN(check_fixture)\n"
+    );
+    write_text(
+        project / "benchmarks/include/cost_input.hpp",
+        "#pragma once\ninline constexpr int expected_answer = 42;\n"
+    );
+    write_text(
+        project / "benchmarks/main.cpp",
+        "#include <cost_input.hpp>\n#include <tests_are_data.hpp>\n"
+        "int main() { return current_answer() == expected_answer ? 0 : 1; }\n"
+    );
+    const auto loaded = ecosystem::load_manifest(project / "manifest.json");
+    require_true(loaded.errors.empty(), join_lines(loaded.errors));
+    const auto observer = R"cmake(
+get_target_property(production_includes core__lib INCLUDE_DIRECTORIES)
+foreach(path IN LISTS production_includes)
+    if(path MATCHES "/(tests|benchmarks)/include")
+        message(FATAL_ERROR "Check-only include leaked into production: ${path}")
+    endif()
+endforeach()
+get_target_property(production_sources core__lib SOURCES)
+foreach(path IN LISTS production_sources)
+    if(path MATCHES "/(tests|benchmarks)/")
+        message(FATAL_ERROR "Check-only header leaked into production: ${path}")
+    endif()
+endforeach()
+)cmake";
+    for (const bool developer : { false, true }) {
+        const auto source = root.path() / (developer ? "developer" : "visitor");
+        const auto generated = developer
+            ? ecosystem::generate_developer_cmakelists(*loaded.value, project)
+            : ecosystem::generate_cmakelists(*loaded.value, project);
+        write_text(source / "CMakeLists.txt", generated + observer);
+        if (!developer) {
+            fs::copy(
+                project / "include", source / "include",
+                fs::copy_options::recursive
+            );
+            fs::copy(
+                project / "src", source / "src", fs::copy_options::recursive
+            );
+            // A visitor does not even need the developer check directories.
+        }
+        for (const auto* profile : { "Debug", "Release" }) {
+            const auto build = source / profile;
+            auto run = [&](const ecosystem::string_list& command) {
+                const auto result
+                    = ecosystem::capture_command_result(command, root.path());
+                require_true(result.exit_code == 0, result.output);
+            };
+            run({ "cmake", "-S", source.string(), "-B", build.string(),
+                  "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
+                  "-DCMAKE_BUILD_TYPE=" + std::string(profile),
+                  std::string("-DECOSYSTEM_BUILD_TESTS=")
+                      + (developer ? "ON" : "OFF"),
+                  std::string("-DECOSYSTEM_BUILD_BENCHMARKS=")
+                      + (developer ? "ON" : "OFF") });
+            run({ "cmake", "--build", build.string(), "--parallel", "2" });
+            if (developer) {
+                run({ "ctest", "--test-dir", build.string(), "--no-tests=error",
+                      "--output-on-failure" });
+                run({ (build / "run").string() });
+            }
+        }
+    }
+}
+
 void test_owned_check_artifacts_compile_and_execute_all_sources() {
     temp_dir root;
     const auto project = root.path() / "project";
@@ -857,9 +953,18 @@ void test_install_artifacts_build_and_install_independent_executables() {
     );
     const fs::path build = root.path() / "build";
     const fs::path prefix = root.path() / "install";
+    std::string generation_error;
+    require_true(
+        ecosystem::ensure_local_developer_surface(
+            root.path(), value, &generation_error
+        ) == ecosystem::command_error::ok,
+        generation_error
+    );
     require_true(
         ecosystem::run_command(
-            { "cmake", "-S", root.path().string(), "-B", build.string() },
+            { "cmake", "-S",
+              ecosystem::local_developer_source_dir(root.path()).string(), "-B",
+              build.string() },
             root.path()
         ) == 0,
         "independent executable targets must configure without executable link "
@@ -887,6 +992,36 @@ void test_install_artifacts_build_and_install_independent_executables() {
     require_true(
         installed == std::set<std::string> { "app", "cli" },
         "install must contain exactly the declared executable outputs"
+    );
+    const auto selected = run_marx_cli(root.path(), "build debug tool:cli");
+    require_true(
+        selected.exit_code == 0,
+        "selected companion must build: " + selected.output
+    );
+    require_not_contains(
+        read_text(ecosystem::local_developer_cmakelists_path(root.path())),
+        "add_executable(app__app",
+        "selected companion graph must exclude the facade"
+    );
+    const auto restored = run_marx_cli(root.path(), "build debug");
+    require_true(
+        restored.exit_code == 0,
+        "unscoped build must restore SDK install intent: " + restored.output
+    );
+    const auto actor_prefix = root.path() / "actor-install";
+    require_true(
+        ecosystem::run_command(
+            { "cmake", "--install",
+              ecosystem::local_build_dir(root.path(), "debug").string(),
+              "--prefix", actor_prefix.string() },
+            root.path()
+        ) == 0,
+        "restored actor SDK must install all built declared roots"
+    );
+    require_true(
+        fs::is_regular_file(actor_prefix / "bin/app")
+            && fs::is_regular_file(actor_prefix / "bin/cli"),
+        "switching selected/full graphs must preserve both declared SDK outputs"
     );
     value.install_artifacts = { "unknown:missing", "unknown:missing" };
     const auto errors = join_lines(ecosystem::validate_manifest(value));

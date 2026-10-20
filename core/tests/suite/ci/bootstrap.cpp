@@ -227,14 +227,32 @@ void test_ci_bootstrap_layouts() {
         source / "CMakeLists.txt",
         "cmake_minimum_required(VERSION 3.20)\nproject(tooling_fixture "
         "LANGUAGES C)\n"
-        "add_executable(marx actor.c)\nadd_executable(engels actor.c)\n"
+        "add_executable(marx actor.c)\n"
     );
     write_text(source / "manifest.json", "{}\n");
     write_text(source / "assets/templates/version.txt", "runtime data\n");
+    require_true(
+        ecosystem::local_build_dir(source, "debug")
+            == source / ".ecosystem/build/project/desktop/debug/default",
+        "setup must track the actor's canonical local build layout"
+    );
+    write_text(
+        source / "prepare.sh",
+        "set -eu\nmkdir -p .ecosystem/source\n"
+        "cat > .ecosystem/source/CMakeLists.txt <<'CMAKE'\n"
+        "cmake_minimum_required(VERSION 3.20)\nproject(actor_owned LANGUAGES "
+        "C)\n"
+        "add_executable(engels ../../actor.c)\nCMAKE\n"
+        "cmake -S .ecosystem/source -B "
+        ".ecosystem/build/project/desktop/debug/default\n"
+        "cmake --build .ecosystem/build/project/desktop/debug/default\n"
+    );
     write_text(
         source / "actor.c",
-        "#include <stdio.h>\nint main(void) { puts(\"old-revision\"); return "
-        "0; }\n"
+        "#include <stdio.h>\n#include <stdlib.h>\nint main(int argc, char "
+        "**argv) { (void)argv; "
+        "if(argc > 1) return system(\"bash prepare.sh\") == 0 ? 0 : 1; "
+        "puts(\"old-revision\"); return 0; }\n"
     );
     git({ "init", "-q" });
     git({ "add", "." });
@@ -243,8 +261,10 @@ void test_ci_bootstrap_layouts() {
     git({ "tag", "old" });
     write_text(
         source / "actor.c",
-        "#include <stdio.h>\nint main(void) { puts(\"reviewed-revision\"); "
-        "return 0; }\n"
+        "#include <stdio.h>\n#include <stdlib.h>\nint main(int argc, char "
+        "**argv) { (void)argv; "
+        "if(argc > 1) return system(\"bash prepare.sh\") == 0 ? 0 : 1; "
+        "puts(\"reviewed-revision\"); return 0; }\n"
     );
     git({ "add", "." });
     git({ "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",

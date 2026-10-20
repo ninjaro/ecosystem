@@ -24,7 +24,8 @@ std::optional<source_dependency> source_dependency_for(const component& value);
 command_error prepare_source_dependencies(
     const std::filesystem::path& project_root, const manifest& value,
     const std::string& profile, string_list* cmake_options,
-    std::string* error_message
+    std::string* error_message,
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
 
 } // namespace ecosystem

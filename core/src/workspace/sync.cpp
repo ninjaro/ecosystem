@@ -178,7 +178,8 @@ namespace sync_support {
     }
 
     std::vector<fs::path> component_public_headers(
-        const fs::path& project_root, const component& component_value
+        const fs::path& project_root, const component& component_value,
+        const bool include_checks = false
     ) {
         std::vector<fs::path> files
             = component_module_headers(project_root, component_value);
@@ -195,6 +196,17 @@ namespace sync_support {
             &files,
             component_c_header_pair_headers(project_root, component_value)
         );
+        if (!include_checks && !component_is_test_only(component_value)
+            && !component_is_benchmark_only(component_value)) {
+            const auto root
+                = component_root_path(project_root, component_value);
+            std::erase_if(files, [&](const auto& path) {
+                const auto relative = path.lexically_relative(root);
+                return !relative.empty()
+                    && (*relative.begin() == "tests"
+                        || *relative.begin() == "benchmarks");
+            });
+        }
         return files;
     }
 
@@ -1331,6 +1343,21 @@ namespace sync_support {
         return keys;
     }
 
+    std::set<std::string> developer_artifact_keys(
+        const manifest& value, const std::optional<artifact_ref>& requested
+    ) {
+        if (!requested)
+            return all_artifact_keys(value);
+        if (!resolve_artifact(value, requested))
+            throw template_render_error(
+                "unknown developer artifact: " + format_artifact_ref(*requested)
+            );
+        std::set<std::string> keys;
+        std::vector<artifact_ref> roots;
+        collect_surface_artifacts(value, *requested, &roots, &keys);
+        return keys;
+    }
+
     std::set<std::string> tracked_facade_artifact_keys(const manifest& value) {
         const std::optional<artifact_ref> entry_ref
             = parse_artifact_ref(value.facade_entry_artifact);
@@ -1341,6 +1368,12 @@ namespace sync_support {
         std::vector<artifact_ref> artifacts;
         std::set<std::string> seen;
         collect_surface_artifacts(value, *entry_ref, &artifacts, &seen);
+        return seen;
+    }
+
+    std::set<std::string> distribution_artifact_keys(const manifest& value) {
+        auto seen = tracked_facade_artifact_keys(value);
+        std::vector<artifact_ref> artifacts;
         for (const std::string& installed : value.install_artifacts) {
             if (const auto ref = parse_artifact_ref(installed);
                 ref.has_value()) {
@@ -1443,10 +1476,15 @@ namespace sync_support {
         const manifest& value, const std::vector<const component*>& components
     ) {
         std::map<std::string, source_dependency> providers;
+        std::map<std::string, std::set<std::string>> provider_targets;
         for (const auto* component_value : components) {
             const auto dependency = source_dependency_for(*component_value);
             if (!dependency)
                 continue;
+            provider_targets[dependency->package].insert(
+                dependency->package
+                + "::" + cmake_target_name(dependency->artifact)
+            );
             const auto [position, inserted]
                 = providers.emplace(dependency->package, *dependency);
             if (!inserted
@@ -1467,9 +1505,13 @@ namespace sync_support {
         for (const auto& [package, dependency] : providers) {
             declarations += "    _ecosystem_source(" + cmake_bracket(package)
                 + " " + cmake_bracket(dependency.repository) + " "
-                + cmake_bracket(dependency.revision) + ")\n";
+                + cmake_bracket(dependency.revision);
+            for (const auto& target : provider_targets.at(package))
+                declarations += " " + cmake_bracket(target);
+            declarations += ")\n";
             identity.push_back({ package, dependency.repository,
-                                 dependency.revision });
+                                 dependency.revision,
+                                 provider_targets.at(package) });
         }
         return render_required_sync_template(
             "cmake/facade_outer.tpl",
@@ -1485,12 +1527,16 @@ namespace sync_support {
         );
     }
 
-    std::set<std::string> exported_library_keys(const manifest& value) {
+    std::set<std::string> exported_library_keys(
+        const manifest& value, const std::set<std::string>& selected_keys
+    ) {
         std::set<std::string> keys;
         auto roots = value.install_artifacts;
         roots.push_back(value.facade_entry_artifact);
         std::vector<artifact_ref> refs;
         for (const auto& root : roots) {
+            if (!selected_keys.contains(root))
+                continue;
             const auto ref = parse_artifact_ref(root);
             const auto resolved = resolve_artifact(value, ref);
             if (!resolved || !is_library_kind(resolved->artifact_value->kind)
@@ -1544,13 +1590,18 @@ namespace sync_support {
         return result;
     }
 
+    enum class cmake_surface { visitor, developer, distribution };
+
     std::string generate_surface_cmakelists(
         const manifest& value, const fs::path& project_root,
-        const bool developer_surface
+        const cmake_surface surface,
+        const std::optional<artifact_ref>& requested_artifact = std::nullopt
     ) {
+        const bool developer_surface = surface == cmake_surface::developer;
+        const bool local_surface = surface != cmake_surface::visitor;
         const std::string project_prefix = to_upper_identifier(value.id);
         const bool has_assets_dir = project_has_assets_dir(project_root);
-        const std::string source_root_expression = developer_surface
+        const std::string source_root_expression = local_surface
             ? "${ECOSYSTEM_PROJECT_ROOT}"
             : "${CMAKE_CURRENT_SOURCE_DIR}";
         std::string runtime_categories;
@@ -1559,12 +1610,15 @@ namespace sync_support {
                 runtime_categories += ' ';
             runtime_categories += category;
         }
-        const std::set<std::string> selected_artifact_keys = developer_surface
-            ? all_artifact_keys(value)
+        const auto selected_artifact_keys = developer_surface
+            ? developer_artifact_keys(value, requested_artifact)
+            : surface == cmake_surface::distribution
+            ? distribution_artifact_keys(value)
             : tracked_facade_artifact_keys(value);
         const std::vector<const component*> components
             = selected_components(value, selected_artifact_keys);
-        const auto export_keys = exported_library_keys(value);
+        const auto export_keys
+            = exported_library_keys(value, selected_artifact_keys);
         const dependency_summary dependencies = summarize_dependencies(
             package_manifest(
                 value, selected_artifact_keys, false,
@@ -1610,6 +1664,8 @@ namespace sync_support {
         }
         const std::string developer_options_block = developer_surface
             ? render_required_sync_template("cmake/developer_options.tpl", {})
+            : local_surface
+            ? render_required_sync_template("cmake/sdk_options.tpl", {})
             : std::string();
         const std::string apply_defaults_block
             = render_required_sync_template("cmake/apply_defaults.tpl", {});
@@ -1673,13 +1729,13 @@ namespace sync_support {
             : std::string();
 
         std::ostringstream stream;
-        if (!developer_surface)
+        if (!local_surface)
             stream << render_facade_outer(value, components);
         stream << render_required_sync_template(
             "cmake/surface_prefix.tpl",
             {
                 { "generated_notice",
-                  developer_surface
+                  local_surface
                       ? "# This file is generated by ecosystem local tooling. "
                         "Do not edit by hand."
                       : "# This file is generated by `marx sync`. Do not edit "
@@ -1717,8 +1773,9 @@ namespace sync_support {
             );
 
         if (value.id == "ecosystem") {
-            const auto runtime_ref
-                = parse_artifact_ref(value.facade_entry_artifact);
+            const auto runtime_ref = requested_artifact
+                ? requested_artifact
+                : parse_artifact_ref(value.facade_entry_artifact);
             if (!runtime_ref)
                 throw template_render_error(
                     "tooling runtime needs a valid facade identity"
@@ -1745,6 +1802,16 @@ namespace sync_support {
                 component_public_headers(project_root, *component_value),
                 project_root, source_root_expression
             );
+            if (developer_surface
+                && component_generated_test_target(*component_value)) {
+                append_paths(
+                    stream, prefix + "_TEST_HEADERS",
+                    component_public_headers(
+                        project_root, *component_value, true
+                    ),
+                    project_root, source_root_expression
+                );
+            }
             append_paths(
                 stream, prefix + "_SOURCES",
                 component_core_sources(project_root, *component_value),
@@ -1812,8 +1879,12 @@ namespace sync_support {
                        ? "_" + component_value->artifacts.front().id
                        : "")
             );
-            const std::vector<fs::path> include_dirs
-                = component_include_dirs(project_root, *component_value);
+            const bool check_component
+                = component_is_test_only(*component_value)
+                || component_is_benchmark_only(*component_value);
+            const std::vector<fs::path> include_dirs = component_include_dirs(
+                project_root, *component_value, check_component, check_component
+            );
             const std::optional<artifact_ref> library_ref
                 = selected_library_ref(
                     *component_value, selected_artifact_keys
@@ -2012,8 +2083,12 @@ namespace sync_support {
             }
         }
 
-        const std::set<std::string> install_artifact_keys
-            = tracked_facade_artifact_keys(value);
+        auto install_artifact_keys = developer_surface
+            ? distribution_artifact_keys(value)
+            : selected_artifact_keys;
+        std::erase_if(install_artifact_keys, [&](const auto& key) {
+            return !selected_artifact_keys.contains(key);
+        });
         const std::optional<artifact_ref> install_entry_ref
             = parse_artifact_ref(value.facade_entry_artifact);
         const component* install_entry_component = install_entry_ref.has_value()
@@ -2028,7 +2103,10 @@ namespace sync_support {
               );
         const bool library_first_install_surface
             = install_surface_is_library_first(install_entry_artifact);
-        if (install_entry_ref && install_entry_artifact) {
+        if (install_entry_ref && install_entry_artifact
+            && selected_artifact_keys.contains(
+                format_artifact_ref(*install_entry_ref)
+            )) {
             stream << render_required_sync_template(
                 "cmake/visitor_facade.tpl",
                 { { "target_name", cmake_target_name(*install_entry_ref) },
@@ -2196,8 +2274,9 @@ namespace sync_support {
                           package_dependency_scope::tests
                       );
                 std::vector<std::string> include_dir_expressions;
-                for (const fs::path& include_dir :
-                     component_include_dirs(project_root, *component_value)) {
+                for (const fs::path& include_dir : component_include_dirs(
+                         project_root, *component_value, true, true
+                     )) {
                     include_dir_expressions.push_back(source_path_expression(
                         source_root_expression, project_root, include_dir
                     ));
@@ -2273,7 +2352,7 @@ namespace sync_support {
                                   project_root, *component_value
                               ) / "tests"
                           ) + "/*.cpp",
-                    *test_target, "${" + prefix + "_HEADERS}",
+                    *test_target, "${" + prefix + "_TEST_HEADERS}",
                     "${" + prefix + "_SOURCES}", "${" + test_var + "}",
                     include_dir_expressions, link_targets,
                     feature_definitions_block, source_root_expression,
@@ -2298,18 +2377,45 @@ using namespace sync_support;
 bool artifact_has_cmake_export(const manifest& value, const artifact_ref& ref) {
     const auto resolved = resolve_artifact(value, ref);
     return resolved && !source_dependency_for(*resolved->component_value)
-        && exported_library_keys(value).contains(format_artifact_ref(ref));
+        && exported_library_keys(value, distribution_artifact_keys(value))
+               .contains(format_artifact_ref(ref));
 }
 
 std::string
 generate_cmakelists(const manifest& value, const fs::path& project_root) {
-    return generate_surface_cmakelists(value, project_root, false);
+    return generate_surface_cmakelists(
+        value, project_root, cmake_surface::visitor
+    );
 }
 
 std::string generate_developer_cmakelists(
+    const manifest& value, const fs::path& project_root,
+    const std::optional<artifact_ref>& requested_artifact
+) {
+    return generate_surface_cmakelists(
+        value, project_root, cmake_surface::developer, requested_artifact
+    );
+}
+
+std::string generate_distribution_cmakelists(
     const manifest& value, const fs::path& project_root
 ) {
-    return generate_surface_cmakelists(value, project_root, true);
+    return generate_surface_cmakelists(
+        value, project_root, cmake_surface::distribution
+    );
+}
+
+std::vector<const component*> developer_component_closure(
+    const manifest& value, const std::optional<artifact_ref>& requested_artifact
+) {
+    return selected_components(
+        value, developer_artifact_keys(value, requested_artifact)
+    );
+}
+
+std::vector<const component*>
+distribution_component_closure(const manifest& value) {
+    return selected_components(value, distribution_artifact_keys(value));
 }
 
 std::vector<fs::path> ignored_local_surface_paths() {
