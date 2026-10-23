@@ -3,6 +3,188 @@
 
 namespace ecosystem_test_support {
 
+void test_qt_versions_select_build_and_export_minimum() {
+    auto value = sample_qttest_manifest();
+    value.qt = ecosystem::qt_requirement { "6.9", "6.11.2" };
+    const auto dependencies
+        = ecosystem::summarize_dependencies(value, std::nullopt);
+    const auto build = ecosystem::render_package_surface(dependencies, {});
+    require_contains(
+        build, "find_package(Qt6 6.11.2 EXACT CONFIG REQUIRED COMPONENTS",
+        "a build pin must never silently select a different SDK"
+    );
+    require_contains(
+        build, "VERSION_LESS \"6.9\"",
+        "an incompatible build pin must fail before dependency discovery"
+    );
+    require_contains(
+        build, "ECOSYSTEM_RESOLVED_QT_VERSION \"${Qt6_VERSION}\"",
+        "successful configuration must record the resolved Qt version"
+    );
+    const auto sections
+        = ecosystem::declared_package_sections(dependencies, false);
+    require_contains(
+        sections.front().packages.front().label, "build 6.11.2 EXACT",
+        "dependency reports must describe the actual version selection"
+    );
+    ecosystem::package_surface_options installed;
+    installed.build_versions = false;
+    installed.imported_support_targets = true;
+    const auto exported
+        = ecosystem::render_package_surface(dependencies, installed);
+    require_contains(
+        exported, "find_package(Qt6 6.9 CONFIG REQUIRED COMPONENTS",
+        "SDK consumers receive the supported minimum"
+    );
+    require_not_contains(
+        exported, "6.11.2",
+        "provider build pins must not constrain SDK consumers"
+    );
+    require_not_contains(
+        exported, "ECOSYSTEM_RESOLVED_QT_VERSION",
+        "an imported SDK must not overwrite the consumer's resolution record"
+    );
+    auto independent = sample_manifest();
+    independent.qt = value.qt;
+    require_not_contains(
+        ecosystem::render_package_surface(
+            ecosystem::summarize_dependencies(independent, std::nullopt), {}
+        ),
+        "Qt6", "Qt-free artifact closures must remain Qt independent"
+    );
+    temp_dir root;
+    const auto facade = ecosystem::generate_cmakelists(value, root.path());
+    require_contains(
+        facade, "find_package(Qt6 6.11.2 EXACT CONFIG REQUIRED COMPONENTS",
+        "visitor generation must preserve the build contract"
+    );
+    require_contains(
+        ecosystem::generate_developer_cmakelists(value, root.path()),
+        "find_package(Qt6 6.11.2 EXACT CONFIG REQUIRED COMPONENTS",
+        "developer and automatic test discovery must preserve build pins"
+    );
+    require_true(
+        facade == ecosystem::generate_cmakelists(value, root.path()),
+        "versioned generation must be deterministic"
+    );
+    auto library = sample_library_manifest();
+    library.qt = value.qt;
+    library.components.front().stack["qt"] = json::array({ "Core" });
+    const auto sdk = ecosystem::generate_cmakelists(library, root.path());
+    require_contains(
+        sdk, "find_package(Qt6 6.9 CONFIG REQUIRED COMPONENTS",
+        "the actual installed package generator must use the supported floor"
+    );
+    require_contains(
+        sdk, "cxx_std_20",
+        "installed targets retain their C++ usage requirement"
+    );
+    value.qt->build_version.clear();
+    const auto unpinned_dependencies
+        = ecosystem::summarize_dependencies(value, std::nullopt);
+    const auto unpinned
+        = ecosystem::render_package_surface(unpinned_dependencies, {});
+    require_contains(
+        unpinned, "find_package(Qt6 6.9 CONFIG REQUIRED COMPONENTS",
+        "minimum-only builds must accept any SDK satisfying the floor"
+    );
+    require_not_contains(
+        unpinned, "EXACT", "a minimum is not an exact build pin"
+    );
+    require_contains(
+        ecosystem::declared_package_sections(unpinned_dependencies, false)
+            .front()
+            .packages.front()
+            .label,
+        "Qt6 >= 6.9 CONFIG components",
+        "dependency reports must accurately describe minimum-only discovery"
+    );
+}
+
+void test_toolchain_configuration_rejects_incompatible_versions() {
+    temp_dir root;
+    auto value = sample_qttest_manifest();
+    value.qt = ecosystem::qt_requirement { "6.9", "6.8.3" };
+    write_text(
+        root.path() / "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.20)\nproject(version_probe LANGUAGES "
+        "CXX)\n"
+            + ecosystem::render_package_surface(
+                ecosystem::summarize_dependencies(value, std::nullopt), {}
+            )
+    );
+    require_true(
+        ecosystem::run_command(
+            { "cmake", "-S", root.path().string(), "-B",
+              (root.path() / "build").string() },
+            root.path()
+        ) != 0,
+        "a build below the supported Qt minimum must fail configuration"
+    );
+    const auto generated
+        = ecosystem::generate_cmakelists(sample_manifest(), root.path());
+    require_contains(
+        generated, "\"cxx_std_20\" IN_LIST CMAKE_CXX_COMPILE_FEATURES",
+        "configuration must reject unsupported compiler dialects explicitly"
+    );
+    require_contains(
+        generated, "ECOSYSTEM_RESOLVED_CXX_COMPILER",
+        "the configured compiler identity must be recorded"
+    );
+}
+
+void test_toolchain_dialects_configure_and_build() {
+    for (const int standard : { 17, 20, 23 }) {
+        temp_dir root;
+        auto value = sample_build_manifest("dialect_probe");
+        value.cpp_standard = standard;
+        value.components.front().artifacts.front().name = "dialect_probe";
+        const std::string source = standard == 23
+            ? "#include <utility>\n"
+              "enum class Value { answer = 23 };\n"
+              "constexpr int answer() { if consteval { return "
+              "std::to_underlying(Value::answer); } else { return 0; } }\n"
+              "static_assert(answer() == 23);\nint main() { return 0; }\n"
+            : "#include <optional>\nint main() { return "
+              "std::optional<int>(0).value(); }\n";
+        write_text(root.path() / "src/main.cpp", source);
+        write_text(
+            root.path() / "CMakeLists.txt",
+            ecosystem::generate_cmakelists(value, root.path())
+        );
+        for (const auto& profile : { "Debug", "Release" }) {
+            const auto build = root.path() / profile;
+            require_true(
+                ecosystem::run_command(
+                    { "cmake", "-S", root.path().string(), "-B", build.string(),
+                      "-DCMAKE_BUILD_TYPE=" + std::string(profile) },
+                    root.path()
+                ) == 0,
+                "supported explicit dialects must configure"
+            );
+            require_true(
+                ecosystem::run_command(
+                    { "cmake", "--build", build.string() }, root.path()
+                ) == 0,
+                "the selected dialect must compile and link actual "
+                "language/library features"
+            );
+            require_true(
+                ecosystem::run_command(
+                    { (build / "dialect_probe").string() }, root.path()
+                ) == 0,
+                "the configured dialect fixture must execute"
+            );
+            require_contains(
+                read_text(build / "CMakeCache.txt"),
+                "ECOSYSTEM_RESOLVED_CXX_STANDARD:INTERNAL="
+                    + std::to_string(standard),
+                "configuration must record the selected standard"
+            );
+        }
+    }
+}
+
 void test_zlib_dependency_is_required_and_links_imported_target() {
     ecosystem::manifest value = sample_cxxopts_manifest();
     value.components.front().stack
@@ -663,7 +845,7 @@ void test_find_package_surface_rule_returns_qt_rule() {
     );
     require_true(
         rule->component_rule.find_package_open_line
-            == "find_package(Qt6 6.0 CONFIG REQUIRED COMPONENTS",
+            == "find_package(Qt6 {{qt_version}} CONFIG REQUIRED COMPONENTS",
         "surface-rule lookup must preserve the Qt package rule data"
     );
 }

@@ -1593,10 +1593,13 @@ namespace sync_support {
     enum class cmake_surface { visitor, developer, distribution };
 
     std::string generate_surface_cmakelists(
-        const manifest& value, const fs::path& project_root,
+        const manifest& authored_value, const fs::path& project_root,
         const cmake_surface surface,
         const std::optional<artifact_ref>& requested_artifact = std::nullopt
     ) {
+        const auto value = resolve_features(
+            authored_value, authored_value.enabled_features, requested_artifact
+        );
         const bool developer_surface = surface == cmake_surface::developer;
         const bool local_surface = surface != cmake_surface::visitor;
         const std::string project_prefix = to_upper_identifier(value.id);
@@ -2006,6 +2009,20 @@ namespace sync_support {
                     indent
                 );
 
+                for (const auto& feature : value.enabled_features)
+                    emit_line(
+                        stream, indent,
+                        std::string("target_compile_definitions(")
+                            .append(target_name)
+                            .append(" ")
+                            .append(link_scope)
+                            .append(" ")
+                            .append(project_prefix)
+                            .append("_FEATURE_")
+                            .append(to_upper_identifier(feature))
+                            .append("=1)")
+                    );
+
                 if (artifact_value->kind != "interface_lib") {
                     stream << render_output_name_line(
                         target_name, output_name, indent
@@ -2207,6 +2224,7 @@ namespace sync_support {
             package_surface_options installed_options;
             installed_options.support_targets = true;
             installed_options.imported_support_targets = true;
+            installed_options.build_versions = false;
             auto installed_packages = render_package_surface(
                 summarize_dependencies(
                     package_manifest(value, export_keys, true), std::nullopt
@@ -2335,6 +2353,11 @@ namespace sync_support {
                         *component_value, *test_target, "PRIVATE",
                         project_prefix, "        "
                     );
+                for (const auto& feature : value.enabled_features)
+                    feature_definitions_block
+                        += "        target_compile_definitions(" + *test_target
+                        + " PRIVATE " + project_prefix + "_FEATURE_"
+                        + to_upper_identifier(feature) + "=1)\n";
                 if (!value.version.empty()) {
                     feature_definitions_block
                         += render_project_version_definition(
@@ -2395,6 +2418,40 @@ std::string generate_developer_cmakelists(
     return generate_surface_cmakelists(
         value, project_root, cmake_surface::developer, requested_artifact
     );
+}
+
+manifest distribution_build_manifest(
+    const manifest& authored_value, const artifact_ref& primary
+) {
+    const auto value = resolve_features(
+        authored_value, authored_value.enabled_features, primary
+    );
+    if (!resolve_artifact(value, primary))
+        throw template_render_error(
+            "unknown distribution artifact: " + format_artifact_ref(primary)
+        );
+    std::set<std::string> keys;
+    std::vector<artifact_ref> closure;
+    for (const auto& root : distribution_artifacts(value, primary))
+        collect_surface_artifacts(value, root, &closure, &keys);
+    auto result = value;
+    if (format_artifact_ref(primary) != value.facade_entry_artifact)
+        result.install_artifacts.clear();
+    result.facade_entry_artifact = format_artifact_ref(primary);
+    for (auto& owner : result.components) {
+        std::erase_if(owner.artifacts, [&](const auto& output) {
+            return !keys.contains(format_artifact_ref({ owner.id, output.id }));
+        });
+        // Output disambiguation belongs to the full authored project, not the
+        // operation-local subset (which may have removed a same-ID artifact).
+        for (auto& output : owner.artifacts)
+            if (output.name.empty())
+                output.name = artifact_output_name(value, owner, output);
+    }
+    std::erase_if(result.components, [](const auto& owner) {
+        return owner.artifacts.empty();
+    });
+    return result;
 }
 
 std::string generate_distribution_cmakelists(

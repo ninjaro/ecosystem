@@ -8,4 +8,11 @@ set(CMAKE_CXX_STANDARD {{cpp_standard}})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if (CMAKE_CXX_STANDARD EQUAL 26 AND CMAKE_VERSION VERSION_LESS 3.25)
+    message(FATAL_ERROR "Ecosystem experimental C++26 requires CMake 3.25 or newer.")
+endif ()
+if (NOT "cxx_std_{{cpp_standard}}" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+    message(FATAL_ERROR "Ecosystem requires C++{{cpp_standard}}; ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} does not advertise it. Select a supported compiler or change manifest.cpp_standard after checking project requirements.")
+endif ()
+
 {{package_surface}}

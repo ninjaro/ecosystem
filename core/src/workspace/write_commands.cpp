@@ -2,6 +2,7 @@
 
 #include "command_internal.hpp"
 #include "workspace/source_dependencies.hpp"
+#include "workspace/sync.hpp"
 #include "workspace/tex.hpp"
 
 #include <chrono>
@@ -657,8 +658,12 @@ static command_error run_prerelease_attempt(
     const bool with_benchmarks
         = component_is_benchmark_only(*resolved->component_value);
     summary["stage"] = "configure";
+    const auto distribution = distribution_build_manifest(
+        select_local_features(project_root, manifest_value, resolved->ref),
+        resolved->ref
+    );
     command_error status = command_support::run_configure_build_tree(
-        project_root, manifest_value, "release", with_tests, false,
+        project_root, distribution, "release", with_tests, false,
         with_benchmarks, err
     );
     if (status != command_error::ok) {

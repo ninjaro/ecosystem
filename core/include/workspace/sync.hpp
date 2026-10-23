@@ -30,6 +30,10 @@ std::string generate_developer_cmakelists(
     const manifest& value, const std::filesystem::path& project_root = ".",
     const std::optional<artifact_ref>& requested_artifact = std::nullopt
 );
+// Operation-local model for the existing package roots and mandatory closure.
+// Does not rewrite the authored manifest or change package identities.
+manifest
+distribution_build_manifest(const manifest& value, const artifact_ref& primary);
 // Actor-owned SDK source: facade + declared distribution roots, without the
 // unrelated developer graph. Configure with ECOSYSTEM_PROJECT_ROOT explicitly.
 std::string generate_distribution_cmakelists(

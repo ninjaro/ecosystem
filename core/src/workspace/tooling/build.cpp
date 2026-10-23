@@ -133,6 +133,16 @@ command_error configure_build_tree(
     const bool capture_output,
     const std::optional<artifact_ref>& requested_artifact
 ) {
+    const auto output_errors = validate_local_output_paths(
+        project_root,
+        { "source/CMakeLists.txt", "reports",
+          local_build_dir(project_root, profile)
+              .lexically_relative(local_state_dir(project_root)) }
+    );
+    if (!output_errors.empty()) {
+        set_error(error_message, output_errors.front());
+        return command_error::task_failed;
+    }
     ensure_local_artifacts(project_root, false, false);
     const command_error surface_status = ensure_local_developer_surface(
         project_root, manifest_value, error_message, requested_artifact
@@ -184,9 +194,17 @@ command_error ensure_local_developer_surface(
     std::string* error_message,
     const std::optional<artifact_ref>& requested_artifact
 ) try {
+    const auto output_errors = validate_local_output_paths(
+        project_root, { "source/CMakeLists.txt", "build", "reports" }
+    );
+    if (!output_errors.empty()) {
+        set_error(error_message, output_errors.front());
+        return command_error::task_failed;
+    }
     const fs::path cmake_path = local_developer_cmakelists_path(project_root);
     const std::string generated_cmake = generate_developer_cmakelists(
-        manifest_value, project_root, requested_artifact
+        select_local_features(project_root, manifest_value, requested_artifact),
+        project_root, requested_artifact
     );
     ensure_local_artifacts(project_root, false, false);
     std::string read_error;
@@ -200,7 +218,7 @@ command_error ensure_local_developer_surface(
         return command_error::task_failed;
     }
     return command_error::ok;
-} catch (const template_render_error& error) {
+} catch (const std::exception& error) {
 
     set_error(error_message, error.what());
     return command_error::task_failed;

@@ -104,7 +104,7 @@ const std::vector<package_descriptor>& package_descriptors() {
             },
             package_group::required,
             package_surface_block::qt,
-            "Qt6 6.0 CONFIG components",
+            "Qt6 CONFIG components",
             true,
         },
         {

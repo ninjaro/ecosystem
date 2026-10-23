@@ -1,5 +1,6 @@
 #pragma once
 
+#include "manifest.hpp"
 #include "packages/package_dependency_id.hpp"
 
 #include <set>
@@ -14,6 +15,7 @@ struct dependency_entry {
 };
 
 struct dependency_summary {
+    std::optional<qt_requirement> qt_versions;
     dependency_entry json;
     dependency_entry llvm_clang;
     dependency_entry qt;

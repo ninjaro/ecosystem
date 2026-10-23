@@ -18,8 +18,364 @@ namespace {
     }
 }
 
+void test_optional_features_build_and_export_selected_closure() {
+
+    for (const bool external : { false, true }) {
+        temp_dir simple;
+        write_source_dependency_fixture(simple.path());
+        const auto project = simple.path() / "consumer";
+        const auto provider = simple.path() / "provider";
+        auto authored = json::parse(read_text(project / "manifest.json"));
+        auto& app = authored["artifacts"][1];
+        app.erase("dependencies");
+        app["optional_dependencies"] = json::array(
+            { { { "artifact", external ? "imported:math" : "extra:library" },
+                { "feature", "monitor" } } }
+        );
+        if (!external) {
+            authored["artifacts"].erase(0);
+            authored["artifacts"].push_back({ { "id", "extra:library" },
+                                              { "kind", "static_lib" },
+                                              { "owns",
+                                                json::array({ "extra" }) } });
+            write_text(
+                project / "include/extra.hpp", "#pragma once\nint extra();\n"
+            );
+            write_text(
+                project / "src/extra.cpp",
+                "#include <extra.hpp>\nint extra() { return 42; }\n"
+            );
+        }
+        write_text(project / "manifest.json", authored.dump(2));
+        const std::string call = external ? "answer({})" : "extra()";
+        const std::string header = external ? "answer.hpp" : "extra.hpp";
+        write_text(
+            project / "src/main.cpp",
+            std::string("#if CLIENT_FEATURE_MONITOR\n#include <")
+                .append(header)
+                .append(">\n#endif\nint main() {\n#if "
+                        "CLIENT_FEATURE_MONITOR\nreturn ")
+                .append(call)
+                .append(" == 42 ? 0 : 1;\n#else\nreturn 0;\n#endif\n}\n")
+        );
+        fs::rename(provider, simple.path() / "saved-provider");
+        auto executed = run_marx_cli(project, "run debug");
+        require_true(
+            executed.exit_code == 0,
+            "separate default-off feature fixture: " + executed.output
+        );
+        require_not_contains(
+            read_text(ecosystem::local_developer_cmakelists_path(project)),
+            external ? "numbers" : "extra__library",
+            "disabled local/direct-provider target is absent"
+        );
+        fs::rename(simple.path() / "saved-provider", provider);
+        if (external)
+            map_provider(project, provider);
+        auto config = external
+            ? json::parse(read_text(project / "ecosystem.local.json"))
+            : json::object();
+        config["features"] = json::array({ "monitor" });
+        write_text(project / "ecosystem.local.json", config.dump(2));
+        for (const auto* profile : { "debug", "release" }) {
+            executed = run_marx_cli(project, std::string("run ") + profile);
+            require_true(
+                executed.exit_code == 0,
+                "separate enabled feature fixture " + std::string(profile)
+                    + ": " + executed.output
+            );
+        }
+    }
+    temp_dir root;
+    const auto run_command = [&](const ecosystem::string_list& command) {
+        return ecosystem::capture_command_result(command, root.path());
+    };
+    write_source_dependency_fixture(root.path());
+    const auto project = root.path() / "consumer";
+    const auto provider = root.path() / "provider";
+    auto authored = json::parse(read_text(project / "manifest.json"));
+    authored["facade"] = "client:api";
+    authored["artifacts"].erase(1);
+    authored["artifacts"].push_back({ { "id", "bridge:adapter" },
+                                      { "kind", "static_lib" },
+                                      { "owns", json::array({ "bridge" }) },
+                                      { "dependencies",
+                                        json::array({ "imported:math" }) } });
+    authored["artifacts"].push_back(
+        { { "id", "client:api" },
+          { "kind", "static_lib" },
+          { "owns", json::array({ "client" }) },
+          { "tests", { { "selftest", true } } },
+          { "optional_dependencies",
+            json::array({ { { "artifact", "bridge:adapter" },
+                            { "feature", "monitor" } } }) } }
+    );
+    write_text(project / "manifest.json", authored.dump(2));
+    write_text(
+        project / "include/client.hpp", "#pragma once\nint current_answer();\n"
+    );
+    write_text(
+        project / "include/bridge.hpp", "#pragma once\nint observed_answer();\n"
+    );
+    write_text(
+        project / "src/bridge.cpp",
+        "#include <bridge.hpp>\n#include <answer.hpp>\nint observed_answer() { "
+        "return answer({}); }\n"
+    );
+    write_text(
+        project / "src/client.cpp",
+        "#include <client.hpp>\n#if CLIENT_FEATURE_MONITOR\n#include "
+        "<bridge.hpp>\n#endif\nint current_answer() {\n#if "
+        "CLIENT_FEATURE_MONITOR\nreturn observed_answer();\n#else\nreturn "
+        "7;\n#endif\n}\n"
+    );
+    write_text(
+        project / "tests/client_tests.cpp",
+        "#include <client.hpp>\nint main() {\n#if "
+        "CLIENT_FEATURE_MONITOR\nreturn current_answer() == 42 ? 0 : "
+        "1;\n#else\nreturn current_answer() == 7 ? 0 : 1;\n#endif\n}\n"
+    );
+    // There is no local provider at all during default-off acceptance.
+    fs::rename(provider, root.path() / "saved-provider");
+    const auto loaded = ecosystem::load_manifest(project / "manifest.json");
+    require_true(
+        loaded.value && loaded.errors.empty(), join_lines(loaded.errors)
+    );
+    const auto root_cmake
+        = ecosystem::generate_cmakelists(*loaded.value, project);
+    write_text(project / "CMakeLists.txt", root_cmake);
+    require_not_contains(
+        root_cmake, "numbers",
+        "visitor has no optional provider or acquisition path"
+    );
+    const auto visitor = root.path() / "visitor";
+    const auto install = root.path() / "default-sdk";
+    for (const auto& command : std::vector<ecosystem::string_list> {
+             { "cmake", "-S", project.string(), "-B", visitor.string(),
+               "-DCMAKE_BUILD_TYPE=Debug" },
+             { "cmake", "--build", visitor.string(), "-j2" },
+             { "cmake", "--install", visitor.string(), "--prefix",
+               install.string() } }) {
+        const auto result = run_command(command);
+        require_true(result.exit_code == 0, result.output);
+    }
+    const auto config
+        = read_text(install / "lib/cmake/client/clientConfig.cmake");
+    require_not_contains(
+        config, "numbers", "disabled SDK has no optional find_dependency"
+    );
+    require_not_contains(
+        read_text(install / "lib/cmake/client/clientTargets.cmake"), "bridge",
+        "disabled SDK exports no adapter"
+    );
+    const auto downstream = root.path() / "downstream";
+    write_text(
+        downstream / "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.20)\nproject(downstream LANGUAGES "
+        "CXX)\nfind_package(client CONFIG REQUIRED)\nadd_executable(use "
+        "main.cpp)\ntarget_link_libraries(use PRIVATE client::client__api)\n"
+    );
+    write_text(
+        downstream / "main.cpp",
+        "#include <client.hpp>\nint main() {\n#if "
+        "CLIENT_FEATURE_MONITOR\nreturn current_answer() == 42 ? 0 : "
+        "1;\n#else\nreturn current_answer() == 7 ? 0 : 1;\n#endif\n}\n"
+    );
+    const auto use_sdk = [&](const fs::path& prefix, const std::string& label,
+                             const fs::path& provider_config) {
+        const auto build = root.path() / label;
+        ecosystem::string_list configure {
+            "cmake",
+            "-S",
+            downstream.string(),
+            "-B",
+            build.string(),
+            "-Dclient_DIR=" + (prefix / "lib/cmake/client").string()
+        };
+        if (!provider_config.empty())
+            configure.push_back("-Dnumbers_DIR=" + provider_config.string());
+        for (const auto& command : std::vector<ecosystem::string_list> {
+                 configure,
+                 { "cmake", "--build", build.string(), "-j2" },
+                 { (build / "use").string() } }) {
+            const auto executed = run_command(command);
+            require_true(
+                executed.exit_code == 0,
+                "installed SDK consumer " + label + ": " + executed.output
+            );
+        }
+    };
+    use_sdk(install, "use-default", {});
+    auto result = run_engels_cli(project, "check tests");
+    require_true(
+        result.exit_code == 0,
+        "default-off actual automatic tests: " + result.output
+    );
+    const auto debug_source
+        = read_text(ecosystem::local_developer_cmakelists_path(project));
+    require_not_contains(
+        debug_source, "numbers",
+        "unscoped developer graph also excludes optional-only providers"
+    );
+    // Unknown names fail without replacing the last valid graph.
+    write_text(project / "ecosystem.local.json", R"({"features":["typo"]})");
+    result = run_marx_cli(project, "build debug");
+    require_true(result.exit_code == 5, result.output);
+    require_contains(
+        result.output, "unknown feature selection: typo",
+        "no silent feature fallback"
+    );
+    require_true(
+        read_text(ecosystem::local_developer_cmakelists_path(project))
+            == debug_source,
+        "invalid selection preserves valid generated CMake"
+    );
+    const auto repository
+        = authored["artifacts"][0]["packages"]["external_project"]["repository"]
+              .get<std::string>();
+    write_text(
+        project / "ecosystem.local.json",
+        json({ { "features", { "monitor" } },
+               { "sources", { { repository, provider.string() } } } }
+        ).dump(2)
+    );
+    result = run_marx_cli(project, "build debug");
+    require_true(
+        result.exit_code == 5,
+        "enabled missing provider must fail: " + result.output
+    );
+    require_contains(
+        result.output, "sources[",
+        "enabled failure identifies the missing provider"
+    );
+    fs::rename(root.path() / "saved-provider", provider);
+    result = run_engels_cli(project, "check tests");
+    require_true(
+        result.exit_code == 0,
+        "actual enabled automatic tests: " + result.output
+    );
+    const auto enabled_source
+        = read_text(ecosystem::local_developer_cmakelists_path(project));
+    require_contains(
+        enabled_source, "CLIENT_FEATURE_MONITOR=1",
+        "automatic tests and production receive selected feature"
+    );
+    const auto enabled_install = root.path() / "enabled-sdk";
+    const auto installed
+        = run_command({ "cmake", "--install",
+                        ecosystem::local_build_dir(project, "debug").string(),
+                        "--prefix", enabled_install.string() });
+    require_true(installed.exit_code == 0, installed.output);
+    require_contains(
+        read_text(enabled_install / "lib/cmake/client/clientConfig.cmake"),
+        "find_dependency(numbers CONFIG)",
+        "enabled export retains real transitive provider dependency"
+    );
+    require_contains(
+        read_text(enabled_install / "lib/cmake/client/clientTargets.cmake"),
+        "CLIENT_FEATURE_MONITOR=1",
+        "installed usage requirements describe the actual selected feature set"
+    );
+    fs::path provider_config;
+    for (const auto& entry :
+         fs::recursive_directory_iterator(project / ".ecosystem/dependencies"))
+        if (entry.path().filename() == "numbersConfig.cmake"
+            && entry.path().parent_path().filename() == "numbers")
+            provider_config = entry.path().parent_path();
+    require_true(
+        !provider_config.empty(),
+        "real provider installed a usable package configuration"
+    );
+    use_sdk(enabled_install, "use-enabled", provider_config);
+    result = run_marx_cli(project, "build release");
+    require_true(
+        result.exit_code == 0, "enabled Release graph: " + result.output
+    );
+    write_text(project / "ecosystem.local.json", R"({"features":[]})");
+    fs::rename(provider, root.path() / "saved-provider");
+    result = run_engels_cli(project, "check tests");
+    require_true(
+        result.exit_code == 0,
+        "disabling again removes provider/feature and restores current tests: "
+            + result.output
+    );
+    require_true(
+        read_text(ecosystem::local_developer_cmakelists_path(project))
+            == debug_source,
+        "feature cutover exactly restores default graph"
+    );
+    require_true(
+        read_text(project / "CMakeLists.txt") == root_cmake
+            && json::parse(read_text(project / "manifest.json")) == authored,
+        "local selection never rewrites authored manifest or visitor surface"
+    );
+}
+
 void test_source_dependency_local_override_builds_and_installs_before_consumer(
 ) {
+    {
+        temp_dir boundary;
+        write_source_dependency_fixture(boundary.path());
+        const auto project = boundary.path() / "consumer";
+        map_provider(project, boundary.path() / "provider");
+        const auto authored = project / "authored";
+        write_text(authored / "keep.txt", "authored provider notes\n");
+        fs::create_directories(project / ".ecosystem");
+        fs::create_directory_symlink(
+            authored, project / ".ecosystem/dependencies"
+        );
+        const auto rejected = run_marx_cli(project, "build debug");
+        require_true(
+            std::distance(
+                fs::directory_iterator(authored), fs::directory_iterator()
+            ) == 1,
+            "provider preparation must not materialize SDK state through a "
+            "symlink into authored files"
+        );
+        require_true(rejected.exit_code == 5, "redirected SDK state must fail");
+        require_contains(
+            rejected.output, "actor output path must not use a symlink",
+            "SDK failure must identify the output boundary"
+        );
+        require_true(
+            read_text(authored / "keep.txt") == "authored provider notes\n",
+            "rejected SDK redirection preserves authored contents"
+        );
+    }
+    {
+        temp_dir boundary;
+        write_source_dependency_fixture(boundary.path());
+        const auto project = boundary.path() / "consumer";
+        map_provider(project, boundary.path() / "provider");
+        const auto initial = run_marx_cli(project, "build debug");
+        require_true(initial.exit_code == 0, initial.output);
+        fs::path generated;
+        for (const auto& entry : fs::recursive_directory_iterator(
+                 project / ".ecosystem/dependencies"
+             ))
+            if (entry.path().filename() == "CMakeLists.txt"
+                && entry.path().parent_path().filename() == "project")
+                generated = entry.path();
+        require_true(
+            !generated.empty(), "actual provider SDK graph must exist"
+        );
+        const auto authored = project / "authored.cmake";
+        write_text(authored, "authored SDK rules\n");
+        fs::remove(generated);
+        fs::create_hard_link(authored, generated);
+        const auto rejected = run_marx_cli(project, "build debug");
+        require_true(
+            rejected.exit_code == 5, "linked SDK graph must fail preflight"
+        );
+        require_contains(
+            rejected.output, "actor output path must not use a hard link",
+            "SDK graph aliases require the same output guard"
+        );
+        require_true(
+            read_text(authored) == "authored SDK rules\n",
+            "SDK generation must preserve the aliased authored inode"
+        );
+    }
     {
         temp_dir selected;
         write_source_dependency_fixture(selected.path());
@@ -431,6 +787,202 @@ target_link_libraries(plain PRIVATE client::core__wrapper)
     }
 }
 
+void test_source_dependency_diamond_uses_one_sdk_identity() {
+    temp_dir root;
+    write_source_dependency_fixture(root.path());
+    const auto provider = root.path() / "provider";
+    const auto consumer = root.path() / "consumer";
+    auto authored = json::parse(read_text(consumer / "manifest.json"));
+    const auto imported = authored["artifacts"][0];
+    json sources
+        = { { "https://example.invalid/numbers.git", provider.string() } };
+    authored["artifacts"] = json::array();
+    for (const auto* branch : { "left", "right" }) {
+        const auto project = root.path() / branch;
+        const auto repository
+            = std::string("https://example.invalid/") + branch + ".git";
+        sources[repository] = project.string();
+        const json wrapper
+            = { { "id", branch },
+                { "description", "Diamond branch" },
+                { "cpp_standard", 20 },
+                { "facade", "core:wrapper" },
+                { "artifacts",
+                  json::array({ imported,
+                                { { "id", "core:wrapper" },
+                                  { "kind", "static_lib" },
+                                  { "owns", json::array({ branch }) },
+                                  { "dependencies",
+                                    json::array({ "imported:math" }) } } }) } };
+        write_text(project / "manifest.json", wrapper.dump(2));
+        write_text(
+            project / "include" / (std::string(branch) + ".hpp"),
+            "#pragma once\nint " + std::string(branch) + "_answer();\n"
+        );
+        write_text(
+            project / "src" / (std::string(branch) + ".cpp"),
+            "#include <answer.hpp>\n#include <" + std::string(branch)
+                + ".hpp>\nint " + branch + "_answer() { return answer({}); }\n"
+        );
+        auto dependency = imported;
+        dependency["id"] = std::string(branch) + ":imported";
+        dependency["packages"]["external_project"]
+            = { { "repository", repository },
+                { "revision", "selected-revision" },
+                { "package", branch },
+                { "artifact", "core:wrapper" } };
+        authored["artifacts"].push_back(dependency);
+    }
+    authored["artifacts"].push_back(
+        { { "id", "app:main" },
+          { "kind", "exe" },
+          { "owns", json::array() },
+          { "entry", "src/main.cpp" },
+          { "dependencies",
+            json::array({ "left:imported", "right:imported" }) } }
+    );
+    write_text(consumer / "manifest.json", authored.dump(2));
+    write_text(
+        consumer / "ecosystem.local.json",
+        json({ { "sources", sources } }).dump(2)
+    );
+    write_text(
+        consumer / "src/main.cpp",
+        "#include <left.hpp>\n#include <right.hpp>\nint main() { return "
+        "left_answer() == 42 && right_answer() == 42 ? 0 : 1; }\n"
+    );
+    const auto log = root.path() / "cmake.log";
+    const auto tools = root.path() / "tools";
+    write_executable_script(
+        tools / "cmake",
+        "#!/bin/sh\ncase \"$1\" in\n-S|--build|--install)\n"
+        "printf '%s|%s\\n' \"$1\" \"$2\" >> "
+        "\"$ECOSYSTEM_TEST_CMAKE_LOG\" ;;\nesac\n"
+        "exec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\"\n"
+    );
+    scoped_env cmake(
+        "ECOSYSTEM_TEST_REAL_CMAKE", ecosystem::find_command_path("cmake")
+    );
+    scoped_env command_log("ECOSYSTEM_TEST_CMAKE_LOG", log.string());
+    scoped_env path("PATH", tools.string() + ":" + current_path_env());
+    const auto check_preparation = [&] {
+        const auto calls = read_text(log);
+        for (const auto* step : { "-S|", "--build|", "--install|" }) {
+            std::istringstream lines(calls);
+            std::string line;
+            std::size_t count = 0;
+            while (std::getline(lines, line))
+                if (line.starts_with(step)
+                    && line.find("/dependencies/numbers/") != std::string::npos)
+                    ++count;
+            require_true(
+                count == 1,
+                std::string("diamond must prepare the common SDK once for ")
+                    + step + ": " + calls
+            );
+        }
+    };
+    const auto result = run_marx_cli(consumer, "build debug");
+    require_true(
+        result.exit_code == 0,
+        "actual diamond consumer must build: " + result.output
+    );
+    check_preparation();
+    std::vector<fs::path> installed;
+    for (const auto& entry : fs::recursive_directory_iterator(
+             consumer / ".ecosystem/dependencies"
+         )) {
+        if (entry.path().filename() == "numbersConfig.cmake"
+            && entry.path().string().find("/install/") != std::string::npos)
+            installed.push_back(entry.path());
+    }
+    require_true(
+        installed.size() == 1,
+        "one package selection in a diamond must have exactly one installed "
+        "SDK identity, found "
+            + std::to_string(installed.size())
+    );
+    require_true(
+        run_marx_cli(consumer, "run debug").exit_code == 0,
+        "both branches must resolve the common provider's actual interface"
+    );
+    for (const auto* branch : { "left", "right" })
+        require_true(
+            !fs::exists(root.path() / branch / ".ecosystem"),
+            "all transitive preparation state belongs to the root consumer"
+        );
+    // Completion is operation-local, not persistent evidence of a valid SDK.
+    write_text(
+        provider / "src/answer.cpp",
+        "#include <answer.hpp>\nint answer(std::span<const int>) { return 43; "
+        "}\n"
+    );
+    write_text(
+        consumer / "src/main.cpp",
+        "#include <left.hpp>\n#include <right.hpp>\nint main() { return "
+        "left_answer() == 43 && right_answer() == 43 ? 0 : 1; }\n"
+    );
+    for (const auto* profile : { "debug", "release" }) {
+        write_text(log, "");
+        const auto build
+            = run_marx_cli(consumer, std::string("build ") + profile);
+        require_true(
+            build.exit_code == 0,
+            "a later operation must prepare the changed real SDK: "
+                + build.output
+        );
+        check_preparation();
+        require_true(
+            run_marx_cli(consumer, std::string("run ") + profile).exit_code
+                == 0,
+            "both branches must observe the new provider value"
+        );
+    }
+    auto right = json::parse(read_text(root.path() / "right/manifest.json"));
+    auto& request = right["artifacts"][0]["packages"]["external_project"];
+    request["artifact"] = "missing:export";
+    write_text(root.path() / "right/manifest.json", right.dump(2));
+    const auto invalid = run_marx_cli(consumer, "build debug");
+    require_true(
+        invalid.exit_code == 5,
+        "a later edge must validate its export even when the SDK is prepared"
+    );
+    require_contains(
+        invalid.output,
+        "provider artifact missing or kind mismatch: missing:export",
+        "completed preparation must not conceal an invalid second branch"
+    );
+    request["artifact"] = "math:library";
+    request["revision"] = "conflicting-revision";
+    write_text(root.path() / "right/manifest.json", right.dump(2));
+    const auto conflict = run_marx_cli(consumer, "build debug");
+    require_true(
+        conflict.exit_code == 5, "conflicting source intent must fail"
+    );
+    require_contains(
+        conflict.output, "conflicting source selections for package numbers",
+        "completed preparation must not mask source conflicts"
+    );
+    request["revision"] = "selected-revision";
+    write_text(root.path() / "right/manifest.json", right.dump(2));
+    auto cyclic = json::parse(read_text(provider / "manifest.json"));
+    cyclic["artifacts"].push_back(authored["artifacts"][0]);
+    cyclic["artifacts"][0]["dependencies"] = json::array({ "left:imported" });
+    write_text(provider / "manifest.json", cyclic.dump(2));
+    write_text(log, "");
+    const auto cycle = run_marx_cli(consumer, "build debug");
+    require_true(
+        cycle.exit_code == 5, "an active provider is not a completed SDK"
+    );
+    require_contains(
+        cycle.output, "source dependency cycle at left",
+        "cycle diagnosis is preserved"
+    );
+    require_true(
+        read_text(log).empty(), "cyclic SDKs must not be built or installed"
+    );
+}
+
 void test_source_dependency_shared_and_interface_usage_requirements() {
     for (const auto* kind : { "shared_lib", "interface_lib" }) {
         temp_dir root;
@@ -627,7 +1179,7 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
                   write_text(provider / "include/extra.hpp", "#pragma once\n");
                   write_text(provider / "manifest.json", value.dump(2));
               } },
-            { "outside project",
+            { "actor output path must not use a symlink",
               [](const auto&, const auto& consumer) {
                   const auto outside = consumer.parent_path() / "outside";
                   fs::create_directories(outside);

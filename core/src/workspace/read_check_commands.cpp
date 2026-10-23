@@ -4,6 +4,7 @@
 #include "analysis/personal.hpp"
 #include "command_internal.hpp"
 #include "workspace/doxygen.hpp"
+#include "workspace/source_dependencies.hpp"
 #include "workspace/template_text.hpp"
 
 #include <algorithm>
@@ -124,10 +125,14 @@ command_error run_check_personal(
 }
 
 command_error run_check_leaks(
-    const fs::path& project_root, const manifest& manifest_value,
+    const fs::path& project_root, const manifest& authored_value,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
     std::ostream& err
 ) {
+    const auto manifest_value = select_local_features(
+        project_root, authored_value, requested_artifact
+    );
+
     if (process_is_traced()) {
         print_error(
             err, command_error::missing_local_tooling,
@@ -178,9 +183,17 @@ command_error run_check_leaks(
     const std::string sanitizer_flags
         = "-fsanitize=address,undefined,leak -fno-omit-frame-pointer "
           "-fno-sanitize-recover=all";
-    const command_error configure_status = configure_cmake_source_tree(
-        local_developer_source_dir(project_root),
-        local_build_dir(project_root, "leaks"),
+    string_list configure_options;
+    const auto dependency_status = prepare_source_dependencies(
+        project_root, manifest_value, "leaks", &configure_options,
+        &error_message, requested_artifact
+    );
+    if (dependency_status != command_error::ok) {
+        print_error(err, dependency_status, error_message);
+        return dependency_status;
+    }
+    configure_options.insert(
+        configure_options.end(),
         {
             "-DECOSYSTEM_BUILD_TESTS=ON",
             "-DECOSYSTEM_BUILD_BENCHMARKS=OFF",
@@ -191,8 +204,12 @@ command_error run_check_leaks(
             std::string("-DCMAKE_CXX_FLAGS=") + sanitizer_flags,
             std::string("-DCMAKE_EXE_LINKER_FLAGS=") + sanitizer_flags,
             std::string("-DCMAKE_SHARED_LINKER_FLAGS=") + sanitizer_flags,
-        },
-        "Debug", &error_message
+        }
+    );
+    const command_error configure_status = configure_cmake_source_tree(
+        local_developer_source_dir(project_root),
+        local_build_dir(project_root, "leaks"), configure_options, "Debug",
+        &error_message
     );
     if (configure_status != command_error::ok) {
         print_error(
@@ -255,10 +272,14 @@ command_error run_check_leaks(
 }
 
 command_error run_check_tests(
-    const fs::path& project_root, const manifest& manifest_value,
+    const fs::path& project_root, const manifest& authored_value,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
     std::ostream& err
 ) {
+    const auto manifest_value = select_local_features(
+        project_root, authored_value, requested_artifact
+    );
+
     if (!has_tests_enabled(manifest_value)) {
         print_error(
             err, command_error::unsupported_by_manifest,
@@ -323,10 +344,14 @@ command_error run_check_tests(
 }
 
 command_error run_check_coverage(
-    const fs::path& project_root, const manifest& manifest_value,
+    const fs::path& project_root, const manifest& authored_value,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
     std::ostream& err
 ) {
+    const auto manifest_value = select_local_features(
+        project_root, authored_value, requested_artifact
+    );
+
     if (!has_tests_enabled(manifest_value)) {
         print_error(
             err, command_error::unsupported_by_manifest,
@@ -658,10 +683,14 @@ command_error run_check_java(
 }
 
 command_error run_check_tidy(
-    const fs::path& project_root, const manifest& manifest_value,
+    const fs::path& project_root, const manifest& authored_value,
     const std::optional<artifact_ref>& requested_artifact, std::ostream& out,
     std::ostream& err
 ) {
+    const auto manifest_value = select_local_features(
+        project_root, authored_value, requested_artifact
+    );
+
     const std::optional<resolved_artifact> resolved
         = resolve_artifact(manifest_value, requested_artifact);
     if (requested_artifact && !resolved) {
@@ -1000,7 +1029,7 @@ command_error run_check(
     const std::optional<artifact_ref>& requested_artifact,
     const std::optional<std::string>& sphinx_theme, std::ostream& out,
     std::ostream& err, const bool changed_files = false
-) {
+) try {
     if (changed_files && (profile != "format" || requested_artifact)) {
         print_error(
             err, command_error::invalid_request,
@@ -1199,6 +1228,10 @@ command_error run_check(
     }
     out << "ci checks passed\n";
     return command_error::ok;
+} catch (const std::exception& error) {
+
+    print_error(err, command_error::task_failed, error.what());
+    return command_error::task_failed;
 }
 
 command_error run_workspace_check(

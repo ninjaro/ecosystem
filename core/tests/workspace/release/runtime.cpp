@@ -7,6 +7,52 @@ void test_release_runtime_closure() {
     temp_dir root;
     const auto project = root.path() / "project with spaces";
     write_runtime_package_project(project);
+    auto authored = json::parse(read_text(project / "manifest.json"));
+    authored["artifacts"].back()["packages"]["qt"] = json::array({ "Core" });
+    write_text(project / "manifest.json", authored.dump(2));
+    const auto tools = root.path() / "tools";
+    const auto real_cmake = ecosystem::find_command_path("cmake");
+    write_executable_script(
+        tools / "cmake",
+        "#!/bin/sh\nif [ \"$1\" = -S ]; then\n"
+        "exec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\" "
+        "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON\n"
+        "fi\nexec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\"\n"
+    );
+    scoped_env cmake("ECOSYSTEM_TEST_REAL_CMAKE", real_cmake);
+    scoped_env path("PATH", tools.string() + ":" + current_path_env());
+    auto naming = sample_dual_run_manifest();
+    auto unrelated = naming.components.back();
+    unrelated.id = "unrelated";
+    naming.components.push_back(unrelated);
+    const auto before = ecosystem::to_json(naming);
+    const auto selected_tool
+        = ecosystem::distribution_build_manifest(naming, { "tool", "cli" });
+    const auto tool = ecosystem::resolve_artifact(
+        selected_tool, ecosystem::artifact_ref { "tool", "cli" }
+    );
+    require_true(
+        tool && selected_tool.install_artifacts.empty()
+            && !ecosystem::resolve_artifact(
+                selected_tool, ecosystem::artifact_ref { "app", "app" }
+            )
+            && !ecosystem::resolve_artifact(
+                selected_tool, ecosystem::artifact_ref { "unrelated", "cli" }
+            ),
+        "an explicit non-facade package must not acquire unrelated "
+        "distribution roots"
+    );
+    require_true(
+        tool
+            && ecosystem::artifact_output_name(
+                   selected_tool, *tool->component_value, *tool->artifact_value
+               ) == "tool_cli",
+        "project-wide output identities survive operation-local selection"
+    );
+    require_true(
+        ecosystem::to_json(naming) == before,
+        "distribution selection must not mutate authored intent"
+    );
     const auto result
         = run_marx_cli(project, "prerelease --version-base 1.2.3");
     require_true(

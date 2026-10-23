@@ -632,6 +632,72 @@ void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_select
 }
 
 void test_cli_run_executes_facade_entry() {
+    for (const auto* redirected :
+         { "source", "source/CMakeLists.txt", "build", "reports", ".",
+           "build/project/desktop/debug/default" }) {
+        temp_dir boundary;
+        const auto project = boundary.path() / "project";
+        write_sample_build_project(
+            project, "sample", "int main() { return 0; }\n"
+        );
+        const auto authored = project / "authored";
+        write_text(authored / "CMakeLists.txt", "authored build rules\n");
+        const auto target = std::string_view(redirected) == "."
+            ? project / ".ecosystem"
+            : project / ".ecosystem" / redirected;
+        fs::create_directories(target.parent_path());
+        if (std::string_view(redirected).ends_with(".txt"))
+            fs::create_symlink(authored / "CMakeLists.txt", target);
+        else
+            fs::create_directory_symlink(authored, target);
+        const auto rejected = run_cli(project, "run debug");
+        require_true(
+            read_text(authored / "CMakeLists.txt") == "authored build rules\n",
+            "actor configuration must never overwrite authored files through "
+            "a private-state symlink"
+        );
+        require_true(
+            rejected.exit_code == 5, "redirected actor output must fail"
+        );
+        require_contains(
+            rejected.output, "actor output path must not use a symlink",
+            "rejection must identify the actor-state boundary"
+        );
+        require_true(
+            std::distance(
+                fs::directory_iterator(authored), fs::directory_iterator()
+            ) == 1,
+            "preflight rejection must leave the authored destination untouched"
+        );
+    }
+    for (const bool hard_link : { false, true }) {
+        temp_dir boundary;
+        const auto project = boundary.path() / "project";
+        write_sample_build_project(
+            project, "sample", "int main() { return 0; }\n"
+        );
+        const auto authored = project / "authored.cmake";
+        write_text(authored, "authored build rules\n");
+        const auto target = project / ".ecosystem/source/CMakeLists.txt";
+        fs::create_directories(target.parent_path());
+        if (hard_link)
+            fs::create_hard_link(authored, target);
+        else
+            fs::create_symlink(project / "missing.cmake", target);
+        const auto rejected = run_cli(project, "run debug");
+        require_true(rejected.exit_code == 5, "unsafe actor output must fail");
+        require_contains(
+            rejected.output,
+            hard_link ? "actor output path must not use a hard link"
+                      : "actor output path must not use a symlink",
+            "hard/dangling link rejection identifies the actual boundary"
+        );
+        require_true(
+            read_text(authored) == "authored build rules\n"
+                && !fs::exists(project / "missing.cmake"),
+            "linked authored files and dangling destinations remain untouched"
+        );
+    }
     temp_dir root;
     write_sample_build_project(
         root.path(), "sample",
@@ -650,6 +716,13 @@ void test_cli_run_executes_facade_entry() {
     require_contains(
         result.output, "ran sample:app",
         "ecos run must report the executed artifact"
+    );
+    const auto alias = root.path() / "project-alias";
+    fs::create_directory_symlink(root.path(), alias);
+    require_true(
+        run_cli(alias, "run debug").exit_code == 0,
+        "a project-root alias remains supported; only mutable output aliases "
+        "are rejected"
     );
 }
 

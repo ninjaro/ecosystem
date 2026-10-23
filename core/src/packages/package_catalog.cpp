@@ -10,6 +10,25 @@
 namespace ecosystem {
 namespace package_catalog_support {
 
+    std::string package_label(
+        const package_descriptor& descriptor,
+        const dependency_summary& dependencies
+    ) {
+        if (descriptor.kind == package_kind::qt) {
+            if (dependencies.qt_versions)
+                return "Qt6 >= " + dependencies.qt_versions->minimum_version
+                    + (dependencies.qt_versions->build_version.empty()
+                           ? std::string()
+                           : "; build "
+                               + dependencies.qt_versions->build_version
+                               + " EXACT")
+                    + " CONFIG components";
+            return std::string("Qt6 ") + default_qt_minimum_version
+                + " CONFIG components";
+        }
+        return std::string(descriptor.label);
+    }
+
     std::vector<package_line>* select_package_group(
         std::vector<package_line>* required_packages,
         std::vector<package_line>* kde_profile_packages,
@@ -108,7 +127,8 @@ std::vector<package_section> declared_package_sections(
             &required_packages, &kde_profile_packages, &optional_packages, group
         );
         append_package_line(
-            packages, descriptor->label, entry, descriptor->include_values
+            packages, package_label(*descriptor, dependencies), entry,
+            descriptor->include_values
         );
     }
 
@@ -140,7 +160,7 @@ std::vector<package_status_section> configured_package_sections(
                 descriptor->group
             );
         append_package_status_line(
-            packages, descriptor->label,
+            packages, package_label(*descriptor, dependencies),
             configured_status_for_package(descriptor->kind, dependencies, cache)
         );
     }

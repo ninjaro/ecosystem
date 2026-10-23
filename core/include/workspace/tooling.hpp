@@ -19,6 +19,12 @@ std::filesystem::path
 local_benchmark_dir(const std::filesystem::path& project_root);
 std::filesystem::path local_sphinx_dir(const std::filesystem::path& project_root
 );
+// Mutable outputs relative to .ecosystem must not redirect through symlinks
+// or share file inodes with authored inputs. The project root may be an alias.
+string_list validate_local_output_paths(
+    const std::filesystem::path& project_root,
+    const std::vector<std::filesystem::path>& relative_paths
+);
 bool write_text_file(
     const std::filesystem::path& path, const std::string& contents,
     std::string* error_message

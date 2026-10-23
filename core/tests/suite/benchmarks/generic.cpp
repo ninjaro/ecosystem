@@ -5,7 +5,7 @@ namespace ecosystem_test_support {
 
 void test_cli_benchmark_accepts_generic_programs_and_preserves_results() {
     temp_dir root;
-    const json authored
+    json authored
         = { { "id", "generic_bench" },
             { "description", "Generic benchmarks" },
             { "facade", "app:app" },
@@ -24,6 +24,30 @@ void test_cli_benchmark_accepts_generic_programs_and_preserves_results() {
                               { "name", "second" },
                               { "owns", json::array() },
                               { "entry", "benchmarks/second.cpp" } } }) } };
+    authored["artifacts"][0]["packages"]["qt"] = json::array({ "Core" });
+    const auto missing = (root.path() / "unused-provider").string();
+    authored["artifacts"].push_back(
+        { { "id", "unused:provider" },
+          { "kind", "static_lib" },
+          { "owns", json::array() },
+          { "packages",
+            { { "external_project",
+                { { "repository", missing },
+                  { "revision", "main" },
+                  { "package", "unused" },
+                  { "artifact", "core:lib" } } } } } }
+    );
+    const auto tools = root.path() / "tools";
+    const auto real_cmake = ecosystem::find_command_path("cmake");
+    write_executable_script(
+        tools / "cmake",
+        "#!/bin/sh\nif [ \"$1\" = -S ]; then\n"
+        "exec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\" "
+        "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON\n"
+        "fi\nexec \"$ECOSYSTEM_TEST_REAL_CMAKE\" \"$@\"\n"
+    );
+    scoped_env cmake("ECOSYSTEM_TEST_REAL_CMAKE", real_cmake);
+    scoped_env path("PATH", tools.string() + ":" + current_path_env());
     write_text(root.path() / "manifest.json", authored.dump(2));
     write_text(root.path() / "src/main.cpp", "int main() { return 0; }\n");
     const std::string source = R"cpp(#include <cstdlib>
@@ -59,6 +83,20 @@ int main(int argc, char** argv) {
     require_true(
         result.exit_code == 0,
         "a generic benchmark must accept only user arguments:\n" + result.output
+    );
+    const auto generated
+        = read_text(root.path() / ".ecosystem/source/CMakeLists.txt");
+    require_not_contains(
+        generated, "find_package(Qt6",
+        "benchmark must not configure the unrelated Qt facade"
+    );
+    require_not_contains(
+        generated, "find_package(unused",
+        "benchmark must not acquire an unselected provider"
+    );
+    require_not_contains(
+        generated, "add_executable(a__b_c",
+        "benchmark must not configure another benchmark executable"
     );
     require_contains(
         read_text(report / "bench_log.txt"), "[two words]\n[--then]\n[marker]",
@@ -199,6 +237,18 @@ int main(int argc, char** argv) {
     require_true(
         run("", "app:app").exit_code != 0,
         "ordinary applications must not silently become benchmarks"
+    );
+    authored["artifacts"][1]["dependencies"]
+        = json::array({ "unused:provider" });
+    write_text(root.path() / "manifest.json", authored.dump(2));
+    const auto selected_missing = run("", "a_b:c");
+    require_true(
+        selected_missing.exit_code == 5,
+        "a required benchmark provider must not be silently omitted"
+    );
+    require_contains(
+        selected_missing.output, missing,
+        "required benchmark acquisition must report its source failure"
     );
 }
 

@@ -20,11 +20,17 @@ struct artifact_ref {
     std::string artifact_id;
 };
 
+struct optional_artifact_link {
+    std::string artifact;
+    std::string feature;
+};
+
 struct artifact {
     std::string id;
     std::string kind;
     std::string name;
     string_list link;
+    std::vector<optional_artifact_link> optional_links {};
 };
 
 struct file_unit {
@@ -62,11 +68,23 @@ struct component {
     std::optional<source_ownership> ownership;
 };
 
+inline constexpr int default_cpp_standard = 20;
+inline constexpr auto default_qt_minimum_version = "6.0";
+inline constexpr auto preferred_qt_build_version = "6.12.0";
+
+// Maintained preference for newly configured Qt projects. Existing manifests
+// without a Qt version contract retain their declared discovery behavior.
+struct qt_requirement {
+    std::string minimum_version = default_qt_minimum_version;
+    std::string build_version = preferred_qt_build_version;
+};
+
 struct manifest {
     std::string id;
     std::string description;
     std::string version;
-    int cpp_standard = 20;
+    int cpp_standard = default_cpp_standard;
+    std::optional<qt_requirement> qt;
     std::string android_application_id;
     json android = json::object();
     bool install_assets = false;
@@ -74,6 +92,9 @@ struct manifest {
     string_list install_artifacts;
     std::vector<component> components;
     json relations = json::array();
+    // Operation-local selection, never serialized as authored state.
+    string_list enabled_features;
+    bool features_resolved = false;
 };
 
 /// Result of loading a manifest, including diagnostics when loading fails.
@@ -115,6 +136,14 @@ string_list discover_owned_files(
 std::vector<std::filesystem::path> owned_path_candidates(const component& owner
 );
 json to_json(const manifest& value);
+
+// Project a single explicit feature set. Names come from optional edges; all
+// default off. Throws on unknown/duplicate selections. Extra roots support
+// explicit developer artifact requests without making them visitor defaults.
+manifest resolve_features(
+    const manifest& value, const string_list& enabled = {},
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
+);
 
 /// Split a namespace:artifact selector; return no value for invalid syntax.
 /// @param value Selector containing exactly one colon and two nonempty parts.

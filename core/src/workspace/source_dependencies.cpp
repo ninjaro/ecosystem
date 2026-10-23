@@ -11,6 +11,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace ecosystem {
@@ -51,7 +52,12 @@ namespace {
 
     using local_sources = std::map<std::string, std::string>;
 
-    local_sources read_local_sources(const fs::path& project) {
+    struct local_configuration {
+        local_sources sources;
+        string_list features;
+    };
+
+    local_configuration read_local_configuration(const fs::path& project) {
         const auto path = project / "ecosystem.local.json";
         try {
             if (!fs::exists(fs::symlink_status(path)))
@@ -81,16 +87,32 @@ namespace {
                     return true;
                 }
             );
-            if (!config.is_object() || config.size() != 1
-                || !config.contains("sources")
-                || !config.at("sources").is_object())
+            if (!config.is_object() || config.empty())
+                throw std::runtime_error("expected a sources/features object");
+            for (const auto& [key, item] : config.items())
+                if (key != "sources" && key != "features")
+                    throw std::runtime_error(
+                        "unknown local configuration field: " + key
+                    );
+            local_configuration result;
+            if (config.contains("features")) {
+                if (!config.at("features").is_array())
+                    throw std::runtime_error(
+                        "features must be an array of names"
+                    );
+                for (const auto& name : config.at("features")) {
+                    if (!name.is_string())
+                        throw std::runtime_error("feature names must be strings"
+                        );
+                    result.features.push_back(name.get<std::string>());
+                }
+            }
+            const auto mappings = config.value("sources", json::object());
+            if (!mappings.is_object())
                 throw std::runtime_error(
-                    "expected an object containing only a 'sources' "
-                    "repository-to-absolute-path object"
+                    "sources must be a repository-to-absolute-path object"
                 );
-            local_sources result;
-            for (const auto& [repository, source] :
-                 config.at("sources").items()) {
+            for (const auto& [repository, source] : mappings.items()) {
                 if (trimmed(repository).empty()
                     || std::any_of(
                         repository.begin(), repository.end(),
@@ -112,8 +134,9 @@ namespace {
                         + " must be an absolute path string without control "
                           "characters"
                     );
-                result.emplace(repository, source.get<std::string>());
+                result.sources.emplace(repository, source.get<std::string>());
             }
+            std::sort(result.features.begin(), result.features.end());
             return result;
         } catch (const std::exception& error) {
             throw std::runtime_error(
@@ -258,6 +281,7 @@ namespace {
         local_sources sources;
         std::set<std::string> active;
         std::map<std::string, json> selected_packages;
+        std::map<std::string, string_list> completed_packages;
 
         string_list prepare(
             const fs::path& project, const manifest& value,
@@ -324,9 +348,11 @@ namespace {
                        state / "project/CMakeLists.txt",
                        state / "build" / profile,
                        state / "install" / profile }) {
-                    const auto issues = validate_project_paths(
+                    const auto issues = validate_local_output_paths(
                         storage_root,
-                        { destination.lexically_relative(storage_root) }
+                        { destination.lexically_relative(
+                            local_state_dir(storage_root)
+                        ) }
                     );
                     paths.insert(paths.end(), issues.begin(), issues.end());
                 }
@@ -346,7 +372,10 @@ namespace {
                         message += "\n" + error;
                     throw std::runtime_error(message);
                 }
-                const auto& provider = *loaded.value;
+                // The root actor owns local configuration for the entire
+                // operation. Provider checkouts may contain unrelated local
+                // files; recursive acquisition must not consult them.
+                const auto provider = resolve_features(*loaded.value);
                 if (provider.id != dependency->package)
                     throw std::runtime_error(
                         "provider package identity mismatch: expected "
@@ -376,13 +405,22 @@ namespace {
                     = validate_manifest_paths(provider, source);
                 if (!provider_paths.empty())
                     throw std::runtime_error(provider_paths.front());
+                // Reuse only successful SDK preparation in this operation.
+                // Every edge still validates source intent and requested
+                // exports.
+                if (const auto ready = completed_packages.find(package);
+                    ready != completed_packages.end()) {
+                    options.insert(
+                        options.end(), ready->second.begin(),
+                        ready->second.end()
+                    );
+                    continue;
+                }
+                // Source intent already has operation-wide package identity.
+                // Its SDK must not acquire a second path through another edge.
                 const auto provider_dependencies
-                    = prepare(source, provider, state / "dependencies", true);
+                    = prepare(source, provider, root, true);
                 auto provider_options = provider_dependencies;
-                options.insert(
-                    options.end(), provider_dependencies.begin(),
-                    provider_dependencies.end()
-                );
                 const auto generated = state / "project";
                 const auto build = state / "build" / profile;
                 const auto prefix = state / "install" / profile;
@@ -420,8 +458,16 @@ namespace {
                         + "; select its library as facade or install_artifacts"
                     );
                 }
-                options.push_back(
+                auto prepared_options = provider_dependencies;
+                prepared_options.push_back(
                     "-D" + provider.id + "_DIR:PATH=" + package_dir.string()
+                );
+                options.insert(
+                    options.end(), prepared_options.begin(),
+                    prepared_options.end()
+                );
+                completed_packages.emplace(
+                    package, std::move(prepared_options)
                 );
             }
             active.erase(value.id);
@@ -451,17 +497,30 @@ std::optional<source_dependency> source_dependency_for(const component& value) {
                                *artifact };
 }
 
+manifest select_local_features(
+    const fs::path& project_root, const manifest& value,
+    const std::optional<artifact_ref>& requested_artifact
+) {
+    return resolve_features(
+        value, read_local_configuration(project_root).features,
+        requested_artifact
+    );
+}
+
 command_error prepare_source_dependencies(
     const fs::path& project_root, const manifest& value,
     const std::string& profile, string_list* cmake_options,
     std::string* error_message,
     const std::optional<artifact_ref>& requested_artifact
 ) try {
+    const auto selected
+        = select_local_features(project_root, value, requested_artifact);
     preparation state {
-        profile, project_root, read_local_sources(project_root), {}, {}
+        profile, project_root, read_local_configuration(project_root).sources,
+        {},      {},           {}
     };
     *cmake_options = state.prepare(
-        project_root, value, local_state_dir(project_root) / "dependencies",
+        project_root, selected, local_state_dir(project_root) / "dependencies",
         false, requested_artifact
     );
     return command_error::ok;

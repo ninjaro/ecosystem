@@ -365,19 +365,54 @@ namespace package_surface_render_support {
             );
         }
 
-        return render_component_find_package_block(
-            newline_terminated_lines(rule.component_rule.pre_find_package_lines
-            ),
-            std::string(rule.component_rule.find_package_open_line),
-            prefixed_values_block(
-                entry.values,
-                std::string(rule.component_rule.component_line_prefix)
-            ),
-            std::string(rule.component_rule.find_package_close_line),
-            newline_terminated_lines(rule.component_rule.post_find_package_lines
-            ),
-            qt_automation_block, error_message
-        );
+        auto find_line
+            = std::string(rule.component_rule.find_package_open_line);
+        std::string version_check;
+        std::string resolved_version;
+        if (*rule.component_rule.dependency == dependency_id::qt) {
+            const std::string minimum = dependencies.qt_versions
+                ? dependencies.qt_versions->minimum_version
+                : default_qt_minimum_version;
+            const bool pinned = dependencies.qt_versions
+                && options.build_versions
+                && !dependencies.qt_versions->build_version.empty();
+            const std::string selected
+                = pinned ? dependencies.qt_versions->build_version : minimum;
+            const std::string placeholder = "{{qt_version}}";
+            find_line.replace(
+                find_line.find(placeholder), placeholder.size(),
+                selected + (pinned ? " EXACT" : "")
+            );
+            if (pinned)
+                version_check = "if (\"" + selected + "\" VERSION_LESS \""
+                    + minimum
+                    + "\")\n"
+                      "    message(FATAL_ERROR \"Ecosystem Qt build version "
+                    + selected + " is below manifest.qt.minimum_version "
+                    + minimum
+                    + ". Select a supported build_version.\")\n"
+                      "endif ()\n";
+            if (options.build_versions)
+                resolved_version
+                    = "set(ECOSYSTEM_RESOLVED_QT_VERSION \"${Qt6_VERSION}\" "
+                      "CACHE INTERNAL \"Resolved Qt version\" FORCE)\n";
+        }
+        return version_check
+            + render_component_find_package_block(
+                   newline_terminated_lines(
+                       rule.component_rule.pre_find_package_lines
+                   ),
+                   find_line,
+                   prefixed_values_block(
+                       entry.values,
+                       std::string(rule.component_rule.component_line_prefix)
+                   ),
+                   std::string(rule.component_rule.find_package_close_line),
+                   newline_terminated_lines(
+                       rule.component_rule.post_find_package_lines
+                   ) + resolved_version,
+                   qt_automation_block, error_message
+            );
     }
 
     std::string render_profile_surface_block(

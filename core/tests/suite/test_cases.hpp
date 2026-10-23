@@ -122,10 +122,13 @@ void test_template_loader_renders_repo_owned_templates();
 void test_ensure_local_artifacts_keeps_tracked_style_surfaces_sync_owned();
 
 // Manifest.
+void test_toolchain_versions_validate_and_round_trip();
 void test_file_writers_report_late_io_failures();
 void test_self_manifest_loads();
 void test_qml_modules_preserve_optional_ownership_and_generation();
 void test_authored_artifacts_round_trip_and_mutate();
+void test_optional_features_validate_and_round_trip();
+void test_optional_features_build_and_export_selected_closure();
 void test_authored_artifacts_reject_obsolete_and_ambiguous_intent();
 void test_owned_test_targets_are_independent();
 void test_owned_scope_discovery_and_build();
@@ -148,6 +151,9 @@ void test_mutate_add_file_unit_supports_h_variants();
 void test_cli_mutate_add_component_supports_artifact_id_and_link_options();
 
 // Packages.
+void test_qt_versions_select_build_and_export_minimum();
+void test_toolchain_configuration_rejects_incompatible_versions();
+void test_toolchain_dialects_configure_and_build();
 void test_package_surface_includes_qttest_component();
 void test_component_package_link_targets_include_qttest_target();
 void test_component_package_link_targets_include_cxxopts_target();
@@ -231,6 +237,7 @@ void test_source_local_map_rejects_invalid_configuration();
 void test_source_local_map_applies_to_recursive_providers();
 void test_source_dependency_repository_selection_is_stable_and_explicit();
 void test_source_dependency_consumer_exports_are_relocatable();
+void test_source_dependency_diamond_uses_one_sdk_identity();
 void test_source_dependency_shared_and_interface_usage_requirements();
 void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure(
 );

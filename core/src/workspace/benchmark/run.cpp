@@ -38,7 +38,8 @@ command_error run_benchmark(
     }
 
     status = command_support::run_configure_build_tree(
-        project_root, manifest_value, "release", false, false, true, err
+        project_root, manifest_value, "release", false, false, true, err,
+        resolved.ref
     );
     if (status != command_error::ok) {
         return status;

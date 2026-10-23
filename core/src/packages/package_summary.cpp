@@ -213,6 +213,7 @@ dependency_summary summarize_dependencies(
     const package_dependency_scope scope
 ) {
     dependency_summary summary;
+    summary.qt_versions = manifest_value.qt;
 
     for (const component* component_value :
          scoped_components(manifest_value, requested_artifact)) {

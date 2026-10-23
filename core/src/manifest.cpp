@@ -9,6 +9,7 @@
 #include <regex>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -254,7 +255,7 @@ namespace manifest_support {
     manifest parse_manifest(const json& root, string_list* errors) {
         check_fields(
             root,
-            { "id", "description", "version", "cpp_standard", "facade",
+            { "id", "description", "version", "cpp_standard", "qt", "facade",
               "artifacts", "install_artifacts", "install_assets",
               "android_application_id", "android" },
             "manifest", errors
@@ -268,6 +269,26 @@ namespace manifest_support {
         if (root.contains("cpp_standard"))
             value.cpp_standard
                 = require_integer(root, "cpp_standard", "manifest", errors);
+        if (root.contains("qt")) {
+            const auto settings
+                = require_object(root, "qt", "manifest", errors);
+            check_fields(
+                settings, { "minimum_version", "build_version" }, "manifest.qt",
+                errors
+            );
+            value.qt.emplace();
+            if (settings.contains("minimum_version")
+                && !settings.contains("build_version"))
+                value.qt->build_version.clear();
+            if (settings.contains("minimum_version"))
+                value.qt->minimum_version = require_string(
+                    settings, "minimum_version", "manifest.qt", errors
+                );
+            if (settings.contains("build_version"))
+                value.qt->build_version = require_string(
+                    settings, "build_version", "manifest.qt", errors
+                );
+        }
         value.facade_entry_artifact
             = require_string(root, "facade", "manifest", errors);
         value.install_artifacts
@@ -304,7 +325,8 @@ namespace manifest_support {
             check_fields(
                 item,
                 { "id", "kind", "name", "description", "root", "owns", "entry",
-                  "dependencies", "packages", "tests", "benchmarks", "qml" },
+                  "dependencies", "optional_dependencies", "packages", "tests",
+                  "benchmarks", "qml" },
                 context, errors
             );
             const std::string identity
@@ -359,6 +381,37 @@ namespace manifest_support {
             if (item.contains("name"))
                 output.name = require_string(item, "name", context, errors);
             output.link = authored_list(item, "dependencies", context, errors);
+            if (item.contains("optional_dependencies")) {
+                const auto& edges = item.at("optional_dependencies");
+                if (!edges.is_array() || edges.empty())
+                    errors->push_back(
+                        context
+                        + ".optional_dependencies must be a nonempty array"
+                    );
+                else
+                    for (const auto& edge : edges) {
+                        const auto edge_context
+                            = context + ".optional_dependencies";
+                        if (!edge.is_object()) {
+                            errors->push_back(
+                                edge_context + " entries must be objects"
+                            );
+                            continue;
+                        }
+                        check_fields(
+                            edge, { "artifact", "feature" }, edge_context,
+                            errors
+                        );
+                        output.optional_links.push_back(
+                            { require_string(
+                                  edge, "artifact", edge_context, errors
+                              ),
+                              require_string(
+                                  edge, "feature", edge_context, errors
+                              ) }
+                        );
+                    }
+            }
             owner.artifacts.push_back(std::move(output));
             value.components.push_back(std::move(owner));
         }
@@ -392,6 +445,13 @@ namespace manifest_support {
 
         const std::string context
             = "component.stack.external_project for " + component_value.id;
+        for (const auto& output : component_value.artifacts)
+            if (!output.optional_links.empty())
+                errors->push_back(
+                    context
+                    + ": optional dependencies belong to the provider, not an "
+                      "imported artifact"
+                );
         const json& external = component_value.stack.at("external_project");
         if (!external.is_object()) {
             errors->push_back(context + " must be a JSON object");
@@ -664,8 +724,30 @@ string_list validate_manifest(const manifest& value) {
             "manifest.version must be a three-part semantic version"
         );
     }
-    if (value.cpp_standard < 17) {
-        errors.emplace_back("manifest.cpp_standard must be at least 17");
+    if (value.cpp_standard != 17 && value.cpp_standard != 20
+        && value.cpp_standard != 23 && value.cpp_standard != 26) {
+        errors.emplace_back(
+            "manifest.cpp_standard must be 17, 20, 23 or 26 (experimental)"
+        );
+    }
+    if (value.qt) {
+        const std::regex minimum_pattern(
+            R"(^6\.(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))?$)"
+        );
+        const std::regex build_pattern(
+            R"(^6\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$)"
+        );
+        if (!std::regex_match(value.qt->minimum_version, minimum_pattern))
+            errors.emplace_back(
+                "manifest.qt.minimum_version must be a Qt 6 version "
+                "(6.minor[.patch])"
+            );
+        if (!value.qt->build_version.empty()
+            && !std::regex_match(value.qt->build_version, build_pattern))
+            errors.emplace_back(
+                "manifest.qt.build_version must be an exact stable Qt 6 "
+                "version (6.minor.patch)"
+            );
     }
     if (!value.android_application_id.empty()
         && !std::regex_match(
@@ -1144,7 +1226,15 @@ string_list validate_manifest(const manifest& value) {
 
     for (const auto& [ref, item] : artifacts) {
         std::set<std::string> links;
-        for (const std::string& link : item->link) {
+        auto all_links = item->link;
+        for (const auto& edge : item->optional_links) {
+            if (!std::regex_match(edge.feature, id_pattern))
+                errors.push_back(
+                    "invalid optional feature name: " + edge.feature
+                );
+            all_links.push_back(edge.artifact);
+        }
+        for (const std::string& link : all_links) {
             if (!links.insert(link).second) {
                 errors.push_back(std::string("duplicate artifact link: ")
                                      .append(ref)
@@ -1187,7 +1277,10 @@ string_list validate_manifest(const manifest& value) {
               }
               state[ref] = 1;
               chain.push_back(ref);
-              for (const auto& link : artifacts.at(ref)->link) {
+              auto all_links = artifacts.at(ref)->link;
+              for (const auto& edge : artifacts.at(ref)->optional_links)
+                  all_links.push_back(edge.artifact);
+              for (const auto& link : all_links) {
                   if (artifacts.contains(link)) {
                       visit(link);
                   }
@@ -1462,8 +1555,13 @@ json to_json(const manifest& value) {
     root["description"] = value.description;
     if (!value.version.empty())
         root["version"] = value.version;
-    if (value.cpp_standard != 20)
+    if (value.cpp_standard != default_cpp_standard)
         root["cpp_standard"] = value.cpp_standard;
+    if (value.qt) {
+        root["qt"] = { { "minimum_version", value.qt->minimum_version } };
+        if (!value.qt->build_version.empty())
+            root["qt"]["build_version"] = value.qt->build_version;
+    }
     root["facade"] = value.facade_entry_artifact;
     if (!value.install_artifacts.empty())
         root["install_artifacts"] = value.install_artifacts;
@@ -1584,6 +1682,14 @@ json to_json(const manifest& value) {
                 authored["entry"] = entry;
             if (!item.link.empty())
                 authored["dependencies"] = item.link;
+            if (!item.optional_links.empty()) {
+                authored["optional_dependencies"] = json::array();
+                for (const auto& edge : item.optional_links)
+                    authored["optional_dependencies"].push_back(
+                        { { "artifact", edge.artifact },
+                          { "feature", edge.feature } }
+                    );
+            }
             if (!owner.stack.empty())
                 authored["packages"] = owner.stack;
             if ((owner.ownership || index == 0) && !owner.tests.empty())
@@ -1621,6 +1727,94 @@ std::optional<artifact_ref> parse_artifact_ref(const std::string& value) {
 
 std::string format_artifact_ref(const artifact_ref& value) {
     return value.component_id + ":" + value.artifact_id;
+}
+
+manifest resolve_features(
+    const manifest& value, const string_list& enabled,
+    const std::optional<artifact_ref>& requested_artifact
+) {
+    auto selected = enabled;
+    std::sort(selected.begin(), selected.end());
+    if (std::adjacent_find(selected.begin(), selected.end()) != selected.end())
+        throw std::runtime_error("duplicate feature selection");
+    if (value.features_resolved) {
+        if (selected != value.enabled_features)
+            throw std::runtime_error(
+                "cannot reselect an already resolved feature graph"
+            );
+        return value;
+    }
+    std::map<std::string, const artifact*> artifacts;
+    std::set<std::string> names;
+    for (const auto& owner : value.components)
+        for (const auto& output : owner.artifacts) {
+            artifacts.emplace(
+                format_artifact_ref({ owner.id, output.id }), &output
+            );
+            for (const auto& edge : output.optional_links)
+                names.insert(edge.feature);
+        }
+    if (names.empty() && selected.empty()) {
+        auto result = value;
+        result.features_resolved = true;
+        return result;
+    }
+    for (const auto& name : selected)
+        if (!names.contains(name))
+            throw std::runtime_error("unknown feature selection: " + name);
+    // An optional dependency and its private closure are not independent
+    // unscoped developer roots. Any genuine mandatory/root use restores them.
+    std::set<std::string> optional_closure;
+    std::set<std::string> active;
+    std::function<void(const std::string&, std::set<std::string>&, bool)> visit
+        = [&](const auto& key, auto& seen, const bool all) {
+              if (!seen.insert(key).second)
+                  return;
+              const auto found = artifacts.find(key);
+              if (found == artifacts.end())
+                  throw std::runtime_error(
+                      "unresolved feature artifact: " + key
+                  );
+              for (const auto& link : found->second->link)
+                  visit(link, seen, all);
+              for (const auto& edge : found->second->optional_links)
+                  if (all
+                      || std::ranges::find(selected, edge.feature)
+                          != selected.end())
+                      visit(edge.artifact, seen, all);
+          };
+    for (const auto& [key, output] : artifacts)
+        for (const auto& edge : output->optional_links)
+            visit(edge.artifact, optional_closure, true);
+    for (const auto& [key, output] : artifacts)
+        if (!optional_closure.contains(key))
+            visit(key, active, false);
+    visit(value.facade_entry_artifact, active, false);
+    for (const auto& key : value.install_artifacts)
+        visit(key, active, false);
+    if (requested_artifact)
+        visit(format_artifact_ref(*requested_artifact), active, false);
+    auto result = value;
+    result.enabled_features = selected;
+    result.features_resolved = true;
+    for (auto& owner : result.components) {
+        std::erase_if(owner.artifacts, [&](const auto& output) {
+            return !active.contains(format_artifact_ref({ owner.id, output.id })
+            );
+        });
+        for (auto& output : owner.artifacts) {
+            if (output.name.empty())
+                output.name = artifact_output_name(value, owner, output);
+            for (const auto& edge : output.optional_links)
+                if (std::ranges::find(selected, edge.feature) != selected.end())
+                    output.link.push_back(edge.artifact);
+            output.optional_links.clear();
+        }
+    }
+    std::erase_if(result.components, [](const auto& owner) {
+        return owner.artifacts.empty();
+    });
+    return result;
 }
 
 } // namespace ecosystem

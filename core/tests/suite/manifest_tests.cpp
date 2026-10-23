@@ -3,6 +3,98 @@
 
 namespace ecosystem_test_support {
 
+void test_toolchain_versions_validate_and_round_trip() {
+    auto value = sample_manifest();
+    require_true(
+        !value.qt && value.cpp_standard == 20,
+        "existing manifests retain the C++20 default and unpinned Qt discovery"
+    );
+    for (const int standard : { 17, 20, 23, 26 }) {
+        value.cpp_standard = standard;
+        require_true(
+            ecosystem::validate_manifest(value).empty(),
+            "published standards and explicit experimental C++26 must validate"
+        );
+    }
+    for (const int standard : { 16, 18, 21, 24, 99 }) {
+        value.cpp_standard = standard;
+        require_contains(
+            join_lines(ecosystem::validate_manifest(value)),
+            "manifest.cpp_standard must be 17, 20, 23 or 26",
+            "arbitrary integers must not reach compiler or CMake flags"
+        );
+    }
+    value.cpp_standard = 23;
+    value.qt = ecosystem::qt_requirement { "6.9", "6.11.2" };
+    temp_dir root;
+    std::string error;
+    require_true(
+        ecosystem::save_manifest(root.path() / "manifest.json", value, &error),
+        error
+    );
+    const auto loaded = ecosystem::load_manifest(root.path() / "manifest.json");
+    require_true(
+        loaded.errors.empty() && loaded.value && loaded.value->qt
+            && loaded.value->qt->minimum_version == "6.9"
+            && loaded.value->qt->build_version == "6.11.2"
+            && loaded.value->cpp_standard == 23,
+        "minimum, build pin and explicit language selection must round-trip"
+    );
+    for (const std::string version :
+         { "5.15", "7.0", "6.x", "6.9;bad", "6.9-beta" }) {
+        value.qt->minimum_version = version;
+        require_contains(
+            join_lines(ecosystem::validate_manifest(value)),
+            "manifest.qt.minimum_version",
+            "malformed floors must fail validation"
+        );
+    }
+    value.qt->minimum_version = "6.9";
+    for (const std::string version :
+         { "6.12", "6.12.0-beta", "7.0.0", "6.12.0;bad" }) {
+        value.qt->build_version = version;
+        require_contains(
+            join_lines(ecosystem::validate_manifest(value)),
+            "manifest.qt.build_version",
+            "build pins must be stable exact versions"
+        );
+    }
+    auto authored = ecosystem::to_json(sample_manifest());
+    authored["qt"] = json::object();
+    write_text(root.path() / "manifest.json", authored.dump(2));
+    const auto preferred
+        = ecosystem::load_manifest(root.path() / "manifest.json");
+    require_true(
+        preferred.errors.empty() && preferred.value->qt
+            && preferred.value->qt->build_version == "6.12.0",
+        "opting into Qt version selection uses the maintained LTS preference"
+    );
+    auto minimum_only = authored;
+    minimum_only["qt"] = { { "minimum_version", "6.9" } };
+    write_text(root.path() / "manifest.json", minimum_only.dump(2));
+    const auto unpinned
+        = ecosystem::load_manifest(root.path() / "manifest.json");
+    require_true(
+        unpinned.errors.empty() && unpinned.value->qt
+            && unpinned.value->qt->minimum_version == "6.9"
+            && unpinned.value->qt->build_version.empty(),
+        "an explicit minimum without a build version must remain unpinned"
+    );
+    require_true(
+        ecosystem::to_json(*unpinned.value).at("qt") == minimum_only.at("qt"),
+        "saving a minimum-only contract must not invent an exact build pin"
+    );
+    authored["qt"]["unknown_version_policy"] = true;
+    write_text(root.path() / "manifest.json", authored.dump(2));
+    require_contains(
+        join_lines(
+            ecosystem::load_manifest(root.path() / "manifest.json").errors
+        ),
+        "unknown_version_policy",
+        "unknown version rules must not be silently ignored"
+    );
+}
+
 void test_file_writers_report_late_io_failures() {
     for (const bool authored : { false, true }) {
         for (const std::size_t size : { 1024U, 32768U }) {
@@ -264,6 +356,126 @@ void test_qml_modules_preserve_optional_ownership_and_generation() {
             widgets_cmake, text,
             "Widgets-only generation must omit QML mechanics"
         );
+}
+
+void test_optional_features_validate_and_round_trip() {
+    temp_dir root;
+    write_source_dependency_fixture(root.path());
+    const auto project = root.path() / "consumer";
+    auto authored = json::parse(read_text(project / "manifest.json"));
+    auto& app = authored["artifacts"][1];
+    app.erase("dependencies");
+    app["optional_dependencies"] = json::array(
+        { { { "artifact", "imported:math" }, { "feature", "monitor" } } }
+    );
+    const auto load = [&](const json& input) {
+        write_text(project / "manifest.json", input.dump(2));
+        return ecosystem::load_manifest(project / "manifest.json");
+    };
+    const auto loaded = load(authored);
+    require_true(
+        loaded.value && loaded.errors.empty(), join_lines(loaded.errors)
+    );
+    require_true(
+        ecosystem::to_json(*loaded.value) == authored,
+        "optional intent round trips without inferred defaults"
+    );
+    auto mutated = *loaded.value;
+    require_true(
+        ecosystem::set_facade_entry(&mutated, { "app", "main" }).errors.empty(),
+        "facade mutation remains supported"
+    );
+    require_true(
+        ecosystem::to_json(mutated) == authored,
+        "mutation preserves authored optional edges"
+    );
+    const auto off = ecosystem::resolve_features(*loaded.value);
+    const auto on = ecosystem::resolve_features(*loaded.value, { "monitor" });
+    require_true(
+        off.components.size() == 1 && on.components.size() == 2,
+        "only selected optional closure is retained"
+    );
+    const auto off_cmake
+        = ecosystem::generate_developer_cmakelists(off, project);
+    const auto on_cmake = ecosystem::generate_developer_cmakelists(on, project);
+    require_not_contains(
+        off_cmake, "numbers",
+        "default developer graph has no provider discovery or references"
+    );
+    require_contains(
+        on_cmake, "CLIENT_FEATURE_MONITOR=1",
+        "selected graph carries a project-scoped feature definition"
+    );
+    require_contains(
+        on_cmake, "find_package(numbers CONFIG REQUIRED)",
+        "selected provider remains required"
+    );
+    require_true(
+        on_cmake == ecosystem::generate_developer_cmakelists(on, project),
+        "selected generation is deterministic"
+    );
+    require_true(
+        off_cmake == ecosystem::generate_developer_cmakelists(off, project),
+        "disabled generation is deterministic"
+    );
+    for (const ecosystem::string_list& selection :
+         { ecosystem::string_list { "missing" },
+           ecosystem::string_list { "monitor", "monitor" } }) {
+        bool rejected = false;
+        try {
+            (void)ecosystem::resolve_features(*loaded.value, selection);
+        } catch (const std::runtime_error&) {
+            rejected = true;
+        }
+        require_true(
+            rejected, "unknown and duplicate feature selection must fail"
+        );
+    }
+    const auto reject = [&](const json& input, const std::string& expected) {
+        const auto report = load(input);
+        require_contains(
+            join_lines(report.errors), expected,
+            "invalid optional declaration is rejected"
+        );
+    };
+    for (const auto& invalid :
+         { json::object(), json::array(), json::array({ false }) }) {
+        auto input = authored;
+        input["artifacts"][1]["optional_dependencies"] = invalid;
+        reject(input, "optional_dependencies");
+    }
+    for (const auto& [field, value] :
+         std::vector<std::pair<std::string, json>> {
+             { "artifact", "absent:lib" },
+             { "artifact", "app:main" },
+             { "feature", "bad-name" },
+             { "feature", false },
+             { "unexpected", true } }) {
+        auto input = authored;
+        input["artifacts"][1]["optional_dependencies"][0][field] = value;
+        reject(
+            input,
+            field == "artifact"
+                ? (value == "app:main" ? "must reference a library"
+                                       : "unresolved artifact link")
+                : (field == "unexpected" ? "unsupported field" : "feature")
+        );
+    }
+    auto duplicate = authored;
+    duplicate["artifacts"][1]["dependencies"]
+        = json::array({ "imported:math" });
+    reject(duplicate, "duplicate artifact link");
+    duplicate = authored;
+    duplicate["artifacts"][1]["optional_dependencies"].push_back(
+        { { "artifact", "imported:math" }, { "feature", "other" } }
+    );
+    reject(duplicate, "duplicate artifact link");
+    auto cycle = authored;
+    cycle["artifacts"][0].erase("packages");
+    cycle["artifacts"][0]["optional_dependencies"] = json::array(
+        { { { "artifact", "imported:math" }, { "feature", "cycle" } } }
+    );
+    reject(cycle, "artifact dependency cycle");
 }
 
 void test_authored_artifacts_round_trip_and_mutate() {

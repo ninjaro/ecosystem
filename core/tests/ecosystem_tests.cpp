@@ -91,6 +91,14 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::vector<std::pair<std::string, std::function<void()>>> tests {
+        { "toolchain_versions_validate_and_round_trip",
+          test_toolchain_versions_validate_and_round_trip },
+        { "qt_versions_select_build_and_export_minimum",
+          test_qt_versions_select_build_and_export_minimum },
+        { "toolchain_configuration_rejects_incompatible_versions",
+          test_toolchain_configuration_rejects_incompatible_versions },
+        { "toolchain_dialects_configure_and_build",
+          test_toolchain_dialects_configure_and_build },
         { "check_support_paths_stay_out_of_production",
           test_check_support_paths_stay_out_of_production },
         { "owned_check_artifacts_compile_and_execute_all_sources",
@@ -145,6 +153,10 @@ int main(int argc, char** argv) {
           test_owned_paths_preflight_sync_and_manifest_destinations },
         { "manifest_rejects_generated_test_collisions",
           test_manifest_rejects_generated_test_collisions },
+        { "optional_features_validate_and_round_trip",
+          test_optional_features_validate_and_round_trip },
+        { "optional_features_build_and_export_selected_closure",
+          test_optional_features_build_and_export_selected_closure },
         { "authored_artifacts_round_trip_and_mutate",
           test_authored_artifacts_round_trip_and_mutate },
         { "qml_modules_preserve_optional_ownership_and_generation",
@@ -204,6 +216,8 @@ int main(int argc, char** argv) {
           test_source_local_map_applies_to_recursive_providers },
         { "source_dependency_consumer_exports_are_relocatable",
           test_source_dependency_consumer_exports_are_relocatable },
+        { "source_dependency_diamond_uses_one_sdk_identity",
+          test_source_dependency_diamond_uses_one_sdk_identity },
         { "source_dependency_shared_and_interface_usage_requirements",
           test_source_dependency_shared_and_interface_usage_requirements },
         { "source_dependency_rejects_invalid_provider_contracts_before_"

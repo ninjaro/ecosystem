@@ -14,11 +14,56 @@ and `link` are not accepted authored fields. Only this schema is supported.
 | `facade` | Required artifact identity selected by the visitor facade |
 | `artifacts` | Required nonempty array of artifact definitions |
 | `version` | Optional project/package version, such as `1.2.3` |
-| `cpp_standard` | Optional integer of at least 17; defaults to 20 |
+| `cpp_standard` | Optional 17, 20, 23 or experimental 26; defaults to 20 |
+| `qt` | Optional Qt minimum and exact build-version selection; see below |
 | `install_artifacts` | Optional additional distribution artifact identities |
 | `install_assets` | Optional boolean enabling installation of the project's `assets/` tree |
 | `android_application_id` | Optional stable Android application identity |
 | `android` | Optional Android package metadata; see below |
+
+### Qt and C++ version selection
+
+`cpp_standard` selects the project's language dialect and the minimum C++ usage
+requirement exported by its targets. Configuration rejects compilers that do not
+advertise that dialect. This validates compiler support for the dialect, not every
+standard-library facility; projects must test the features they use. C++26 is
+explicitly experimental and requires CMake 3.25 or newer. The default remains
+C++20; C++23 is an explicit project selection until the supported compiler,
+library and platform combinations pass.
+
+New Qt configurations should declare a version contract:
+
+```json
+{"qt": {"minimum_version": "6.9", "build_version": "6.12.0"}}
+```
+
+`minimum_version` is a Qt 6 floor (`6.minor` or `6.minor.patch`), defaulting to
+`6.0`. `build_version` is an exact stable `6.minor.patch` selection, defaulting to
+the maintained preference **6.12.0 LTS** when neither field is supplied. An empty
+`qt` object opts into these defaults. An explicit `minimum_version` without
+`build_version` declares minimum-only discovery, for example
+`{"qt": {"minimum_version": "6.9"}}`. It does not insert an exact build pin.
+Generation does not consult the installed SDK or the network. Saving preserves
+minimum-only intent; saving a preferred or explicit build selection materializes
+that selection. Pin both fields explicitly for reproducible version selection.
+
+Builds and Doctor require the minimum and, when selected, the exact build version.
+They reject a build version below the minimum. Install the selected SDK or
+explicitly change the manifest;
+discovery never substitutes a different version for a build pin. Installed SDK
+exports carry only the minimum, allowing supported consumer SDKs. Qt-free
+artifact closures do not discover Qt even if the project has a `qt` contract.
+An absent `qt` field preserves existing Qt 6.0 minimum discovery; these unpinned
+projects must explicitly adopt a build selection for reproducible Qt resolution.
+
+Generated build caches record `ECOSYSTEM_RESOLVED_CXX_STANDARD`,
+`ECOSYSTEM_RESOLVED_CXX_COMPILER` and, when Qt is discovered,
+`ECOSYSTEM_RESOLVED_QT_VERSION`. CMake also records compiler and package paths.
+Retain the manifest, generated surface and configure cache with build evidence.
+Version pins do not themselves identify SDK contents or guarantee ABI compatibility.
+Android still needs a correctly selected Qt kit and host tools; a kit that differs
+from the manifest build pin fails normal package discovery. Qt module, KDE and
+platform-specific requirements may impose a higher floor than the project field.
 
 `install_artifacts` expresses distribution intent without linking independent
 executables together. Its entries must be unique and resolve. The self manifest
@@ -30,8 +75,14 @@ package discovery to the tracked root. Marx generates the complete developer
 graph under ignored `.ecosystem/source/`. An explicit native
 `marx build <profile> <component:artifact>` or `marx run` selection generates only
 that artifact and its mandatory closure. Unscoped operations restore the complete
-developer graph; test/coverage/benchmark and distribution operations retain their
-existing scopes. The ignored graph reflects the most recent actor operation.
+developer graph; test/coverage operations retain their existing scopes.
+Benchmark execution configures only its resolved benchmark and mandatory closure
+in Release. The ignored graph reflects the most recent actor operation.
+Native actor source/build outputs reject existing symlink redirects and
+hard-linked generated CMake files before mutation. Project-root aliases and
+ordinary generated executable/library links remain valid. Marx-managed provider
+SDK outputs use the same guard before checkout, generation, configure and install;
+this is not a filesystem transaction or a concurrent path-replacement guarantee.
 Explicit native build/run preparation acquires only providers in the same selected
 closure. Selecting an unavailable provider still fails.
 
@@ -39,12 +90,18 @@ Provider preparation generates a separate SDK graph under the consumer's
 `.ecosystem/dependencies/`: only the
 provider facade, declared `install_artifacts` and their mandatory dependencies.
 Unrelated developer tools and their dependencies are not configured or acquired;
-`marx prerelease` retains the declared distribution roots. To install a full SDK,
+`marx prerelease` configures its existing package roots and their mandatory
+closure, excluding unrelated developer artifacts. A facade package retains its
+`install_artifacts`; an explicitly selected non-facade package retains only its
+current declared package closure. Output names remain those of the full project. To install a full SDK,
 build its declared artifacts first, finish with an unscoped `marx build <profile>`
 to restore the complete install graph, then install the actor-owned build tree.
 
 Imports of the same package and source selection within one manifest are
-validated together and prepare one SDK per operation. Conflicting selections or
+validated together. Transitive requests share one consumer-owned SDK location
+and prepare that SDK once per operation. Each request still validates its source
+selection and export; later operations prepare again, including mutable sources.
+Conflicting selections or
 unavailable exports fail explicitly. Installed usage requirements describe the
 libraries actually exported, including their transitive dependencies.
 
@@ -233,6 +290,7 @@ prevent camera permission from restricting applications to camera-equipped devic
 | `root` | Artifact's project-relative source root; defaults to `.` |
 | `entry` | Required root-relative C++ entry file for `exe` and `qt_app`; omitted for libraries |
 | `dependencies` | Optional array of explicitly linked library artifact identities |
+| `optional_dependencies` | Optional nonempty array of `{ "artifact": "namespace:library", "feature": "name" }` links |
 | `packages` | Optional package requirements for this artifact |
 | `tests` | Optional test support, such as `{"selftest": true}` or `{"gtest": true}` |
 | `benchmarks` | Optional benchmark support, such as `{"google_benchmark": true}` |
@@ -251,6 +309,52 @@ targets and executable filenames are reserved too. Automatic test targets
 use `namespace__artifact__tests`; explicit test-only artifacts use their ordinary
 `namespace__artifact` targets. CTest and artifact-scoped test/coverage/leak commands
 use these same identities.
+
+## Named optional artifact features
+
+Ordinary `dependencies` remain mandatory. Each `optional_dependencies` edge names
+one library and one project-local feature matching `[a-z][a-z0-9_]*`. Features are
+declared by these edges and default off. All edges are validated even when off:
+unknown artifacts, non-library targets, duplicate/contradictory links, malformed
+names and cycles are errors. A library cannot be both a mandatory and an optional
+link of the same artifact. Multiple edges may share a feature name.
+
+Select one feature set for native actor operations in ignored
+`ecosystem.local.json`, alongside optional source mappings:
+
+```json
+{
+  "features": ["monitor"]
+}
+```
+
+An absent file, absent `features` or an empty array selects none. Unknown names,
+duplicate selections and malformed local configuration fail explicitly. This is
+actor configuration; tracked visitor CMake always represents the default-off
+product. `marx sync` and repository checks do not bake local choices into tracked
+surfaces. Direct CMake has no feature-selection switch; use the actor-owned
+selected build/install graph for opt-in features. No root SDK switch is added.
+
+Actor build, run, checks, benchmark and prerelease generation use that same local
+selection. An optional dependency and its private closure are not independent
+unscoped developer roots. A mandatory use, explicit artifact request, facade or
+declared distribution root still requires that artifact. Disabled edges contribute
+no provider acquisition, discovery, includes, links or installed dependencies.
+Enabled edges are required; unavailable providers fail without silently disabling
+the feature. Recursively acquired providers use their default-off feature set;
+the root's named features and a provider checkout's unrelated local configuration
+are never inherited. Selecting provider-specific feature sets during recursive
+acquisition is not supported by this local selection contract.
+
+Selected targets receive `<PROJECT>_FEATURE_<NAME>=1` using uppercase identifiers;
+unselected names are undefined. Library usage requirements propagate these
+project-scoped definitions; automatic tests receive the identical selection.
+An installed package describes the one feature set actually built, including its
+real transitive dependencies. There is no family of co-installed feature variants.
+The owning source must supply a complete feature-disabled path without including
+provider headers or calling provider symbols; the generator supplies no stubs.
+Local selection does not rewrite source ownership, manifest identities or the
+tracked facade. Reconfigure after a selection change before installing.
 
 ## Ownership and discovery
 

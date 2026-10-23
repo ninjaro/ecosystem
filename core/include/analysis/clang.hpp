@@ -39,7 +39,7 @@ struct component_analysis_summary {
 struct cxx_analysis_report {
     std::string project_id;
     std::optional<artifact_ref> requested_artifact;
-    int cpp_standard = 20;
+    int cpp_standard = default_cpp_standard;
     bool tests_included = false;
     bool benchmarks_included = false;
     int files_analyzed = 0;

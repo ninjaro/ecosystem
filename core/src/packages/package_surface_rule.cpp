@@ -154,7 +154,9 @@ namespace package_surface_rule_support {
                         "set(QT_MAJOR_VERSION 6)",
                         "set(QT_DEFAULT_MAJOR_VERSION 6)",
                     },
-                    "find_package(Qt6 6.0 CONFIG REQUIRED COMPONENTS", {},
+                    "find_package(Qt6 {{qt_version}} CONFIG REQUIRED "
+                    "COMPONENTS",
+                    {},
                     {
                         "set(CMAKE_AUTOMOC ON)",
                         "set(CMAKE_AUTORCC ON)",

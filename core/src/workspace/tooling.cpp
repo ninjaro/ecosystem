@@ -1,6 +1,7 @@
 #include "workspace/tooling.hpp"
 #include "tooling/internal.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 
@@ -102,6 +103,68 @@ fs::path local_benchmark_dir(const fs::path& project_root) {
 
 fs::path local_sphinx_dir(const fs::path& project_root) {
     return local_state_dir(project_root) / "sphinx";
+}
+
+string_list validate_local_output_paths(
+    const fs::path& project_root, const std::vector<fs::path>& relative_paths
+) {
+    std::error_code error;
+    const auto absolute = fs::absolute(
+        project_root.empty() ? fs::path(".") : project_root, error
+    );
+    if (error)
+        return { "unable to resolve actor project root: " + error.message() };
+    const auto root = fs::weakly_canonical(absolute, error);
+    if (error)
+        return { "unable to resolve actor project root: " + error.message() };
+    string_list errors;
+    const auto inspect = [&](const fs::path& path) {
+        std::error_code failure;
+        const auto status = fs::symlink_status(path, failure);
+        if (failure && failure != std::errc::no_such_file_or_directory) {
+            errors.push_back(path.string() + ": " + failure.message());
+        } else if (fs::is_symlink(status)) {
+            errors.push_back(
+                "actor output path must not use a symlink: " + path.string()
+            );
+        } else if (fs::is_regular_file(status)) {
+            const auto links = fs::hard_link_count(path, failure);
+            if (failure)
+                errors.push_back(path.string() + ": " + failure.message());
+            else if (links > 1)
+                errors.push_back(
+                    "actor output path must not use a hard link: "
+                    + path.string()
+                );
+        } else if (fs::exists(status) && !fs::is_directory(status)) {
+            errors.push_back(
+                "invalid actor output path type: " + path.string()
+            );
+        }
+    };
+    for (const auto& relative : relative_paths) {
+        if (relative.empty() || relative.is_absolute()
+            || std::find(relative.begin(), relative.end(), fs::path(".."))
+                != relative.end()) {
+            errors.push_back(
+                "actor output path must be state-relative: " + relative.string()
+            );
+            continue;
+        }
+        auto path = local_state_dir(root);
+        inspect(path);
+        if (!errors.empty())
+            break;
+        for (const auto& part : relative) {
+            path /= part;
+            inspect(path);
+            if (!errors.empty())
+                break;
+        }
+        if (!errors.empty())
+            break;
+    }
+    return errors;
 }
 
 build_cache_status inspect_build_cache(

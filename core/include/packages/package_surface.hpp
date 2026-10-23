@@ -12,6 +12,8 @@ struct package_surface_options {
     bool qt_automation = false;
     bool enable_testing = false;
     bool emit_profile_option_lines = false;
+    // SDK consumers require the supported floor, not the provider's build pin.
+    bool build_versions = true;
 };
 
 std::string render_package_surface(

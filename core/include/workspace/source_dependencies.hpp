@@ -18,6 +18,13 @@ struct source_dependency {
 
 std::optional<source_dependency> source_dependency_for(const component& value);
 
+// Actor-only feature selection from ignored ecosystem.local.json. Tracked
+// visitor generation always uses the default-off graph. No source mutation.
+manifest select_local_features(
+    const std::filesystem::path& project_root, const manifest& value,
+    const std::optional<artifact_ref>& requested_artifact = std::nullopt
+);
+
 // Build and install independent providers before configuring the consumer.
 // The returned options identify installed CMake packages, never build
 // artifacts.
