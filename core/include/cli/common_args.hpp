@@ -33,12 +33,12 @@ struct check_request {
     args_list scope_args;
     std::optional<std::string> sphinx_theme;
     bool changed_files = false;
+    std::optional<std::filesystem::path> prepared_input;
 };
 
 struct prerelease_request {
     args_list scope_args;
     std::optional<std::string> version_base;
-    prerelease_signing_options signing_options;
 };
 
 args_list collect_cli_args(int argc, const char* const* argv);

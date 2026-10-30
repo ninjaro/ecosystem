@@ -52,28 +52,6 @@ bool ensure_clean_directory(const fs::path& path, std::string* error_message) {
     return true;
 }
 
-bool copy_directory_tree(
-    const fs::path& source, const fs::path& destination,
-    std::string* error_message
-) {
-    std::error_code error;
-    fs::remove_all(destination, error);
-    error.clear();
-    fs::create_directories(destination.parent_path(), error);
-    if (error) {
-        *error_message = "unable to create "
-            + destination.parent_path().string() + ": " + error.message();
-        return false;
-    }
-    fs::copy(source, destination, fs::copy_options::recursive, error);
-    if (error) {
-        *error_message
-            = "unable to copy " + source.string() + ": " + error.message();
-        return false;
-    }
-    return true;
-}
-
 std::string package_install_subdirectory(const artifact& artifact_value) {
     if (artifact_value.kind == "exe" || artifact_value.kind == "qt_app") {
         return "usr/bin";
@@ -88,47 +66,6 @@ std::string package_install_subdirectory(const artifact& artifact_value) {
 bool project_has_assets_dir(const fs::path& project_root) {
     std::error_code error;
     return fs::exists(project_root / "assets", error) && !error;
-}
-
-std::uintmax_t directory_file_size(const fs::path& root) {
-    std::uintmax_t total = 0U;
-    std::error_code error;
-    if (!fs::exists(root, error) || error) {
-        return total;
-    }
-    fs::recursive_directory_iterator iterator(root, error);
-    const fs::recursive_directory_iterator end;
-    while (!error && iterator != end) {
-        if (iterator->is_regular_file(error)) {
-            total += iterator->file_size(error);
-        }
-        error.clear();
-        iterator.increment(error);
-    }
-    return total;
-}
-
-std::vector<std::string> collect_relative_files(const fs::path& root) {
-    std::vector<std::string> files;
-    std::error_code error;
-    if (!fs::exists(root, error) || error) {
-        return files;
-    }
-
-    fs::recursive_directory_iterator iterator(root, error);
-    const fs::recursive_directory_iterator end;
-    while (!error && iterator != end) {
-        if (iterator->is_regular_file(error)) {
-            files.push_back(
-                iterator->path().lexically_relative(root).generic_string()
-            );
-        }
-        error.clear();
-        iterator.increment(error);
-    }
-
-    std::sort(files.begin(), files.end());
-    return files;
 }
 
 bool stage_payload(
@@ -184,11 +121,12 @@ bool stage_payload(
     return true;
 }
 
-bool stage_tooling_templates(
+bool collect_tooling_templates(
     const fs::path& project_root, const manifest& value,
-    const artifact_ref& primary, const fs::path& stage_root,
+    const artifact_ref& primary, std::vector<fs::path>* files,
     std::string* error_message
 ) {
+    files->clear();
     if (value.id != "ecosystem")
         return true;
     bool has_actor = false;
@@ -260,6 +198,23 @@ bool stage_tooling_templates(
         *error_message = "tooling template bundle is empty: " + source.string();
         return false;
     }
+    *files = runtime_asset_files(project_root, { "templates" });
+    return true;
+}
+
+bool stage_tooling_templates(
+    const fs::path& project_root, const manifest& value,
+    const artifact_ref& primary, const fs::path& stage_root,
+    std::string* error_message
+) {
+    std::vector<fs::path> files;
+    if (!collect_tooling_templates(
+            project_root, value, primary, &files, error_message
+        ))
+        return false;
+    if (files.empty())
+        return true;
+    const auto source = project_root / "assets/templates";
     // Ship the built project's data, independently of execution-time template
     // overrides and install_assets. Hidden tracked/ directories are included.
     const auto destination = stage_root / "usr/share/ecosystem/templates";
@@ -268,6 +223,61 @@ bool stage_tooling_templates(
     return copy_runtime_files(
         project_root, { "templates" }, source, destination, error_message
     );
+}
+
+command_error stage_distribution(
+    const fs::path& project_root, const manifest& value,
+    const resolved_artifact& primary, const fs::path& built_primary,
+    const fs::path& work_dir, staged_distribution* staged,
+    std::string* error_message
+) {
+    *staged = {};
+    const auto payload = work_dir / "payload";
+    std::map<fs::path, fs::path> sources;
+    if (!ensure_clean_directory(payload, error_message))
+        return command_error::task_failed;
+    for (const auto& ref : distribution_artifacts(value, primary.ref)) {
+        const auto item = resolve_artifact(value, ref);
+        if (!item) {
+            *error_message
+                = "unresolved install artifact: " + format_artifact_ref(ref);
+            return command_error::invalid_request;
+        }
+        const auto path
+            = format_artifact_ref(ref) == format_artifact_ref(primary.ref)
+            ? std::optional<fs::path>(built_primary)
+            : artifact_output_path(
+                  local_build_dir(project_root, "release"),
+                  *item->artifact_value,
+                  artifact_output_name(
+                      value, *item->component_value, *item->artifact_value
+                  )
+              );
+        if (!path) {
+            *error_message
+                = "missing install artifact: " + format_artifact_ref(ref);
+            return command_error::task_failed;
+        }
+        if (!stage_payload(
+                project_root, *item, *path, payload, value.install_assets,
+                &sources, error_message
+            ))
+            return command_error::task_failed;
+        staged->artifact_files.emplace(
+            payload / package_install_subdirectory(*item->artifact_value)
+                / path->filename(),
+            ref
+        );
+    }
+    if (!stage_tooling_templates(
+            project_root, value, primary.ref, payload, error_message
+        )
+        || !stage_runtime(
+            project_root, payload, work_dir, &sources,
+            &staged->system_libraries, error_message
+        ))
+        return command_error::task_failed;
+    return command_error::ok;
 }
 
 } // namespace ecosystem::release_detail

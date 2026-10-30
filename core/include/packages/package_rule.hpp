@@ -34,6 +34,9 @@ struct package_summary_rule {
     package_summary_effect effect = package_summary_effect::owner_only;
     std::string_view value;
     bool exclude_matching_values = false;
+    // Empty means native component names resolved by the package finder.
+    std::vector<std::string_view> supported_values {};
+    bool allow_enabled_flag = false;
 };
 
 struct package_link_rule {
@@ -48,6 +51,7 @@ struct package_status_rule {
     std::string_view key_suffix;
     std::string_view profile_flag;
     std::string_view profile_disabled_status;
+    bool uppercase_values = false;
 };
 
 } // namespace ecosystem

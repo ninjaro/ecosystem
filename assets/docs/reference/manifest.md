@@ -87,10 +87,12 @@ Explicit native build/run preparation acquires only providers in the same select
 closure. Selecting an unavailable provider still fails.
 
 Provider preparation generates a separate SDK graph under the consumer's
-`.ecosystem/dependencies/`: only the
-provider facade, declared `install_artifacts` and their mandatory dependencies.
+`.ecosystem/dependencies/`: only the explicitly requested exports and their
+mandatory dependencies. The provider's project-wide `install_artifacts` does not
+enlarge that consumer API. For example, requesting Appearance Widgets does not
+acquire optional Graphics/Rasterflow; requesting Graphics retains that real edge.
 Unrelated developer tools and their dependencies are not configured or acquired;
-`marx prerelease` configures its existing package roots and their mandatory
+`marx prerelease` prepares its existing product roots and their mandatory
 closure, excluding unrelated developer artifacts. A facade package retains its
 `install_artifacts`; an explicitly selected non-facade package retains only its
 current declared package closure. Output names remain those of the full project. To install a full SDK,
@@ -98,8 +100,10 @@ build its declared artifacts first, finish with an unscoped `marx build <profile
 to restore the complete install graph, then install the actor-owned build tree.
 
 Imports of the same package and source selection within one manifest are
-validated together. Transitive requests share one consumer-owned SDK location
-and prepare that SDK once per operation. Each request still validates its source
+validated together. Transitive requests share one consumer-owned SDK location;
+identical requests reuse successful preparation within the operation. A later
+branch needing an additional export widens that same SDK's graph and regenerates
+it, rather than installing a second provider. Each request still validates its source
 selection and export; later operations prepare again, including mutable sources.
 Conflicting selections or
 unavailable exports fail explicitly. Installed usage requirements describe the
@@ -123,7 +127,8 @@ library version need a provider-specific constant or name.
 
 Machine-local SDK/NDK/toolchain paths and resolved release state do not belong in
 this file. Keep local tool paths in the existing environment/cache configuration;
-prerelease counters and generated data stay under `.ecosystem/`. Unknown root and
+Release-owned prerelease counters and generated data stay under `.ecosystem/`;
+Marx preparation does not advance those counters. Unknown root and
 artifact fields are rejected, including obsolete fields mixed into a new manifest.
 
 Each `namespace:artifact` identifies one canonical current artifact. There is no
@@ -210,8 +215,11 @@ Generated agent screenshots and simulation outputs can use
 `assets/dumps/test/.agent_cache/<task>/`. The hidden `_cache` directory is reserved
 generated output, excluded by the existing resource policy and canonical ignore
 rules. Keep authored assets outside it, and retain decisions/specifications in
-tracked documentation. A `dumps/test` branch requires a matching `dataset/test`
-directory. Agent build/state/report data belongs under the project's `.ecosystem/`.
+tracked documentation. Authored dump branches require matching dataset branches.
+A branch containing only reserved, ordinary cache directories needs no artificial
+dataset; empty branches and similarly named authored directories retain the
+pairing requirement. A symlink cannot claim this cache-only exception. Agent
+build/state/report data belongs under the project's `.ecosystem/`.
 Safe nested in-project links retain their logical resource aliases and are
 materialized as ordinary stage/install files. Escaping/dangling links, directory
 cycles, aliased category roots and aliased output paths fail explicitly instead
@@ -302,6 +310,14 @@ Both parts of an identity match `[a-z][a-z0-9_]*`. Several artifacts may share a
 namespace or source root. Each gets an independent source owner and package scope
 in the derived build model. An adjacent library is included only through an
 explicit dependency. Library links must resolve, be unique and contain no cycles.
+
+The conventional optional roots are `core/` for independently testable nonvisual
+code and `app/` for presentation/integration. They do not limit artifact count:
+`app/widgets`, `app/graphics` and `app/studio` can own disjoint visual artifacts.
+Safe project-relative roots remain supported; no new layout language or implicit
+dependency inference is required. Namespace shorthand also includes matching
+tests/benchmarks. When another artifact owns those, explicit `include/table`
+and `src/table` scopes remain necessary to keep ownership disjoint.
 
 Output names must be safe filenames. Distinct artifact identities must not
 produce the same output or encoded CMake target. Automatically generated test
@@ -624,7 +640,61 @@ a mandatory module version.
 
 ## Packages and external libraries
 
-Package requirements remain artifact-local. For example:
+Package requirements remain artifact-local. Declarations are validated before
+synchronization, discovery or generation. Unknown package keys, malformed values,
+unsupported selectors, duplicate components and unsafe component names fail
+explicitly; they cannot become an empty dependency set. The same validation
+applies to visitor, developer and distribution graphs and to programmatic
+package summarization. An imported `external_project` obtains requirements from
+its provider; it cannot redeclare local native packages on the import owner.
+
+Native selectors are nonempty strings or arrays of nonempty strings. Explicit
+`false` retains the disabled-package form. Existing whole-package `true` flags
+remain supported for LLVM/Clang, JNI, ZLIB, optional OpenCV/Eigen and the Android
+marker. Dependencies requiring explicit target/component selection (including
+OpenSSL, Qt, JSON and cxxopts) cannot use `true` to omit that selection.
+Qt and KF6 component names are
+resolved by their native CMake finders; a valid but unavailable SDK/component is
+a configuration/Doctor failure, not a portable manifest syntax failure. Native
+names contain only letters, digits and underscores. Fixed selectors are:
+
+| Package key | Supported selector(s) | Existing requirement |
+| --- | --- | --- |
+| `json` | `nlohmann_json` | nlohmann_json >= 3.12 CONFIG |
+| `llvm_clang` | `libclang` | LLVM and Clang CONFIG packages |
+| `cxxopts` | `cxxopts` | cxxopts CONFIG |
+| `zlib` | `zlib` | ZLIB |
+| `openssl` | `Crypto`, `SSL` | OpenSSL >= 3, selected components required |
+| `jni` | `required` | JNI |
+| `opencv`, `eigen` | `optional` | Existing optional support-target behavior |
+| `android` | `qt_android` | Qt Android artifact marker, not a native package finder |
+
+Test-framework requirements use the existing `tests`/`benchmarks` metadata,
+not invented `packages.gtest` or `packages.benchmark` declarations.
+
+For example, an artifact using EVP hashing declares:
+
+```json
+{"packages": {"openssl": ["Crypto"]}}
+```
+
+Generation emits `find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)` and links
+`OpenSSL::Crypto` through the native imported target. `SSL` is selected explicitly
+and links `OpenSSL::SSL`; Crypto-only artifacts do not require SSL. The standard
+finder owns installed-package, toolchain and static/shared-library selection.
+No fetching or fallback implementation is introduced. SDK configurations preserve
+the same minimum/component requirements. Diagnostic cache entries
+`ECOSYSTEM_OPENSSL_CRYPTO_LIBRARY` and `ECOSYSTEM_OPENSSL_SSL_LIBRARY` record the
+finder's resolved library values, including platform-specific configurations;
+they do not override native discovery. Only selected dependencies enter a visitor
+facade; unrelated developer artifacts do not cause global OpenSSL discovery.
+
+The canonical JSON selector still has the established 3.12 floor. It has no
+per-artifact minimum-version field; a version object is not a supported
+replacement for its selector. This is the supported tooling baseline, not a
+claim that every consumer needs a JSON API introduced in 3.12.
+
+For example:
 
 `packages.zlib: ["zlib"]` declares the required system compression library.
 CMake discovers it with `find_package(ZLIB REQUIRED)` and links `ZLIB::ZLIB`;

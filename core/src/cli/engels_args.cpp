@@ -49,6 +49,7 @@ std::string engels_usage_text() {
            "[components|artifacts|profiles|platforms|matrix|projects|groups]\n"
            "  check <profile> [component:artifact] [--project <project> ...]\n"
            "  check format --changes\n"
+           "  check prepared [component:artifact] --input FILE\n"
            "  doctor [profile] [component:artifact] [--project <project> ...]\n"
            "  doctor <component:artifact> --profile <profile>\n"
            "  report <kind> [component:artifact] [--project <project> ...] "

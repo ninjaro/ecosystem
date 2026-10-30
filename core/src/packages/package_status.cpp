@@ -5,6 +5,8 @@
 #include "packages/package_metadata.hpp"
 #include "packages/package_registry.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <set>
 #include <sstream>
 #include <string>
@@ -78,10 +80,22 @@ namespace package_status_support {
             const dependency_entry& entry
                 = package_dependency_entry(dependencies, descriptor);
             for (const std::string& value : entry.values) {
+                std::string cache_value = value;
+                if (descriptor.status_rule.uppercase_values)
+                    std::ranges::transform(
+                        cache_value, cache_value.begin(),
+                        [](const unsigned char c) {
+                            return static_cast<char>(std::toupper(c));
+                        }
+                    );
                 const std::string key
-                    = std::string(descriptor.status_rule.key_prefix) + value
+                    = std::string(descriptor.status_rule.key_prefix)
+                    + cache_value
                     + std::string(descriptor.status_rule.key_suffix);
-                if (cmake_cache_has_found_value(cache, key)) {
+                if (cmake_cache_has_all_found_values(
+                        cache, descriptor.status_rule.keys
+                    )
+                    && cmake_cache_has_found_value(cache, key)) {
                     detected_values.insert(value);
                 } else {
                     missing_values.insert(value);

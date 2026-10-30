@@ -1,5 +1,7 @@
 #include "manifest.hpp"
 
+#include "packages/package_registry.hpp"
+
 #include "workspace/project.hpp"
 
 #include <algorithm>
@@ -943,6 +945,11 @@ string_list validate_manifest(const manifest& value) {
                 + component_value.id
             );
         }
+        const auto package_errors
+            = validate_package_declarations(component_value);
+        errors.insert(
+            errors.end(), package_errors.begin(), package_errors.end()
+        );
         validate_external_project(component_value, &errors);
         if (component_value.ownership) {
             const auto& owned = *component_value.ownership;

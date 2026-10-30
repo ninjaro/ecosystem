@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {execFileSync, spawnSync} = require('node:child_process');
+const evidence = require(path.join(path.dirname(path.resolve(process.argv[2])), 'evidence.cjs'));
 const {fixture, changes, engels} = require('./ci_change_fixtures.cjs');
 const marx = path.join(path.dirname(engels), 'marx');
 const workflow = fs.readFileSync(process.argv[5], 'utf8');
@@ -28,7 +29,7 @@ const gate = program('Enforce CodeQL result', 'run', 8);
 const summary = program('Summarize CodeQL analysis', 'run', 8);
 const repository = program('Verify generated tracked surfaces', 'shell-command')
   .replaceAll('${{ steps.ecosystem.outputs.engels-binary }}', engels);
-const classify = new Function('require', 'core', 'process', program('Classify checked-out changes', 'script'));
+const classify = new Function('require', 'context', 'core', 'process', program('Classify checked-out changes', 'script'));
 const resolve = new Function('require', 'context', 'core', program('Resolve checked-out changes', 'script'));
 function shell(f, script, env) {
   const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {cwd: f.root,
@@ -63,13 +64,14 @@ for (const scenario of ['docs', 'empty', 'source', 'header', 'unknown', 'delete'
     const outputs = {};
     const core = {setOutput: (key, value) => { outputs[key] = value; }, info: () => {}};
     const adapter = name => {
+      if (name.endsWith('evidence.cjs')) return {requiredScope: args => evidence.requiredScope({...args, root: f.root})};
       assert.equal(name, './.github/actions/select-ecosystem-ci/changes.cjs');
       return {collect: args => changes.collect({...args, root: f.root}), classify: args => changes.classify({...args, root: f.root})};
     };
     resolve(adapter, context, core);
     if (scenario === 'dirty') f.write('docs/guide.md', 'Uncommitted\n');
     if (scenario === 'repo-drift') f.write('CMakeLists.txt', '# drift\n');
-    classify(adapter, core, {env: {ENGELS_BINARY: engels}});
+    classify(adapter, context, core, {cwd: () => f.root, env: {ENGELS_BINARY: engels, BASE_SCOPE: scenario === 'schedule' ? 'security' : 'full'}});
     const narrow = ['docs', 'empty'].includes(scenario);
     assert.equal(outputs.codeql, narrow ? 'repository' : 'full');
     const before = f.git('status', '--porcelain');

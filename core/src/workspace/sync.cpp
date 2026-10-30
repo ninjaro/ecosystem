@@ -1,4 +1,5 @@
 #include "workspace/sync.hpp"
+#include "packages/package_registry.hpp"
 #include "workspace/assets.hpp"
 
 #include "packages/package_summary.hpp"
@@ -109,8 +110,8 @@ namespace sync_support {
         return is_runnable_kind(artifact_value.kind);
     }
 
-    bool install_surface_is_library_first(const artifact* entry_artifact_value
-    ) {
+    bool
+    install_surface_is_library_first(const artifact* entry_artifact_value) {
         return entry_artifact_value != nullptr
             && is_library_kind(entry_artifact_value->kind);
     }
@@ -327,8 +328,8 @@ namespace sync_support {
         }
     }
 
-    bool github_actions_use_local_setup_action(const github_actions_vars& vars
-    ) {
+    bool
+    github_actions_use_local_setup_action(const github_actions_vars& vars) {
         return vars.ecosystem_setup_action
             == "./.github/actions/setup-ecosystem";
     }
@@ -659,8 +660,8 @@ namespace sync_support {
         return render_required_text_template(relative_path, bindings);
     }
 
-    std::string newline_terminated_lines(const std::vector<std::string>& lines
-    ) {
+    std::string
+    newline_terminated_lines(const std::vector<std::string>& lines) {
         std::ostringstream stream;
         for (const std::string& line : lines) {
             stream << line << "\n";
@@ -1336,8 +1337,9 @@ namespace sync_support {
         std::set<std::string> keys;
         for (const component& component_value : value.components) {
             for (const artifact& artifact_value : component_value.artifacts) {
-                keys.insert(format_artifact_ref(artifact_ref {
-                    component_value.id, artifact_value.id }));
+                keys.insert(format_artifact_ref(
+                    artifact_ref { component_value.id, artifact_value.id }
+                ));
             }
         }
         return keys;
@@ -1388,8 +1390,7 @@ namespace sync_support {
         const std::set<std::string>& selected_artifact_keys
     ) {
         return std::ranges::any_of(
-            component_value.artifacts,
-            [&](const artifact& artifact_value) {
+            component_value.artifacts, [&](const artifact& artifact_value) {
                 return selected_artifact_keys.contains(format_artifact_ref(
                     artifact_ref { component_value.id, artifact_value.id }
                 ));
@@ -1509,9 +1510,10 @@ namespace sync_support {
             for (const auto& target : provider_targets.at(package))
                 declarations += " " + cmake_bracket(target);
             declarations += ")\n";
-            identity.push_back({ package, dependency.repository,
-                                 dependency.revision,
-                                 provider_targets.at(package) });
+            identity.push_back(
+                { package, dependency.repository, dependency.revision,
+                  provider_targets.at(package) }
+            );
         }
         return render_required_sync_template(
             "cmake/facade_outer.tpl",
@@ -1597,6 +1599,11 @@ namespace sync_support {
         const cmake_surface surface,
         const std::optional<artifact_ref>& requested_artifact = std::nullopt
     ) {
+        for (const auto& owner : authored_value.components) {
+            const auto errors = validate_package_declarations(owner);
+            if (!errors.empty())
+                throw template_render_error(errors.front());
+        }
         const auto value = resolve_features(
             authored_value, authored_value.enabled_features, requested_artifact
         );
@@ -1755,8 +1762,7 @@ namespace sync_support {
         );
 
         const bool has_android_app = std::any_of(
-            components.begin(), components.end(),
-            [](const component* owner) {
+            components.begin(), components.end(), [](const component* owner) {
                 return component_has_stack_key(*owner, "android")
                     && std::any_of(
                            owner->artifacts.begin(), owner->artifacts.end(),
@@ -1919,8 +1925,10 @@ namespace sync_support {
                     stream << render_interface_artifact_block(
                         target_name, indent
                     ) << "\n";
-                } else if (artifact_value->kind == "static_lib"
-                           || artifact_value->kind == "shared_lib") {
+                } else if (
+                    artifact_value->kind == "static_lib"
+                    || artifact_value->kind == "shared_lib"
+                ) {
                     stream << render_library_artifact_block(
                         target_name,
                         artifact_value->kind == "static_lib" ? "STATIC"
@@ -2160,11 +2168,14 @@ namespace sync_support {
                         { { "target_name", cmake_target_name(ref) },
                           { "project_id", value.id } }
                     ) << "\n";
-                } else if (artifact_installs_target_file(
-                               *artifact_value, is_entry_artifact,
-                               library_first_install_surface
-                           )) {
-                    stream << render_install_target_block(cmake_target_name(ref)
+                } else if (
+                    artifact_installs_target_file(
+                        *artifact_value, is_entry_artifact,
+                        library_first_install_surface
+                    )
+                ) {
+                    stream << render_install_target_block(
+                        cmake_target_name(ref)
                     ) << "\n";
                 }
                 if (!exported
@@ -2299,15 +2310,18 @@ namespace sync_support {
                         source_root_expression, project_root, include_dir
                     ));
                 }
-                std::string runtime_definition_block;
+                std::string runtime_target = *test_target;
                 if (const std::optional<artifact_ref> entry_ref
                     = parse_artifact_ref(value.facade_entry_artifact);
-                    entry_ref.has_value()) {
-                    runtime_definition_block
-                        = "                ECOS_TEST_BUILD_DIR="
-                          "\"$<TARGET_FILE_DIR:"
-                        + cmake_target_name(*entry_ref) + ">\"\n";
-                }
+                    entry_ref.has_value()
+                    && selected_artifact_keys.contains(
+                        format_artifact_ref(*entry_ref)
+                    ))
+                    runtime_target = cmake_target_name(*entry_ref);
+                const std::string runtime_definition_block
+                    = "                ECOS_TEST_BUILD_DIR="
+                      "\"$<TARGET_FILE_DIR:"
+                    + runtime_target + ">\"\n";
                 std::vector<std::string> runtime_dependency_targets;
                 std::set<std::string> seen_runtime_dependency_targets;
                 for (const component* runtime_component : components) {
@@ -2320,11 +2334,12 @@ namespace sync_support {
                         if (!artifact_is_runnable(artifact_value)) {
                             continue;
                         }
-                        const std::string dependency_target
-                            = cmake_target_name(artifact_ref {
+                        const std::string dependency_target = cmake_target_name(
+                            artifact_ref {
                                 runtime_component->id,
                                 artifact_value.id,
-                            });
+                            }
+                        );
                         if (seen_runtime_dependency_targets
                                 .insert(dependency_target)
                                 .second) {
@@ -2390,7 +2405,12 @@ namespace sync_support {
             }
         }
 
-        return stream.str();
+        // Section separators belong between blocks, not after the last one.
+        auto contents = stream.str();
+        const auto last = contents.find_last_not_of(" \t\r\n");
+        contents.erase(last == std::string::npos ? 0 : last + 1);
+        contents += '\n';
+        return contents;
     }
 
 } // namespace sync_support
@@ -2502,14 +2522,18 @@ std::vector<tracked_surface_file> generate_tracked_surface_files(
         return files;
     }
 
-    files.push_back(tracked_surface_file {
-        "CMakeLists.txt",
-        generate_cmakelists(value, project_root),
-    });
-    files.push_back(tracked_surface_file {
-        ".gitignore",
-        generate_gitignore(),
-    });
+    files.push_back(
+        tracked_surface_file {
+            "CMakeLists.txt",
+            generate_cmakelists(value, project_root),
+        }
+    );
+    files.push_back(
+        tracked_surface_file {
+            ".gitignore",
+            generate_gitignore(),
+        }
+    );
 
     append_tracked_template_file(
         &files, ".clang-format", "tooling/clang-format.tpl", {}, error_sink

@@ -405,8 +405,7 @@ int run_marx_command(
                 return exit_code(parse_status);
             }
             return exit_code(run_workspace_prerelease(
-                *workspace, scope, request->version_base,
-                request->signing_options, out, err
+                *workspace, scope, request->version_base, out, err
             ));
         }
         if (request->scope_args.size() > 1U) {
@@ -414,7 +413,7 @@ int run_marx_command(
                 err, command_error::invalid_request,
                 marx_command_support::expected_usage(
                     "prerelease [component:artifact] [--version-base "
-                    "<major.minor.patch>] [--sign] [--sign-key <key-id>]"
+                    "<major.minor.patch>] [--prepare-only]"
                 )
             );
             return exit_code(command_error::invalid_request);
@@ -432,7 +431,7 @@ int run_marx_command(
         }
         return exit_code(run_prerelease(
             project_root, *current_manifest_report.value, requested_artifact,
-            request->version_base, request->signing_options, out, err
+            request->version_base, out, err
         ));
     }
 

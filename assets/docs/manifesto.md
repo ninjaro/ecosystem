@@ -414,6 +414,31 @@ It does not keep a second inventory of information that can be derived safely fr
 
 A small manifest should remain small. Optional fields are written when they carry intent, not because an empty field looked lonely.
 
+Source topology follows responsibilities, not the number of build artifacts.
+Optional `core/` owns independently testable nonvisual domain logic, algorithms,
+state, validation and headless CLI/daemon code. Optional `app/` owns presentation,
+GUI controllers, composition, platform integration and UI tests, depending on
+core rather than the reverse. Legitimate nonvisual QtCore use does not require
+a Qt-removal exercise; GUI implementation does not belong in core.
+
+Several independent artifacts may live in either root. Presentation libraries,
+optional graphics integration and a standalone studio can have disjoint scopes
+under `app/` without becoming one artifact or requiring another top-level source
+root. Explicit ownership/dependencies and selected exports establish their
+boundaries; directory names do not infer dependencies. Existing safe relative
+artifact roots remain valid. Prefer a project-local correction to a new schema
+mechanism, and do not create a companion project without meaningful independent
+responsibility.
+
+The facade selects the ordinary visitor target. `install_artifacts` adds
+project-distribution companions; it need not repeat the facade and is not the
+mandatory closure of each imported provider API. A source consumer requests
+explicit exports and their dependencies. Developer tests, applications and
+benchmarks remain outside that selection unless actually required. Complete
+product preparation retains the authored distribution intent and supplies the
+resolved handoff to Release; Release neither reinterprets the manifest nor repairs
+missing preparation files.
+
 ### 3.1 Project Form
 
 The minimal project form is:

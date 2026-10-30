@@ -16,8 +16,22 @@ namespace {
     bool metadata(const fs::directory_entry& entry) {
         const auto name = entry.path().filename().string();
         return entry.is_regular_file()
-            && (name == "index.tsv" || name == "readme.md" || name == ".gitkeep"
-            );
+            && (name == "index.tsv" || name == "readme.md"
+                || name == ".gitkeep");
+    }
+
+    bool cache_only(const fs::path& branch) {
+        const std::regex cache_pattern(runtime_asset_cache_pattern());
+        bool found = false;
+        for (const auto& entry : fs::directory_iterator(branch)) {
+            if (entry.is_symlink() || !entry.is_directory()
+                || !std::regex_search(
+                    entry.path().filename().string(), cache_pattern
+                ))
+                return false;
+            found = true;
+        }
+        return found;
     }
 
     void check_branches(const fs::path& assets, const std::string& category) {
@@ -37,7 +51,8 @@ namespace {
                     entry.path().string() + ": invalid asset branch"
                 );
             if (category == "dumps"
-                && !fs::is_directory(assets / "dataset" / name))
+                && !fs::is_directory(assets / "dataset" / name)
+                && !cache_only(entry.path()))
                 throw std::runtime_error(
                     entry.path().string()
                     + ": dump branch has no matching dataset branch"

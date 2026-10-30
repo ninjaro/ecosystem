@@ -321,7 +321,8 @@ using namespace analysis_support;
 cxx_analysis_report analyze_project_sources(
     const manifest& value, const fs::path& project_root,
     const std::optional<artifact_ref>& requested_artifact,
-    const bool include_tests, const bool include_benchmarks
+    const bool include_tests, const bool include_benchmarks,
+    const std::string& build_profile
 ) {
     cxx_analysis_report report;
     report.project_id = value.id;
@@ -360,7 +361,7 @@ cxx_analysis_report analyze_project_sources(
 
     CXCompilationDatabase compilation_database = nullptr;
     const fs::path compile_database_dir
-        = local_build_dir(project_root, "debug");
+        = local_build_dir(project_root, build_profile);
     if (std::error_code error;
         fs::exists(compile_database_dir / "compile_commands.json", error)
         && !error) {
@@ -379,7 +380,10 @@ cxx_analysis_report analyze_project_sources(
 
     const std::vector<std::string> system_include_args
         = detected_system_include_args();
-    const auto keys = verification_detail::input_keys(project_root);
+    // Existing verified-input reuse is scoped to the Debug configuration.
+    const auto keys = build_profile == "debug"
+        ? verification_detail::input_keys(project_root)
+        : json::object();
     const auto analyze = [&](const cxx_analysis_source& source) {
         const auto start = std::chrono::steady_clock::now();
         const auto cache = verification_detail::cache_file(
@@ -525,7 +529,9 @@ cxx_analysis_report analyze_project_sources(
             report.sources.push_back(std::move(analysis));
         }
     }
-    const auto final_keys = verification_detail::input_keys(project_root);
+    const auto final_keys = build_profile == "debug"
+        ? verification_detail::input_keys(project_root)
+        : json::object();
     for (const auto& analysis : report.sources) {
         const auto source = project_root / analysis.file;
         const auto before = verification_detail::cache_file(

@@ -82,7 +82,7 @@ void test_ci_selection() {
     for (const auto* workflow : { checks, codeql }) {
         require_contains(
             workflow->contents,
-            "VERIFICATION_SCOPE: ${{ needs.select.outputs.scope }}",
+            "VERIFICATION_SCOPE: ${{ steps.classification.outputs.scope }}",
             "receipts must require an explicit full verification scope"
         );
         require_contains(
@@ -183,21 +183,21 @@ void test_ci_selection() {
     );
     require_contains(
         codeql->contents,
-        "if: ${{ needs.select.outputs.scope == 'full' || "
-        "needs.select.outputs.scope == 'security' || "
-        "needs.select.outputs.scope == 'reuse' }}",
-        "cheap branches and tags must not run CodeQL setup or analysis"
+        "if: ${{ needs.select.outputs.scope == 'cheap' || "
+        "needs.select.outputs.scope == 'full' || "
+        "needs.select.outputs.scope == 'security' }}",
+        "native classification decides cheap-branch analysis; unsupported tags "
+        "skip"
     );
     require_contains(
         checks->contents,
         "if: ${{ needs.select.outputs.scope == 'cheap' || "
-        "needs.select.outputs.scope == 'full' || needs.select.outputs.scope == "
-        "'reuse' }}",
+        "needs.select.outputs.scope == 'full' }}",
         "required checks must skip package/release events"
     );
     require_contains(
         checks->contents,
-        "if: ${{ needs.select.outputs.scope == 'full' && "
+        "if: ${{ steps.classification.outputs.scope == 'full' && "
         "steps.required.outputs.status == 'passed' }}",
         "coverage must require a successful full verification stage"
     );
@@ -212,16 +212,13 @@ void test_ci_selection() {
         "cheap verification must not install project build/test dependencies"
     );
     require_contains(
-        checks->contents,
-        "fetch-depth: ${{ needs.select.outputs.scope != 'reuse' && '0' || '1' "
-        "}}",
+        checks->contents, "fetch-depth: 0",
         "fresh verification requires history in its own checkout"
     );
     require_contains(
         checks->contents,
         "- name: Resolve checked-out changes\n"
-        "        id: changes\n"
-        "        if: ${{ needs.select.outputs.scope != 'reuse' }}",
+        "        id: changes\n",
         "fresh checks must bind changes to their own checkout before setup"
     );
     const auto* setup = find_tracked_surface_file(

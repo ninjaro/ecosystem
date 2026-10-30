@@ -227,6 +227,10 @@ std::optional<check_request> parse_check_request(
     );
     add_option("theme", "Sphinx theme override", cxxopts::value<std::string>());
     add_option("changes", "Verify formatting for validated event changes");
+    add_option(
+        "input", "Existing Marx prepared-product input",
+        cxxopts::value<std::string>()
+    );
     add_option("scope", "", cxxopts::value<std::vector<std::string>>());
     options.parse_positional({ "scope" });
 
@@ -238,7 +242,8 @@ std::optional<check_request> parse_check_request(
         return std::nullopt;
     }
     if (common_args_support::duplicate_option(*result, "theme")
-        || common_args_support::duplicate_option(*result, "changes")) {
+        || common_args_support::duplicate_option(*result, "changes")
+        || common_args_support::duplicate_option(*result, "input")) {
         *error_message = usage_message;
         return std::nullopt;
     }
@@ -250,6 +255,8 @@ std::optional<check_request> parse_check_request(
     if (result->count("theme") != 0U) {
         request.sphinx_theme = (*result)["theme"].as<std::string>();
     }
+    if (result->count("input") != 0U)
+        request.prepared_input = (*result)["input"].as<std::string>();
     return request;
 }
 
@@ -260,13 +267,14 @@ std::optional<prerelease_request> parse_prerelease_request(
     const std::string usage_message = common_args_support::expected_usage(
         actor_name,
         "prerelease [component:artifact] [--version-base "
-        "<major.minor.patch>] [--sign] [--sign-key <key-id>]"
+        "<major.minor.patch>] [--prepare-only]"
     );
 
     cxxopts::Options options(actor_name + " prerelease", "");
-    options.add_options()("project", "Workspace project selector", cxxopts::value<std::vector<std::string>>())("group", "Workspace group selector", cxxopts::value<std::vector<std::string>>())("version-base", "Base version", cxxopts::value<std::string>())("sign", "Sign prerelease metadata")("sign-key", "Signing key id", cxxopts::value<std::string>())(
-        "scope", "", cxxopts::value<std::vector<std::string>>()
-    );
+    options
+        .add_options()("project", "Workspace project selector", cxxopts::value<std::vector<std::string>>())("group", "Workspace group selector", cxxopts::value<std::vector<std::string>>())("version-base", "Base version", cxxopts::value<std::string>())("sign", "Obsolete: signing belongs to Ecosystem-Release")("sign-key", "Obsolete: use Ecosystem-Release", cxxopts::value<std::string>())("prepare-only", "Compatible alias: prerelease always prepares a full product")(
+            "scope", "", cxxopts::value<std::vector<std::string>>()
+        );
     options.parse_positional({ "scope" });
 
     const std::optional<cxxopts::ParseResult> result
@@ -284,14 +292,15 @@ std::optional<prerelease_request> parse_prerelease_request(
 
     prerelease_request request;
     request.scope_args = common_args_support::scope_args_from_result(*result);
-    request.signing_options.sign
-        = result->count("sign") != 0U || result->count("sign-key") != 0U;
+    if (result->count("sign") != 0U || result->count("sign-key") != 0U) {
+        *error_message
+            = "Marx prerelease only prepares products; use "
+              "ecosystem-release package --sign [--sign-key KEY] for a local "
+              "signed candidate. Production publication is disabled.";
+        return std::nullopt;
+    }
     if (result->count("version-base") != 0U) {
         request.version_base = (*result)["version-base"].as<std::string>();
-    }
-    if (result->count("sign-key") != 0U) {
-        request.signing_options.key_id
-            = (*result)["sign-key"].as<std::string>();
     }
     return request;
 }

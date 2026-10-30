@@ -346,3 +346,75 @@ for (const name of ['unknown environment', 'changed compiler', 'changed dependen
     assert.match(f.outputs.reason, /identity|unknown|differ/i);
   });
 }
+
+test('preliminary event selection never accepts compiled evidence or requires SDK variables', async t => {
+  const f = await consumerFixture(t);
+  const previous = Object.fromEntries(['ImageVersion', 'QT_ROOT_DIR', 'CMAKE_PREFIX_PATH'].map(name => [name, process.env[name]]));
+  try {
+    for (const name of Object.keys(previous)) delete process.env[name];
+    for (const scope of ['cheap', 'full', 'security', 'skip']) {
+      evidence.preliminary({core: f.core, env: {BASE_SCOPE: scope}});
+      assert.equal(f.outputs.scope, scope);
+      assert.equal(f.outputs.verified, 'false');
+    }
+    assert.equal(f.state.calls.length, 0);
+    const started = performance.now();
+    await evidence.select({github: f.github, context: f.context, core: f.core, root: f.root,
+      env: {BASE_SCOPE: 'full', EVIDENCE_KIND: 'checks'}});
+    assert.equal(f.outputs.scope, 'full');
+    assert.equal(f.outputs.verified, 'false');
+    assert.equal(f.state.calls.length, 0);
+    t.diagnostic(`Unknown identity chooses execution in ${(performance.now() - started).toFixed(2)}ms; no artifact calls`);
+  } finally {
+    for (const [key, value] of Object.entries(previous))
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+});
+
+test('default runtime identity becomes usable only after explicit synthetic environment setup', async t => {
+  const os = require('node:os');
+  const setup = fs.mkdtempSync(path.join(os.tmpdir(), 'synthetic-ci-sdk-'));
+  t.after(() => fs.rmSync(setup, {recursive: true, force: true}));
+  const bin = path.join(setup, 'bin'), sdk = path.join(setup, 'sdk');
+  fs.mkdirSync(bin); fs.mkdirSync(sdk);
+  fs.writeFileSync(path.join(sdk, 'synthetic-qt.hpp'), '// synthetic SDK, not a real Qt installation\n');
+  for (const name of ['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format', 'llvm-cov', 'llvm-profdata', 'dpkg-query'])
+    fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nprintf "synthetic-' + name + '=1\\n"\n', {mode: 0o755});
+  const saved = Object.fromEntries(['PATH', 'ImageVersion', 'QT_ROOT_DIR', 'CMAKE_PREFIX_PATH', 'CMAKE_TOOLCHAIN_FILE'].map(name => [name, process.env[name]]));
+  try {
+    Object.assign(process.env, {PATH: bin + path.delimiter + saved.PATH,
+      ImageVersion: 'synthetic-test-runner-not-hosted-evidence', QT_ROOT_DIR: sdk, CMAKE_PREFIX_PATH: sdk});
+    delete process.env.CMAKE_TOOLCHAIN_FILE;
+    const f = await consumerFixture(t, 'squash', 'default');
+    assert.equal(f.runtime.known, true);
+    assert.match(f.runtime.image, /^synthetic-/);
+    const start = performance.now();
+    const actual = evidence.runtimeIdentity(f.root);
+    t.diagnostic(`Synthetic one-file SDK identity: ${(performance.now() - start).toFixed(2)}ms; real Qt-tree cost unmeasured`);
+    assert.deepEqual(actual, f.runtime);
+    const selectDefault = () => evidence.select({github: f.github, context: f.context, core: f.core, root: f.root,
+      env: {BASE_SCOPE: 'full', EVIDENCE_KIND: 'checks'}});
+    for (const name of ['ImageVersion', 'QT_ROOT_DIR', 'CMAKE_PREFIX_PATH']) {
+      const value = process.env[name]; delete process.env[name];
+      await selectDefault();
+      assert.equal(f.outputs.scope, 'full', name);
+      assert.equal(f.outputs.verified, 'false', name);
+      process.env[name] = value;
+    }
+    assert.equal(f.state.calls.length, 0, 'unknown identities must not download artifacts');
+    fs.appendFileSync(path.join(bin, 'clang++'), '# different synthetic compiler\n');
+    await selectDefault();
+    assert.equal(f.outputs.scope, 'full'); assert.equal(f.outputs.verified, 'false');
+    fs.writeFileSync(path.join(bin, 'clang++'), '#!/bin/sh\nprintf "synthetic-clang++=1\\n"\n');
+    fs.appendFileSync(path.join(sdk, 'synthetic-qt.hpp'), '// different SDK\n');
+    await selectDefault();
+    assert.equal(f.outputs.scope, 'full'); assert.equal(f.outputs.verified, 'false');
+    fs.writeFileSync(path.join(sdk, 'synthetic-qt.hpp'), '// synthetic SDK, not a real Qt installation\n');
+    await selectDefault();
+    assert.equal(f.outputs.scope, 'reuse', f.notices.join('\n'));
+    assert.equal(f.outputs.verified, 'true');
+  } finally {
+    for (const [key, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+});

@@ -12,7 +12,8 @@ namespace {
                                             .get<std::string>();
         write_text(
             consumer / "ecosystem.local.json",
-            json({ { "sources", { { repository, provider.string() } } } }
+            json(
+                { { "sources", { { repository, provider.string() } } } }
             ).dump(2)
         );
     }
@@ -34,10 +35,11 @@ void test_optional_features_build_and_export_selected_closure() {
         );
         if (!external) {
             authored["artifacts"].erase(0);
-            authored["artifacts"].push_back({ { "id", "extra:library" },
-                                              { "kind", "static_lib" },
-                                              { "owns",
-                                                json::array({ "extra" }) } });
+            authored["artifacts"].push_back(
+                { { "id", "extra:library" },
+                  { "kind", "static_lib" },
+                  { "owns", json::array({ "extra" }) } }
+            );
             write_text(
                 project / "include/extra.hpp", "#pragma once\nint extra();\n"
             );
@@ -53,8 +55,10 @@ void test_optional_features_build_and_export_selected_closure() {
             project / "src/main.cpp",
             std::string("#if CLIENT_FEATURE_MONITOR\n#include <")
                 .append(header)
-                .append(">\n#endif\nint main() {\n#if "
-                        "CLIENT_FEATURE_MONITOR\nreturn ")
+                .append(
+                    ">\n#endif\nint main() {\n#if "
+                    "CLIENT_FEATURE_MONITOR\nreturn "
+                )
                 .append(call)
                 .append(" == 42 ? 0 : 1;\n#else\nreturn 0;\n#endif\n}\n")
         );
@@ -96,19 +100,22 @@ void test_optional_features_build_and_export_selected_closure() {
     auto authored = json::parse(read_text(project / "manifest.json"));
     authored["facade"] = "client:api";
     authored["artifacts"].erase(1);
-    authored["artifacts"].push_back({ { "id", "bridge:adapter" },
-                                      { "kind", "static_lib" },
-                                      { "owns", json::array({ "bridge" }) },
-                                      { "dependencies",
-                                        json::array({ "imported:math" }) } });
+    authored["artifacts"].push_back(
+        { { "id", "bridge:adapter" },
+          { "kind", "static_lib" },
+          { "owns", json::array({ "bridge" }) },
+          { "dependencies", json::array({ "imported:math" }) } }
+    );
     authored["artifacts"].push_back(
         { { "id", "client:api" },
           { "kind", "static_lib" },
           { "owns", json::array({ "client" }) },
           { "tests", { { "selftest", true } } },
           { "optional_dependencies",
-            json::array({ { { "artifact", "bridge:adapter" },
-                            { "feature", "monitor" } } }) } }
+            json::array(
+                { { { "artifact", "bridge:adapter" },
+                    { "feature", "monitor" } } }
+            ) } }
     );
     write_text(project / "manifest.json", authored.dump(2));
     write_text(
@@ -235,8 +242,9 @@ void test_optional_features_build_and_export_selected_closure() {
               .get<std::string>();
     write_text(
         project / "ecosystem.local.json",
-        json({ { "features", { "monitor" } },
-               { "sources", { { repository, provider.string() } } } }
+        json(
+            { { "features", { "monitor" } },
+              { "sources", { { repository, provider.string() } } } }
         ).dump(2)
     );
     result = run_marx_cli(project, "build debug");
@@ -261,10 +269,11 @@ void test_optional_features_build_and_export_selected_closure() {
         "automatic tests and production receive selected feature"
     );
     const auto enabled_install = root.path() / "enabled-sdk";
-    const auto installed
-        = run_command({ "cmake", "--install",
-                        ecosystem::local_build_dir(project, "debug").string(),
-                        "--prefix", enabled_install.string() });
+    const auto installed = run_command(
+        { "cmake", "--install",
+          ecosystem::local_build_dir(project, "debug").string(), "--prefix",
+          enabled_install.string() }
+    );
     require_true(installed.exit_code == 0, installed.output);
     require_contains(
         read_text(enabled_install / "lib/cmake/client/clientConfig.cmake"),
@@ -311,8 +320,72 @@ void test_optional_features_build_and_export_selected_closure() {
     );
 }
 
-void test_source_dependency_local_override_builds_and_installs_before_consumer(
-) {
+void test_source_dependency_local_override_builds_and_installs_before_consumer() {
+    {
+        temp_dir selected;
+        write_source_dependency_fixture(selected.path());
+        const auto project = selected.path() / "consumer";
+        const auto provider = selected.path() / "provider";
+        map_provider(project, provider);
+        auto authored = json::parse(read_text(provider / "manifest.json"));
+        authored["install_artifacts"] = json::array({ "extra:library" });
+        authored["artifacts"].push_back(
+            { { "id", "missing:imported" },
+              { "kind", "static_lib" },
+              { "owns", json::array() },
+              { "packages",
+                { { "external_project",
+                    { { "repository",
+                        (selected.path() / "must-not-acquire").string() },
+                      { "revision", "main" },
+                      { "package", "unrelated" },
+                      { "artifact", "core:library" } } } } } }
+        );
+        authored["artifacts"].push_back(
+            { { "id", "extra:library" },
+              { "kind", "static_lib" },
+              { "owns", json::array({ "extra" }) },
+              { "dependencies", json::array({ "missing:imported" }) } }
+        );
+        write_text(
+            provider / "include/extra.hpp", "#pragma once\nint extra();\n"
+        );
+        write_text(provider / "src/extra.cpp", "int extra() { return 17; }\n");
+        write_text(provider / "manifest.json", authored.dump(2));
+        const auto result = run_marx_cli(project, "run debug app:main");
+        require_true(
+            result.exit_code == 0,
+            "provider project-wide install intent must not enlarge a consumer "
+            "export: "
+                + result.output
+        );
+        for (const auto& entry : fs::recursive_directory_iterator(
+                 project / ".ecosystem/dependencies"
+             )) {
+            if (entry.path().filename() == "numbersConfig.cmake")
+                require_not_contains(
+                    read_text(entry.path()), "unrelated",
+                    "selected provider SDK has only its genuine dependencies"
+                );
+            require_true(
+                entry.path().filename() != "libnumbers_extra_library.a",
+                "unrequested companion must not enter the installed SDK"
+            );
+        }
+        auto consumer = json::parse(read_text(project / "manifest.json"));
+        consumer["artifacts"][0]["packages"]["external_project"]["artifact"]
+            = "extra:library";
+        write_text(project / "manifest.json", consumer.dump(2));
+        const auto required = run_marx_cli(project, "build debug app:main");
+        require_true(
+            required.exit_code != 0,
+            "a selected companion's missing dependency must still fail"
+        );
+        require_contains(
+            required.output, "must-not-acquire",
+            "failure identifies the genuinely required source"
+        );
+    }
     {
         temp_dir boundary;
         write_source_dependency_fixture(boundary.path());
@@ -802,18 +875,20 @@ void test_source_dependency_diamond_uses_one_sdk_identity() {
         const auto repository
             = std::string("https://example.invalid/") + branch + ".git";
         sources[repository] = project.string();
-        const json wrapper
-            = { { "id", branch },
-                { "description", "Diamond branch" },
-                { "cpp_standard", 20 },
-                { "facade", "core:wrapper" },
-                { "artifacts",
-                  json::array({ imported,
-                                { { "id", "core:wrapper" },
-                                  { "kind", "static_lib" },
-                                  { "owns", json::array({ branch }) },
-                                  { "dependencies",
-                                    json::array({ "imported:math" }) } } }) } };
+        const json wrapper = {
+            { "id", branch },
+            { "description", "Diamond branch" },
+            { "cpp_standard", 20 },
+            { "facade", "core:wrapper" },
+            { "artifacts",
+              json::array(
+                  { imported,
+                    { { "id", "core:wrapper" },
+                      { "kind", "static_lib" },
+                      { "owns", json::array({ branch }) },
+                      { "dependencies", json::array({ "imported:math" }) } } }
+              ) }
+        };
         write_text(project / "manifest.json", wrapper.dump(2));
         write_text(
             project / "include" / (std::string(branch) + ".hpp"),
@@ -938,8 +1013,45 @@ void test_source_dependency_diamond_uses_one_sdk_identity() {
             "both branches must observe the new provider value"
         );
     }
+    // Different transitive exports still share the same provider SDK. The
+    // second branch widens its export set rather than selecting all companions
+    // up front or acquiring an independently built copy of the common library.
+    auto expanded = json::parse(read_text(provider / "manifest.json"));
+    expanded["install_artifacts"] = json::array({ "extra:library" });
+    expanded["artifacts"].push_back(
+        { { "id", "extra:library" },
+          { "kind", "static_lib" },
+          { "owns", json::array({ "extra" }) } }
+    );
+    write_text(provider / "include/extra.hpp", "#pragma once\nint extra();\n");
+    write_text(provider / "src/extra.cpp", "int extra() { return 44; }\n");
+    write_text(provider / "manifest.json", expanded.dump(2));
     auto right = json::parse(read_text(root.path() / "right/manifest.json"));
     auto& request = right["artifacts"][0]["packages"]["external_project"];
+    request["artifact"] = "extra:library";
+    write_text(root.path() / "right/manifest.json", right.dump(2));
+    write_text(
+        root.path() / "right/src/right.cpp",
+        "#include <extra.hpp>\nint right_answer() { return extra(); }\n"
+    );
+    write_text(
+        consumer / "src/main.cpp",
+        "#include <left.hpp>\n#include <right.hpp>\nint main() { return "
+        "left_answer() == 43 && right_answer() == 44 ? 0 : 1; }\n"
+    );
+    const auto widened = run_marx_cli(consumer, "run debug");
+    require_true(
+        widened.exit_code == 0,
+        "later transitive export must widen the same SDK: " + widened.output
+    );
+    const auto exports
+        = read_text(installed.front().parent_path() / "numbersTargets.cmake");
+    require_contains(
+        exports, "numbers::math__library", "first branch export retained"
+    );
+    require_contains(
+        exports, "numbers::extra__library", "later branch export installed"
+    );
     request["artifact"] = "missing:export";
     write_text(root.path() / "right/manifest.json", right.dump(2));
     const auto invalid = run_marx_cli(consumer, "build debug");
@@ -1093,8 +1205,7 @@ void test_source_dependency_shared_and_interface_usage_requirements() {
                 + ": " + result.output
         );
         consumer_manifest["artifacts"][2]["packages"]["external_project"]
-                         ["artifact"]
-            = "missing:export";
+                         ["artifact"] = "missing:export";
         write_text(consumer / "manifest.json", consumer_manifest.dump(2));
         write_text(log, "");
         const auto invalid = run_marx_cli(consumer, "build debug");
@@ -1112,11 +1223,9 @@ void test_source_dependency_shared_and_interface_usage_requirements() {
             "invalid import must fail before any CMake command"
         );
         consumer_manifest["artifacts"][2]["packages"]["external_project"]
-                         ["artifact"]
-            = "companion:qt";
+                         ["artifact"] = "companion:qt";
         consumer_manifest["artifacts"][2]["packages"]["external_project"]
-                         ["revision"]
-            = "conflicting-revision";
+                         ["revision"] = "conflicting-revision";
         write_text(consumer / "manifest.json", consumer_manifest.dump(2));
         const auto conflict = run_marx_cli(consumer, "build debug");
         require_true(
@@ -1134,8 +1243,7 @@ void test_source_dependency_shared_and_interface_usage_requirements() {
     }
 }
 
-void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure(
-) {
+void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure() {
     const std::vector<std::pair<
         std::string, std::function<void(const fs::path&, const fs::path&)>>>
         cases {
@@ -1155,8 +1263,7 @@ void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_c
                   auto value
                       = json::parse(read_text(consumer / "manifest.json"));
                   value["artifacts"][0]["packages"]["external_project"]
-                       ["artifact"]
-                      = "math:absent";
+                       ["artifact"] = "math:absent";
                   write_text(consumer / "manifest.json", value.dump(2));
               } },
             { "provider artifact missing or kind mismatch",

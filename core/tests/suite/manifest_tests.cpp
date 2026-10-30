@@ -172,10 +172,13 @@ void test_self_manifest_loads() {
         binaries == std::set<std::string> { "marx", "engels" },
         "public local tooling binaries must remain exactly Marx and Engels"
     );
+    ecosystem::string_list products;
+    for (const auto& ref :
+         ecosystem::distribution_artifacts(*report.value, { "marx", "marx" }))
+        products.push_back(ecosystem::format_artifact_ref(ref));
     require_true(
-        report.value->install_artifacts
-            == ecosystem::string_list { "marx:marx", "engels:engels" },
-        "both actors must be distributed together"
+        products == ecosystem::string_list { "marx:marx", "engels:engels" },
+        "facade plus declared companion must distribute both actors together"
     );
     const auto cmake = ecosystem::generate_cmakelists(
         *report.value, fs::path(ECOS_TEST_SOURCE_DIR)
@@ -187,8 +190,20 @@ void test_self_manifest_loads() {
     require_contains(
         cmake, "install(TARGETS marx__marx", "Marx must be installed"
     );
+    require_not_contains(
+        cmake, "engels__engels",
+        "the visitor contains only Marx and its production closure"
+    );
+    const auto distribution = ecosystem::generate_distribution_cmakelists(
+        *report.value, fs::path(ECOS_TEST_SOURCE_DIR)
+    );
     require_contains(
-        cmake, "install(TARGETS engels__engels", "Engels must be installed"
+        distribution, "install(TARGETS marx__marx",
+        "the full distribution must install Marx"
+    );
+    require_contains(
+        distribution, "install(TARGETS engels__engels",
+        "the full distribution must install Engels"
     );
 }
 
@@ -212,7 +227,8 @@ void test_qml_modules_preserve_optional_ownership_and_generation() {
                     { { "uri", "Sample.Ui" },
                       { "version", "1.0" },
                       { "files",
-                        json::array({ "qml/Main.qml", "qml/nested/Tile.qml" }
+                        json::array(
+                            { "qml/Main.qml", "qml/nested/Tile.qml" }
                         ) } } } } }
           ) }
     };
@@ -480,21 +496,22 @@ void test_optional_features_validate_and_round_trip() {
 
 void test_authored_artifacts_round_trip_and_mutate() {
     temp_dir root;
-    json authored = {
-        { "id", "owned" },
-        { "description", "Explicit artifact intent" },
-        { "version", "1.2.3" },
-        { "facade", "core:app" },
-        { "artifacts",
-          json::array({ { { "id", "core:lib" },
-                          { "kind", "static_lib" },
-                          { "owns", json::array({ "math" }) } },
-                        { { "id", "core:app" },
-                          { "kind", "exe" },
-                          { "owns", json::array() },
-                          { "entry", "src/launch.cpp" },
-                          { "dependencies", json::array({ "core:lib" }) } } }) }
-    };
+    json authored
+        = { { "id", "owned" },
+            { "description", "Explicit artifact intent" },
+            { "version", "1.2.3" },
+            { "facade", "core:app" },
+            { "artifacts",
+              json::array(
+                  { { { "id", "core:lib" },
+                      { "kind", "static_lib" },
+                      { "owns", json::array({ "math" }) } },
+                    { { "id", "core:app" },
+                      { "kind", "exe" },
+                      { "owns", json::array() },
+                      { "entry", "src/launch.cpp" },
+                      { "dependencies", json::array({ "core:lib" }) } } }
+              ) } };
     write_text(root.path() / "manifest.json", authored.dump(2) + "\n");
     write_text(root.path() / "include/math.hpp", "int answer();\n");
     write_text(root.path() / "src/math.cpp", "int answer() { return 42; }\n");
@@ -615,11 +632,12 @@ void test_authored_artifacts_round_trip_and_mutate() {
     );
     auto app_only = authored;
     app_only["facade"] = "solo:app";
-    app_only["artifacts"]
-        = json::array({ { { "id", "solo:app" },
-                          { "kind", "exe" },
-                          { "owns", json::array() },
-                          { "entry", "src/standalone.cpp" } } });
+    app_only["artifacts"] = json::array(
+        { { { "id", "solo:app" },
+            { "kind", "exe" },
+            { "owns", json::array() },
+            { "entry", "src/standalone.cpp" } } }
+    );
     write_text(root.path() / "manifest.json", app_only.dump(2) + "\n");
     write_text(
         root.path() / "src/standalone.cpp",
@@ -643,10 +661,12 @@ void test_authored_artifacts_reject_obsolete_and_ambiguous_intent() {
                         { "description", "Owned app" },
                         { "facade", "app:app" },
                         { "artifacts",
-                          json::array({ { { "id", "app:app" },
-                                          { "kind", "exe" },
-                                          { "owns", json::array() },
-                                          { "entry", "src/start.cc" } } }) } };
+                          json::array(
+                              { { { "id", "app:app" },
+                                  { "kind", "exe" },
+                                  { "owns", json::array() },
+                                  { "entry", "src/start.cc" } } }
+                          ) } };
     auto check = [&](const json& value, const std::string& diagnostic) {
         write_text(root.path() / "manifest.json", value.dump());
         const auto loaded
@@ -689,9 +709,11 @@ void test_authored_artifacts_reject_obsolete_and_ambiguous_intent() {
     value["artifacts"][0]["dependencies"] = json::array({ "missing:lib" });
     check(value, "unresolved artifact link");
     value = base;
-    value["artifacts"].push_back({ { "id", "lib:lib" },
-                                   { "kind", "static_lib" },
-                                   { "owns", json::array({ "." }) } });
+    value["artifacts"].push_back(
+        { { "id", "lib:lib" },
+          { "kind", "static_lib" },
+          { "owns", json::array({ "." }) } }
+    );
     check(value, "overlapping artifact ownership");
     value = base;
     value["artifacts"][0]["owns"] = json::array({ "../escape" });
@@ -705,12 +727,16 @@ void test_authored_artifacts_reject_obsolete_and_ambiguous_intent() {
     fs::create_directories(root.path() / "src/empty");
     fs::create_directory_symlink("empty", root.path() / "src/alias");
     value = base;
-    value["artifacts"].push_back({ { "id", "first:lib" },
-                                   { "kind", "static_lib" },
-                                   { "owns", json::array({ "src/empty" }) } });
-    value["artifacts"].push_back({ { "id", "second:lib" },
-                                   { "kind", "static_lib" },
-                                   { "owns", json::array({ "src/alias" }) } });
+    value["artifacts"].push_back(
+        { { "id", "first:lib" },
+          { "kind", "static_lib" },
+          { "owns", json::array({ "src/empty" }) } }
+    );
+    value["artifacts"].push_back(
+        { { "id", "second:lib" },
+          { "kind", "static_lib" },
+          { "owns", json::array({ "src/alias" }) } }
+    );
     check(value, "overlapping artifact ownership through filesystem paths");
     value = base;
     auto& imported = value["artifacts"][0];
@@ -745,6 +771,66 @@ void test_authored_artifacts_reject_obsolete_and_ambiguous_intent() {
 }
 
 void test_owned_test_targets_are_independent() {
+    {
+        temp_dir selected;
+        write_text(selected.path() / "manifest.json", R"({
+            "id":"headless", "description":"Core without GUI facade",
+            "facade":"gui:app", "artifacts":[
+                {"id":"core:lib", "kind":"static_lib", "owns":["answer"],
+                 "tests":{"selftest":true}},
+                {"id":"gui:app", "kind":"qt_app", "owns":[],
+                 "entry":"src/gui.cpp", "dependencies":["core:lib"],
+                 "packages":{"qt":["Widgets"]}}
+            ]})");
+        write_text(
+            selected.path() / "src/answer.cpp", "int answer() { return 42; }\n"
+        );
+        write_text(
+            selected.path() / "src/gui.cpp",
+            "#error A selected core test must not compile the GUI\n"
+        );
+        write_text(
+            selected.path() / "tests/answer_tests.cpp",
+            "#include <filesystem>\nint answer();\nint main() { return "
+            "answer() == 42 && "
+            "std::filesystem::is_directory(ECOS_TEST_BUILD_DIR) ? 0 : 1; }\n"
+        );
+        const auto loaded
+            = ecosystem::load_manifest(selected.path() / "manifest.json");
+        require_true(loaded.errors.empty(), join_lines(loaded.errors));
+        const auto generated = ecosystem::generate_developer_cmakelists(
+            *loaded.value, selected.path(),
+            ecosystem::artifact_ref { "core", "lib" }
+        );
+        const auto driver = selected.path() / "driver";
+        const auto build = selected.path() / "build";
+        write_text(driver / "CMakeLists.txt", generated);
+        for (const auto& command : std::vector<ecosystem::string_list> {
+                 { "cmake", "-S", driver.string(), "-B", build.string(),
+                   "-DECOSYSTEM_PROJECT_ROOT=" + selected.path().string(),
+                   "-DECOSYSTEM_BUILD_TESTS=ON",
+                   "-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON" },
+                 { "cmake", "--build", build.string() },
+                 { "ctest", "--test-dir", build.string(), "--output-on-failure",
+                   "--no-tests=error" } }) {
+            const auto result
+                = ecosystem::capture_command_result(command, selected.path());
+            require_true(
+                result.exit_code == 0,
+                "selected core graph must build/test without the GUI: "
+                    + result.output
+            );
+        }
+        require_contains(
+            generated, "$<TARGET_FILE_DIR:core__lib__tests>",
+            "test build-directory definition references an actual selected "
+            "target"
+        );
+        require_not_contains(
+            generated, "$<TARGET_FILE_DIR:gui__app>",
+            "headless test scope has no reference to the unselected GUI"
+        );
+    }
     temp_dir root;
     write_text(root.path() / "manifest.json", R"({
         "id":"parallel_tests", "description":"Independent artifact test owners",
@@ -1384,4 +1470,118 @@ void test_manifest_rejects_generated_test_collisions() {
     );
 }
 
+} // namespace ecosystem_test_support
+
+namespace ecosystem_test_support {
+void test_package_declarations_fail_closed() {
+    temp_dir root;
+    write_sample_build_project(root.path(), "package_errors");
+    const auto original = json::parse(read_text(root.path() / "manifest.json"));
+    const std::vector<std::pair<json, std::string>> cases {
+        { { { "unregistered_native", json::array({ "Crypto" }) } },
+          "unsupported package" },
+        { { { "openssl", json::array({ "Cryptoo" }) } },
+          "unsupported component" },
+        { { { "openssl", json::array() } }, "nonempty" },
+        { { { "openssl", true } }, "nonempty" },
+        { { { "json", true } }, "nonempty" },
+        { { { "openssl",
+              { { "version", 3 },
+                { "components", json::array({ "Crypto" }) } } } },
+          "nonempty" },
+        { { { "openssl", json::array({ "Crypto", 3 }) } }, "nonempty strings" },
+        { { { "openssl", json::array({ "Crypto", "Crypto" }) } },
+          "duplicate component" },
+        { { { "qt", json::array({ "Core;bad" }) } }, "unsupported component" },
+        { { { "json", json::array({ "other_json" }) } },
+          "unsupported component" },
+        { { { "gtest", json::array({ "gtest" }) } }, "unsupported package" },
+        { { { "external_project",
+              { { "repository", "unused" },
+                { "revision", "main" },
+                { "package", "provider" },
+                { "artifact", "core:lib" } } },
+            { "openssl", json::array({ "Crypto" }) } },
+          "provider imports cannot redeclare" }
+    };
+    for (const auto& [packages, expected] : cases) {
+        auto authored = original;
+        authored["artifacts"][0]["packages"] = packages;
+        write_text(root.path() / "manifest.json", authored.dump(2));
+        write_text(
+            root.path() / "CMakeLists.txt",
+            "retain this original generated surface\n"
+        );
+        const auto loaded
+            = ecosystem::load_manifest(root.path() / "manifest.json");
+        require_contains(
+            join_lines(loaded.errors), expected,
+            "invalid package declarations must fail loading"
+        );
+        const auto sync = run_marx_cli(root.path(), "sync");
+        require_true(
+            sync.exit_code != 0,
+            "invalid requirements must never synchronize successfully"
+        );
+        require_contains(
+            sync.output, expected, "sync must explain the rejected dependency"
+        );
+        const auto repo = run_cli(root.path(), "check repo");
+        require_true(
+            repo.exit_code != 0,
+            "invalid requirements cannot receive green conformance"
+        );
+        require_contains(
+            repo.output, expected,
+            "repository failure must identify the declaration, not only stale "
+            "surfaces"
+        );
+        require_true(
+            read_text(root.path() / "CMakeLists.txt")
+                    == "retain this original generated surface\n"
+                && !fs::exists(root.path() / ".github")
+                && !fs::exists(root.path() / ".clang-tidy"),
+            "rejection must precede every generated-surface write"
+        );
+        auto value = sample_build_manifest("programmatic_packages");
+        value.components.front().stack = packages;
+        ecosystem::string_list errors;
+        require_true(
+            ecosystem::generate_tracked_surface_files(
+                value, root.path(), &errors
+            )
+                    .empty()
+                && !errors.empty(),
+            "programmatic generation must also fail closed"
+        );
+        bool rejected = false;
+        try {
+            (void)ecosystem::generate_developer_cmakelists(value, root.path());
+        } catch (const std::exception& error) {
+            rejected
+                = std::string(error.what()).find(expected) != std::string::npos;
+        }
+        require_true(
+            rejected,
+            "the independent developer graph must reject the same invalid "
+            "declaration"
+        );
+    }
+    for (const auto& packages :
+         { json { { "openssl", "Crypto" } },
+           json { { "openssl", json::array({ "Crypto", "SSL" }) } },
+           json { { "openssl", false } }, json { { "llvm_clang", true } },
+           json { { "opencv", true } }, json { { "eigen", true } },
+           json { { "jni", true } }, json { { "zlib", true } },
+           json { { "android", true } },
+           json { { "opencv", json::array({ "optional" }) } } }) {
+        auto value = sample_build_manifest("valid_packages");
+        value.components.front().stack = packages;
+        require_true(
+            ecosystem::validate_manifest(value).empty(),
+            "supported current forms and optional-package semantics must "
+            "remain valid"
+        );
+    }
+}
 } // namespace ecosystem_test_support

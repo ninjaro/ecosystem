@@ -37,6 +37,34 @@ void test_asset_categories() {
 }
 
 void test_asset_branches() {
+    {
+        temp_dir cache;
+        const auto branch = cache.path() / "assets/dumps/test";
+        write_text(branch / ".agent_cache/run/screenshot.png", "generated");
+        require_true(
+            ecosystem::validate_assets(cache.path()).empty(),
+            "reserved cache-only output needs no invented dataset"
+        );
+        write_text(branch / "authored.txt", "authored output");
+        require_contains(
+            join_lines(ecosystem::validate_assets(cache.path())),
+            "matching dataset",
+            "authored dumps still require their dataset branch"
+        );
+        fs::remove(branch / "authored.txt");
+        fs::create_directory(branch / ".agent_cache_reference");
+        require_contains(
+            join_lines(ecosystem::validate_assets(cache.path())),
+            "matching dataset",
+            "similarly named authored directories are not caches"
+        );
+        fs::remove(branch / ".agent_cache_reference");
+        fs::create_directory_symlink(cache.path(), branch / ".other_cache");
+        require_true(
+            !ecosystem::validate_assets(cache.path()).empty(),
+            "symlinks cannot claim the cache-only exemption"
+        );
+    }
     temp_dir root;
     write_text(root.path() / "assets/dataset/train/nested/input.ex", "input");
     require_contains(

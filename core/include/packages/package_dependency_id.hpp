@@ -15,6 +15,7 @@ enum class dependency_id {
     zlib,
     gtest,
     benchmark,
+    openssl,
 };
 
 } // namespace ecosystem

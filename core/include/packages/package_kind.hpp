@@ -15,6 +15,7 @@ enum class package_kind {
     zlib,
     gtest,
     benchmark,
+    openssl,
 };
 
 } // namespace ecosystem

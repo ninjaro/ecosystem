@@ -3,9 +3,101 @@
 #include "packages/package_dependency.hpp"
 
 #include <algorithm>
+#include <set>
+#include <string>
 #include <vector>
 
 namespace ecosystem {
+
+std::vector<std::string> validate_package_declarations(const component& owner) {
+    std::vector<std::string> errors;
+    const std::string identity = owner.artifacts.size() == 1
+        ? owner.id + ":" + owner.artifacts.front().id
+        : owner.id;
+    const std::string context = "artifact " + identity + ".packages";
+    if (!owner.stack.is_object())
+        return { context + " must be an object" };
+    for (const auto& [key, entry] : owner.stack.items()) {
+        if (key == "external_project")
+            continue; // Validated as a provider import.
+        const package_summary_rule* declaration = nullptr;
+        for (const auto& descriptor : registered_packages())
+            for (const auto& rule : descriptor.summary_rules)
+                if (rule.source == package_summary_source::component_stack
+                    && rule.key == key && !declaration)
+                    declaration = &rule;
+        static const std::vector<std::string_view> android_values {
+            "qt_android"
+        };
+        if (!declaration && key != "android") {
+            errors.push_back(
+                std::string(context)
+                    .append(": unsupported package '")
+                    .append(key)
+                    .append("'")
+            );
+            continue;
+        }
+        const std::string field = std::string(context).append(".").append(key);
+        if (owner.stack.contains("external_project")) {
+            errors.push_back(
+                field
+                + ": provider imports cannot redeclare local package "
+                  "requirements"
+            );
+            continue;
+        }
+        // Explicit false retains the existing disabled-package semantics.
+        if (entry == false
+            || (entry == true
+                && (key == "android"
+                    || (declaration && declaration->allow_enabled_flag))))
+            continue;
+        json values = entry.is_string() ? json::array({ entry }) : entry;
+        if (!values.is_array() || values.empty()) {
+            errors.push_back(
+                field
+                + " must be a nonempty string/array of components, or false"
+            );
+            continue;
+        }
+        const auto& supported
+            = declaration ? declaration->supported_values : android_values;
+        std::set<std::string> seen;
+        for (const auto& item : values) {
+            if (!item.is_string()
+                || item.get_ref<const std::string&>().empty()) {
+                errors.push_back(
+                    field + " components must be nonempty strings"
+                );
+                continue;
+            }
+            const auto& value = item.get_ref<const std::string&>();
+            const bool safe
+                = std::ranges::all_of(value, [](const unsigned char c) {
+                      return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                          || (c >= '0' && c <= '9') || c == '_';
+                  });
+            if (!safe
+                || (!supported.empty()
+                    && std::ranges::find(supported, value) == supported.end()))
+                errors.push_back(
+                    std::string(field)
+                        .append(": unsupported component '")
+                        .append(value)
+                        .append("'")
+                );
+            if (!seen.insert(value).second)
+                errors.push_back(
+                    std::string(field)
+                        .append(": duplicate component '")
+                        .append(value)
+                        .append("'")
+                );
+        }
+    }
+    return errors;
+}
 
 const std::vector<package_descriptor>& package_descriptors() {
     static const std::vector<package_descriptor> descriptors {
@@ -19,6 +111,7 @@ const std::vector<package_descriptor>& package_descriptors() {
                     package_summary_effect::stack_values,
                     {},
                     false,
+                    { "nlohmann_json" },
                 },
             },
             {
@@ -49,6 +142,8 @@ const std::vector<package_descriptor>& package_descriptors() {
                     package_summary_effect::stack_values,
                     {},
                     false,
+                    { "libclang" },
+                    true,
                 },
             },
             {
@@ -175,6 +270,8 @@ const std::vector<package_descriptor>& package_descriptors() {
                     package_summary_effect::stack_values,
                     {},
                     false,
+                    { "optional" },
+                    true,
                 },
             },
             {
@@ -205,6 +302,8 @@ const std::vector<package_descriptor>& package_descriptors() {
                     package_summary_effect::stack_values,
                     {},
                     false,
+                    { "optional" },
+                    true,
                 },
             },
             {
@@ -235,6 +334,8 @@ const std::vector<package_descriptor>& package_descriptors() {
                     package_summary_effect::stack_values,
                     {},
                     false,
+                    { "required" },
+                    true,
                 },
             },
             {
@@ -265,6 +366,7 @@ const std::vector<package_descriptor>& package_descriptors() {
                     package_summary_effect::stack_values,
                     {},
                     false,
+                    { "cxxopts" },
                 },
             },
             {
@@ -295,6 +397,8 @@ const std::vector<package_descriptor>& package_descriptors() {
                     package_summary_effect::stack_values,
                     {},
                     false,
+                    { "zlib" },
+                    true,
                 },
             },
             {
@@ -374,6 +478,29 @@ const std::vector<package_descriptor>& package_descriptors() {
             package_group::optional,
             package_surface_block::benchmark,
             "benchmark package",
+        },
+        {
+            package_kind::openssl,
+            dependency_id::openssl,
+            { { package_summary_source::component_stack,
+                "openssl",
+                package_summary_effect::stack_values,
+                {},
+                false,
+                { "Crypto", "SSL" } } },
+            { { package_link_target_source::dependency_values_prefix,
+                "OpenSSL::" } },
+            { package_status_source::dependency_values_prefix_suffix,
+              { "OPENSSL_INCLUDE_DIR" },
+              "ECOSYSTEM_OPENSSL_",
+              "_LIBRARY",
+              {},
+              {},
+              true },
+            package_group::required,
+            package_surface_block::openssl,
+            "OpenSSL >= 3 components",
+            true,
         },
     };
     return descriptors;

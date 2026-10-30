@@ -469,6 +469,7 @@ set(ECOSYSTEM_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/doxygen.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/groups.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/mutation.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/prepared.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/project.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/read_commands.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/include/workspace/release.hpp
@@ -489,6 +490,7 @@ set(ECOSYSTEM_CORE_CORE_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/analysis/verification_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/assets/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/command_internal.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/prepared_internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tex/internal.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/tooling/internal.hpp
@@ -531,18 +533,17 @@ set(ECOSYSTEM_CORE_CORE_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doxygen.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/groups.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/mutation.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/prepared.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/prepared_inventory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/project.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_check_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_doctor_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_report_commands.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/archives.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/metadata.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/handoff.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/payload.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/product.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/runtime.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/signing.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/state.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/repository.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/source_dependencies.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/sync.cpp
@@ -597,18 +598,17 @@ set(ECOSYSTEM_CORE_CORE_RUNTIME_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/doxygen.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/groups.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/mutation.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/prepared.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/prepared_inventory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/project.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_check_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_doctor_commands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/read_report_commands.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/archives.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/metadata.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/handoff.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/payload.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/product.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/runtime.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/signing.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release/state.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/release.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/repository.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/source_dependencies.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/core/src/workspace/sync.cpp
@@ -796,4 +796,3 @@ install(TARGETS marx__marx
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
-

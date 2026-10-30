@@ -67,7 +67,7 @@ std::string marx_usage_text() {
            "  run <profile> [component:artifact] [--project <project> ...] "
            "[--android-mode <mode>] [-- <arg> ...]\n"
            "  prerelease [component:artifact] [--project <project> ...] "
-           "[--version-base <major.minor.patch>]\n";
+           "[--version-base <major.minor.patch>] [--prepare-only]\n";
 }
 
 bool validate_mutate_request(

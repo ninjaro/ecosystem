@@ -170,7 +170,8 @@ tidy_check_report run_tidy_check(
         project_root, profile == "debug"
     );
     report.analysis = analyze_project_sources(
-        selected, project_root, std::nullopt, include_tests, include_benchmarks
+        selected, project_root, std::nullopt, include_tests, include_benchmarks,
+        profile
     );
 
     std::vector<std::string> command {

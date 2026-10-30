@@ -65,14 +65,12 @@ command_error run_workspace_build(
 command_error run_prerelease(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::optional<artifact_ref>& requested_artifact,
-    const std::optional<std::string>& version_base,
-    const prerelease_signing_options& signing_options, std::ostream& out,
+    const std::optional<std::string>& version_base, std::ostream& out,
     std::ostream& err
 );
 command_error run_workspace_prerelease(
     const workspace_context& workspace, const workspace_scope& scope,
-    const std::optional<std::string>& version_base,
-    const prerelease_signing_options& signing_options, std::ostream& out,
+    const std::optional<std::string>& version_base, std::ostream& out,
     std::ostream& err
 );
 command_error run_benchmark(

@@ -537,7 +537,9 @@ std::string render_package_surface_block(
 ) {
     const package_surface_rule* rule = find_package_surface_rule(block);
     if (rule == nullptr) {
-        return {};
+        throw template_render_error(
+            "no canonical CMake rule for required package surface"
+        );
     }
     return render_package_surface_rule(*rule, dependencies, options);
 }

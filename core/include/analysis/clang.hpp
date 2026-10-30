@@ -61,7 +61,7 @@ struct cxx_analysis_report {
 cxx_analysis_report analyze_project_sources(
     const manifest& value, const std::filesystem::path& project_root,
     const std::optional<artifact_ref>& requested_artifact, bool include_tests,
-    bool include_benchmarks
+    bool include_benchmarks, const std::string& build_profile = "debug"
 );
 
 json to_json(const cxx_analysis_report& value);

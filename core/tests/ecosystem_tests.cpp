@@ -4,6 +4,42 @@
 using namespace ecosystem_test_support;
 
 int main(int argc, char** argv) {
+    if (argc == 3
+        && std::string(argv[1]) == "--prepared-verification-evidence") {
+        try {
+            test_engels_prepared_evidence(fs::absolute(argv[2]));
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[failed] prepared verification evidence: "
+                      << error.what() << '\n';
+            return 1;
+        }
+    }
+    if (argc == 3 && std::string(argv[1]) == "--verified-prepared-planner") {
+        try {
+            test_engels_prepared_planner(fs::absolute(argv[2]));
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[failed] Engels/planner boundary: " << error.what()
+                      << '\n';
+            return 1;
+        }
+    }
+    if (argc > 1 && std::string(argv[1]) == "--release-planner") {
+        if (argc != 3) {
+            std::cerr << "usage: " << argv[0]
+                      << " --release-planner <installed-planner>\n";
+            return 2;
+        }
+        try {
+            test_release_prepared_planner(fs::absolute(argv[2]));
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[failed] prepared release handoff: " << error.what()
+                      << '\n';
+            return 1;
+        }
+    }
     if (argc == 2 && std::string(argv[1]) == "--tex-integration") {
         try {
             test_tex_native();
@@ -55,24 +91,7 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    if (argc > 1 && std::string(argv[1]) == "--prerelease-install") {
-        if (argc > 3) {
-            std::cerr << "usage: " << argv[0]
-                      << " --prerelease-install [pacman-cache]\n";
-            return 2;
-        }
-        try {
-            test_release_isolated_install(
-                argc == 3 ? fs::absolute(argv[2])
-                          : fs::path("/var/cache/pacman/pkg")
-            );
-            return 0;
-        } catch (const std::exception& error) {
-            std::cerr << "[failed] prerelease isolated install: "
-                      << error.what() << "\n";
-            return 1;
-        }
-    }
+
     if (argc > 1 && std::string(argv[1]) == "--workspace-conformance") {
         if (argc != 3) {
             std::cerr << "usage: " << argv[0]
@@ -91,6 +110,11 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::vector<std::pair<std::string, std::function<void()>>> tests {
+        { "openssl_package_contract", test_openssl_package_contract },
+        { "openssl_native_build_and_installed_sdk",
+          test_openssl_native_build_and_installed_sdk },
+        { "package_declarations_fail_closed",
+          test_package_declarations_fail_closed },
         { "toolchain_versions_validate_and_round_trip",
           test_toolchain_versions_validate_and_round_trip },
         { "qt_versions_select_build_and_export_minimum",
@@ -179,6 +203,8 @@ int main(int argc, char** argv) {
           test_visitor_facade_handles_runtime_output_layouts },
         { "visitor_facade_rejects_conflicting_output_names",
           test_visitor_facade_rejects_conflicting_output_names },
+        { "cmake_surfaces_have_canonical_eof",
+          test_cmake_surfaces_have_canonical_eof },
         { "sync_matches_tracked_surfaces", test_sync_matches_tracked_surfaces },
         { "template_root_obeys_ecosystem_environment",
           test_template_root_obeys_ecosystem_environment },
@@ -472,26 +498,33 @@ int main(int argc, char** argv) {
           test_cli_benchmark_accepts_generic_programs_and_preserves_results },
         { "cli_benchmark_builds_release_benchmarks_and_writes_reports",
           test_cli_benchmark_builds_release_benchmarks_and_writes_reports },
+        { "cli_workspace_prerelease_prepares_only",
+          test_cli_workspace_prerelease_prepares_only },
+        { "cli_prerelease_prepares_without_publication",
+          test_cli_prerelease_prepares_without_publication },
         { "prerelease_command_log_preserves_output_and_fails_closed",
           test_prerelease_command_log_preserves_output_and_fails_closed },
+        { "prerelease_prepared_full_product",
+          test_prerelease_prepared_full_product },
+        { "prerelease_prepared_failures", test_prerelease_prepared_failures },
+        { "engels_prepared_full_product", test_engels_prepared_full_product },
+        { "engels_prepared_rejects_inconsistent_inputs",
+          test_engels_prepared_rejects_inconsistent_inputs },
+        { "engels_prepared_gates_and_no_build",
+          test_engels_prepared_gates_and_no_build },
         { "cli_prerelease_retains_attempt_logs_and_summaries",
           test_cli_prerelease_retains_attempt_logs_and_summaries },
         { "cli_prerelease_rejects_unusable_attempt_storage",
           test_cli_prerelease_rejects_unusable_attempt_storage },
-        { "cli_prerelease_builds_shareable_repos_and_auto_increments_version",
-          test_cli_prerelease_builds_shareable_repos_and_auto_increments_version },
-        { "prerelease_packages_linked_runtime_closure",
+        { "prerelease_prepares_linked_runtime_closure",
           test_release_runtime_closure },
-        { "prerelease_maps_native_dependencies_and_preserves_state_on_query_"
-          "failures",
-          test_release_dependency_queries },
-        { "prerelease_packages_installed_source_provider_runtime",
+        { "prerelease_prepares_installed_source_provider_runtime",
           test_release_provider_runtime },
-        { "prerelease_runtime_failures_preserve_previous_release",
+        { "prerelease_runtime_failures_preserve_previous_preparation",
           test_release_runtime_recovery },
         { "prerelease_retains_soname_aliases_and_rejects_runtime_conflicts",
           test_release_runtime_aliases },
-        { "prerelease_tooling_archives_carry_their_template_bundle",
+        { "prerelease_tooling_preparation_carries_its_template_bundle",
           test_release_tooling_bundle },
         { "prerelease_rejects_missing_or_aliased_tooling_data",
           test_release_tooling_errors },
@@ -499,16 +532,6 @@ int main(int argc, char** argv) {
           test_release_asset_intent },
         { "prerelease_excludes_cached_tooling_templates",
           test_release_cache_inventory },
-        { "prerelease_preserves_published_state_on_late_failures",
-          test_prerelease_preserves_published_state_on_late_failures },
-        { "prerelease_retains_recovery_state_and_rejects_publication_aliases",
-          test_prerelease_retains_recovery_state_and_rejects_publication_aliases },
-        { "prerelease_rejects_colliding_install_payloads",
-          test_prerelease_rejects_colliding_install_payloads },
-        { "cli_prerelease_includes_install_companions",
-          test_cli_prerelease_includes_install_companions },
-        { "cli_prerelease_signs_repo_metadata_when_requested",
-          test_cli_prerelease_signs_repo_metadata_when_requested },
         { "cli_check_java_builds_shared_libraries_and_runs_gradle_tests",
           test_cli_check_java_builds_shared_libraries_and_runs_gradle_tests },
         { "cli_check_sphinx_generates_local_conf_with_rtd_theme",

@@ -11,12 +11,13 @@ void test_check_capabilities_require_enabled_runnable_artifacts() {
             { "description", "Disabled check ownership" },
             { "facade", "core:lib" },
             { "artifacts",
-              json::array({ { { "id", "core:lib" },
-                              { "kind", "static_lib" },
-                              { "owns", { "answer", "tests", "benchmarks" } },
-                              { "tests", { { "gtest", false } } },
-                              { "benchmarks",
-                                { { "google_benchmark", true } } } } }) } };
+              json::array(
+                  { { { "id", "core:lib" },
+                      { "kind", "static_lib" },
+                      { "owns", { "answer", "tests", "benchmarks" } },
+                      { "tests", { { "gtest", false } } },
+                      { "benchmarks", { { "google_benchmark", true } } } } }
+              ) } };
     write_text(root.path() / "manifest.json", authored.dump(2));
     write_text(
         root.path() / "include/answer.hpp", "#pragma once\nint answer();\n"
@@ -85,6 +86,45 @@ void test_check_capabilities_require_enabled_runnable_artifacts() {
         generated, "find_package(GTest",
         "unowned tests must not trigger dependency discovery"
     );
+}
+
+void test_cmake_surfaces_have_canonical_eof() {
+    temp_dir root;
+    const auto empty = root.path() / "empty";
+    const auto output = root.path() / "CMakeLists.txt";
+    write_text(empty, "");
+    for (const auto& value :
+         { sample_build_manifest("eof_executable"), sample_library_manifest(),
+           sample_interface_library_manifest(), sample_multi_library_manifest(),
+           sample_dual_run_manifest(), sample_qttest_manifest() }) {
+        for (const auto& contents :
+             { ecosystem::generate_cmakelists(value, root.path()),
+               ecosystem::generate_developer_cmakelists(value, root.path()),
+               ecosystem::generate_distribution_cmakelists(
+                   value, root.path()
+               ) }) {
+            require_true(
+                contents.size() >= 2 && contents.back() == '\n'
+                    && contents.find_last_not_of(" \t\r\n")
+                        == contents.size() - 2,
+                "every CMake surface must have exactly one final newline "
+                "without trailing blank lines or spaces"
+            );
+            write_text(output, contents);
+            const auto checked = ecosystem::capture_command_result(
+                { "git", "diff", "--no-index", "--check", "--", empty.string(),
+                  output.string() },
+                root.path()
+            );
+            // --no-index returns 1 for the nonempty diff; whitespace errors
+            // add diagnostics and set a separate failure bit.
+            require_true(
+                checked.exit_code == 1 && checked.output.empty(),
+                "generated CMake must pass Git whitespace validation: "
+                    + checked.output
+            );
+        }
+    }
 }
 
 void test_sync_matches_tracked_surfaces() {
@@ -194,7 +234,8 @@ void test_ignored_local_surfaces_respect_repository_policy() {
     const auto contents = read_text(required);
     fs::remove(required);
     require_contains(
-        join_lines(ecosystem::tracked_surface_drift(root.path(), *loaded.value)
+        join_lines(
+            ecosystem::tracked_surface_drift(root.path(), *loaded.value)
         ),
         ".github/workflows/tests.yml is missing",
         "required CI surfaces must remain mandatory"
@@ -212,7 +253,8 @@ void test_ignored_local_surfaces_respect_repository_policy() {
     const auto ignore_contents = read_text(ignore);
     write_text(ignore, "# missing canonical local ignore rules\n");
     require_contains(
-        join_lines(ecosystem::tracked_surface_drift(root.path(), *loaded.value)
+        join_lines(
+            ecosystem::tracked_surface_drift(root.path(), *loaded.value)
         ),
         ".gitignore is out of sync",
         "unignored generated configuration must not relax required ignore "
@@ -227,7 +269,8 @@ void test_ignored_local_surfaces_respect_repository_policy() {
         R"({"ecosystem_setup_action":"example/ecosystem/.github/actions/setup-ecosystem@reviewed"})"
     );
     require_contains(
-        join_lines(ecosystem::tracked_surface_drift(root.path(), *loaded.value)
+        join_lines(
+            ecosystem::tracked_surface_drift(root.path(), *loaded.value)
         ),
         "setup-ecosystem/action.yml is obsolete",
         "unexpected unignored generated surfaces must remain errors"
@@ -633,10 +676,21 @@ void test_tracked_surface_generation_uses_github_vars_file() {
         "uses: ./.github/actions/publish-ecosystem-report",
         "deploy workflow must publish the shared Pages report surface"
     );
+    require_not_contains(
+        html_workflow->contents, "check coverage",
+        "deployment must consume coverage evidence without recomputation"
+    );
     require_contains(
-        html_workflow->contents,
-        "\"${{ steps.ecosystem.outputs.engels-binary }}\" check coverage",
-        "deploy workflow must stage ecosystem-owned coverage checks"
+        html_workflow->contents, "revalidatePublication",
+        "deployment must preserve exact-commit evidence validation"
+    );
+    require_contains(
+        html_workflow->contents, "_ecosystem/coverage/index.html",
+        "deployment must require the prepared HTML coverage site"
+    );
+    require_contains(
+        html_workflow->contents, "presentation/reports/coverage.zip",
+        "deployment must preserve the structured coverage artifact gate"
     );
 
     const ecosystem::tracked_surface_file* setup_action
@@ -698,10 +752,9 @@ void test_tracked_surface_generation_uses_github_vars_file() {
         tests_workflow->contents, "ecosystem-binary",
         "workflows must use explicit owners"
     );
-    require_not_contains(
+    require_contains(
         setup_action->contents, "build debug engels:engels",
-        "generated setup action must not require a second frontend bootstrap "
-        "step"
+        "bootstrap must build Engels through the actor-owned developer graph"
     );
 
     const ecosystem::tracked_surface_file* stage_action
@@ -1229,46 +1282,31 @@ void test_template_loader_renders_repo_owned_templates() {
         "doctor probe template must preserve injected package surface text"
     );
 
-    const fs::path shared_release_template
-        = ecosystem::locate_template_path("release/debian_control.tpl");
+    const fs::path shared_runtime_template
+        = ecosystem::locate_template_path("release/runtime_scan.cmake.tpl");
     require_true(
-        !shared_release_template.empty(),
-        "template loader must resolve shared release templates"
-    );
-    require_true(
-        shared_release_template.lexically_normal()
-            == (fs::path(ECOS_TEST_SOURCE_DIR) / "assets/templates/release"
-                / "debian_control.tpl")
+        shared_runtime_template.lexically_normal()
+            == (fs::path(ECOS_TEST_SOURCE_DIR)
+                / "assets/templates/release/runtime_scan.cmake.tpl")
                    .lexically_normal(),
-        "template loader must prefer the executable-owned release "
-        "template when it is available"
+        "upstream runtime preparation uses executable-owned templates"
     );
-
     error_message.clear();
-    const std::string debian_control = ecosystem::render_text_template(
-        "release/debian_control.tpl",
-        {
-            { "package_name", "sample" },
-            { "debian_version", "1.2.3~pre.1" },
-            { "architecture", "amd64" },
-            { "installed_size_kib", "42" },
-            { "packager", "ecosystem prerelease <noreply@local>" },
-            { "description", "Sample package" },
-            { "dependencies", "" },
-        },
+    const auto runtime_scan = ecosystem::render_text_template(
+        "release/runtime_scan.cmake.tpl",
+        { { "executables", "sample" },
+          { "libraries", "" },
+          { "directories", "" },
+          { "resolved_path", "runtime.txt" } },
         &error_message
     );
-    require_true(
-        error_message.empty(),
-        "template loader must render the shared release template"
+    require_true(error_message.empty(), error_message);
+    require_contains(
+        runtime_scan, "file(GET_RUNTIME_DEPENDENCIES",
+        "render the retained preparation scanner"
     );
     require_contains(
-        debian_control, "Package: sample",
-        "release templates must substitute the package name"
-    );
-    require_contains(
-        debian_control, "Installed-Size: 42",
-        "release templates must substitute computed size fields"
+        runtime_scan, "sample", "substitute the selected product output"
     );
 
     const fs::path shared_benchmark_template
@@ -1446,9 +1484,9 @@ void test_template_loader_renders_repo_owned_templates() {
         "artifact templates must preserve injected link targets"
     );
 
-    const fs::path shared_component_template
-        = ecosystem::locate_template_path("cmake/component/tests_guard_open.tpl"
-        );
+    const fs::path shared_component_template = ecosystem::locate_template_path(
+        "cmake/component/tests_guard_open.tpl"
+    );
     require_true(
         !shared_component_template.empty(),
         "template loader must resolve shared component CMake templates"

@@ -240,3 +240,29 @@ test('manual Deploy refuses missing quality gates instead of running coverage', 
   await assert.rejects(f.publish(), /failed|success|completed|verification/i);
   assert.equal(f.outputs.ready, 'false');
 });
+
+test('fresh exact-commit publication authenticates producers without a Qt environment in the docs runner', async t => {
+  const f = await publicationFixture(t);
+  assert.equal(evidence.runtimeIdentity(f.root).known, false, 'this is a local fixture without hosted setup');
+  await evidence.publication({github: f.github, context: f.context, core: f.core, root: f.root});
+  assert.equal(f.outputs.ready, 'true', f.notices.join('\n'));
+  await evidence.revalidatePublication({github: f.github, context: f.context, root: f.root,
+    env: {PUBLICATION_SOURCE: f.outputs.source}});
+});
+
+for (const identity of [null, {known: false}, {known: true}])
+  test('unknown producer identity cannot authorize Pages: ' + JSON.stringify(identity), async t => {
+    const f = await publicationFixture(t);
+    f.changeReceipt('checks', receipt => { receipt.environment = identity; });
+    await f.publish();
+    assert.equal(f.outputs.ready, 'false');
+    assert.equal(f.outputs.directory, undefined);
+  });
+
+test('PR execution reuse still needs a matching execution environment, not the docs runner', async t => {
+  const f = await publicationFixture(t, 'reuse');
+  for (const key of Object.keys(f.outputs)) delete f.outputs[key];
+  await evidence.publication({github: f.github, context: f.context, core: f.core, root: f.root});
+  assert.equal(f.outputs.ready, 'false');
+  assert.equal(f.outputs.directory, undefined);
+});

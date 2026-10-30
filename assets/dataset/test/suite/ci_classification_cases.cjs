@@ -4,16 +4,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {test} = require('node:test');
+const evidence = require(path.join(path.dirname(path.resolve(process.argv[2])), 'evidence.cjs'));
 const {fixture, changes, engels} = require('./ci_change_fixtures.cjs');
 
-function program(workflow, step) {
-  const marker = `      - name: ${step}\n`;
+function program(workflow, step, indentation = 6, bodyIndentation = 12) {
+  const marker = `${' '.repeat(indentation)}- name: ${step}\n`;
   assert.ok(workflow.includes(marker), marker);
-  const block = workflow.slice(workflow.indexOf(marker) + marker.length).split('\n      - ')[0];
-  const body = block.match(/          script: \|\n((?: {12}.*\n|\n)*)/);
+  const block = workflow.slice(workflow.indexOf(marker) + marker.length).split('\n' + ' '.repeat(indentation) + '- ')[0];
+  const body = block.match(new RegExp(' '.repeat(bodyIndentation - 2) + 'script: \\|\n((?: {' + bodyIndentation + '}.*\n|\n)*)'));
   assert.ok(body, step);
   return new Function('require', 'context', 'core', 'process',
-    body[1].split('\n').map(line => line.slice(12)).join('\n'));
+    body[1].split('\n').map(line => line.slice(bodyIndentation)).join('\n'));
 }
 
 for (const [kind, file] of [['checks', process.argv[4]], ['codeql', process.argv[5]]]) {
@@ -47,6 +48,7 @@ for (const [kind, file] of [['checks', process.argv[4]], ['codeql', process.argv
       const outputs = {};
       const core = {setOutput: (key, value) => { outputs[key] = value; }, info: () => {}};
       const requireAdapter = name => {
+        if (name.endsWith('/evidence.cjs')) return {requiredScope: args => evidence.requiredScope({...args, root: f.root})};
         assert.equal(name, './.github/actions/select-ecosystem-ci/changes.cjs');
         return {collect: args => changes.collect({...args, root: f.root}),
           classify: args => changes.classify({...args, root: f.root})};
@@ -54,11 +56,13 @@ for (const [kind, file] of [['checks', process.argv[4]], ['codeql', process.argv
       resolve(requireAdapter, context, core);
       if (scenario === 'dirty') f.write('docs/guide.md', 'Changed after acquisition\n');
       const before = f.git('status', '--porcelain');
-      classify(requireAdapter, context, core, {env: {ENGELS_BINARY: engels}});
+      classify(requireAdapter, context, core, {cwd: () => f.root, env: {ENGELS_BINARY: engels, BASE_SCOPE: scenario === 'schedule' ? 'security' : scenario === 'manual' ? 'full' : 'cheap'}});
       const report = JSON.parse(fs.readFileSync(outputs['classification-file']));
       const expected = ['source', 'header'].includes(scenario) ? 'affected'
         : ['docs', 'pull-request'].includes(scenario) ? 'presentation' : scenario === 'empty' ? 'none' : 'full';
       assert.equal(report.classification, expected, report.reason);
+      const cheap = ['docs', 'empty', 'pull-request'].includes(scenario) && kind === 'checks' || scenario === 'pull-request';
+      assert.equal(outputs.scope, scenario === 'schedule' ? 'security' : cheap ? 'cheap' : 'full');
       const checkout = JSON.parse(fs.readFileSync(path.join(f.root, '.ecosystem/github/reports/00-checkout/result.json')));
       assert.equal(checkout.status, scenario === 'dirty' ? 'dirty' : 'clean');
       if (scenario === 'dirty') assert.match(checkout.porcelain, /docs\/guide.md/);
@@ -97,3 +101,39 @@ test('classification never overwrites a report or follows its alias', t => {
   assert.throws(() => changes.classify({root: f.root, binary: engels, core}), /EEXIST/);
   assert.equal(fs.readFileSync(report, 'utf8'), before);
 });
+
+for (const [scenario, expected] of [['docs', 'cheap'], ['owned-docs', 'full'], ['source', 'full'], ['template', 'full']])
+  test('generated checkout-to-native-decision pipeline: ' + scenario, t => {
+    const f = fixture(t);
+    let base = f.base;
+    if (scenario === 'owned-docs') {
+      f.manifest.artifacts[3].root = 'docs'; f.manifest.artifacts[3].owns = ['include'];
+      f.write('manifest.json', JSON.stringify(f.manifest));
+      f.write('docs/include/input.md', 'old\n'); base = f.commit('owned doc input');
+    }
+    const file = scenario === 'source' ? 'code/src/api.cpp' : scenario === 'template'
+      ? 'assets/templates/build.tpl' : scenario === 'owned-docs' ? 'docs/include/input.md' : 'docs/guide.md';
+    f.write(file, 'changed\n'); const head = f.commit('change');
+    const context = {eventName: 'push', sha: head, ref: 'refs/heads/feature', payload: {before: base, after: head}};
+    const outputs = {}, core = {setOutput: (key, value) => { outputs[key] = value; }, info() {}};
+    const action = fs.readFileSync(path.join(path.dirname(path.resolve(process.argv[2])), 'action.yml'), 'utf8');
+    const preliminary = program(action, 'Select preliminary execution', 4, 10);
+    preliminary(() => ({preliminary: args => evidence.preliminary({...args, env: {BASE_SCOPE: 'cheap'}})}), context, core,
+      {env: {EVIDENCE_MODULE: 'synthetic-adapter-path; no SDK or identity injected'}});
+    assert.equal(outputs.scope, 'cheap', 'preliminary selection does not classify paths or install Qt');
+    assert.equal(outputs.verified, 'false');
+    const workflow = fs.readFileSync(process.argv[4], 'utf8');
+    assert.ok(workflow.indexOf('Setup ecosystem tool') < workflow.indexOf('Classify checked-out changes'));
+    assert.ok(workflow.indexOf('Classify checked-out changes') < workflow.indexOf('Setup project verification dependencies'));
+    const adapter = name => name.endsWith('evidence.cjs')
+      ? {requiredScope: args => evidence.requiredScope({...args, root: f.root})}
+      : {collect: args => changes.collect({...args, root: f.root}), classify: args => changes.classify({...args, root: f.root})};
+    program(workflow, 'Resolve checked-out changes')(adapter, context, core);
+    // Synthetic bootstrap supplies only the actual already-built native actor,
+    // never a synthetic known execution identity or a Qt installation.
+    program(workflow, 'Classify checked-out changes')(adapter, context, core,
+      {cwd: () => f.root, env: {ENGELS_BINARY: engels, BASE_SCOPE: 'cheap'}});
+    assert.equal(outputs.scope, expected);
+    assert.equal(outputs.verified, 'false');
+    assert.equal(fs.existsSync(path.join(f.root, '.ecosystem/build')), false);
+  });

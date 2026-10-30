@@ -9,6 +9,9 @@
 #include <filesystem>
 
 namespace ecosystem_test_support {
+void test_openssl_package_contract();
+void test_openssl_native_build_and_installed_sdk();
+void test_package_declarations_fail_closed();
 
 void test_diagnostic_views();
 void test_report_display_scope();
@@ -20,8 +23,7 @@ void test_cli_check_naming_reports_identifier_overflow_and_honors_allowlist();
 void test_personal_naming_uses_declarations_and_exact_policy_boundaries();
 void test_personal_naming_reports_analysis_failures_and_owned_headers();
 void test_personal_style_measures_control_bodies_and_local_scopes();
-void test_personal_style_indexes_referents_and_measures_volume_without_size_gates(
-);
+void test_personal_style_indexes_referents_and_measures_volume_without_size_gates();
 void test_cli_personal_style_preserves_workspace_scope_and_failure_status();
 void test_clang_analysis_reports_unusable_inputs();
 void test_clang_analysis_runs_on_sample_project();
@@ -91,8 +93,7 @@ void test_cli_workspace_build_on_sample_workspace();
 void test_cli_workspace_build_supports_multiple_artifact_filters();
 void test_cli_workspace_sync_supports_project_filter();
 void test_cli_workspace_sync_supports_multi_project_filter();
-void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection(
-);
+void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection();
 void test_cli_run_executes_facade_entry();
 void test_cli_run_executes_requested_artifact_with_passthrough_args();
 void test_cli_workspace_run_executes_selected_project();
@@ -104,6 +105,7 @@ void test_cli_check_repo_rejects_tracked_surface_drift();
 void test_cli_workspace_check_repo_rejects_gitlink_project_scripts();
 
 // Generation.
+void test_cmake_surfaces_have_canonical_eof();
 void test_sync_matches_tracked_surfaces();
 void test_template_root_obeys_ecosystem_environment();
 void test_ignored_local_surfaces_respect_repository_policy();
@@ -174,8 +176,7 @@ void test_configured_status_for_package_reports_profile_disabled_kde();
 void test_configured_status_for_package_requires_all_jni_cache_keys();
 void test_configured_status_for_package_detects_cxxopts_dir();
 void test_find_package_surface_rule_returns_qt_rule();
-void test_render_package_surface_block_keeps_header_only_json_cross_compilable(
-);
+void test_render_package_surface_block_keeps_header_only_json_cross_compilable();
 void test_render_package_surface_block_renders_kde_support();
 void test_render_package_surface_block_renders_qt_support();
 void test_render_package_surface_block_renders_llvm_support();
@@ -186,12 +187,8 @@ void test_render_package_surface_block_renders_cxxopts_support();
 void test_prerelease_command_log_preserves_output_and_fails_closed();
 void test_cli_prerelease_retains_attempt_logs_and_summaries();
 void test_cli_prerelease_rejects_unusable_attempt_storage();
-void test_cli_prerelease_builds_shareable_repos_and_auto_increments_version();
-void test_prerelease_preserves_published_state_on_late_failures();
-void test_prerelease_retains_recovery_state_and_rejects_publication_aliases();
-void test_prerelease_rejects_colliding_install_payloads();
-void test_cli_prerelease_includes_install_companions();
-void test_cli_prerelease_signs_repo_metadata_when_requested();
+void test_cli_prerelease_prepares_without_publication();
+void test_cli_workspace_prerelease_prepares_only();
 
 // Reports.
 void test_cli_report_matrix();
@@ -230,8 +227,7 @@ void test_source_facade_pins_revisions_and_rejects_stale_packages();
 void test_source_facade_preserves_shared_and_interface_contracts();
 void test_source_facade_reports_provider_failures();
 void test_real_facade_packages(const std::filesystem::path& prefix);
-void test_source_dependency_local_override_builds_and_installs_before_consumer(
-);
+void test_source_dependency_local_override_builds_and_installs_before_consumer();
 void test_source_local_map_selects_mutable_checkouts_and_preserves_facade();
 void test_source_local_map_rejects_invalid_configuration();
 void test_source_local_map_applies_to_recursive_providers();
@@ -239,8 +235,7 @@ void test_source_dependency_repository_selection_is_stable_and_explicit();
 void test_source_dependency_consumer_exports_are_relocatable();
 void test_source_dependency_diamond_uses_one_sdk_identity();
 void test_source_dependency_shared_and_interface_usage_requirements();
-void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure(
-);
+void test_source_dependency_rejects_invalid_provider_contracts_before_consumer_configure();
 void test_source_dependency_rejects_ambiguous_authored_metadata();
 
 void test_incremental_verification_keeps_strict_diagnostics();

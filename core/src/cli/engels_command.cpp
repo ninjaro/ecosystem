@@ -1,6 +1,7 @@
 #include "cli/engels_command.hpp"
 #include "cli/engels_args.hpp"
 
+#include "workspace/prepared.hpp"
 #include "workspace/read_commands.hpp"
 
 #include <algorithm>
@@ -65,7 +66,9 @@ int run_engels_command(
         emit_workspace_errors(*workspace, err);
         return exit_code(command_error::invalid_request);
     }
-    if (!has_project_manifest && !workspace_mode) {
+    const bool prepared_check
+        = args.size() >= 2 && args[0] == "check" && args[1] == "prepared";
+    if (!has_project_manifest && !workspace_mode && !prepared_check) {
         engels_command_support::emit_manifest_report_errors(
             current_manifest_report, err
         );
@@ -110,6 +113,41 @@ int run_engels_command(
         if (!request.has_value()) {
             emit_command_error(
                 err, command_error::invalid_request, check_parse_error
+            );
+            return exit_code(command_error::invalid_request);
+        }
+        if (prepared_check) {
+            if (workspace_mode || !request->prepared_input
+                || request->prepared_input->empty()
+                || request->scope_args.size() > 1 || request->changed_files
+                || request->sphinx_theme) {
+                emit_command_error(
+                    err, command_error::invalid_request,
+                    "expected: engels check prepared [component:artifact] "
+                    "--input FILE in the selected project"
+                );
+                return exit_code(command_error::invalid_request);
+            }
+            const auto artifact = request->scope_args.empty()
+                ? std::nullopt
+                : parse_artifact_ref(request->scope_args.front());
+            if (!request->scope_args.empty() && !artifact) {
+                emit_command_error(
+                    err, command_error::invalid_request,
+                    "artifact must use component:artifact form"
+                );
+                return exit_code(command_error::invalid_request);
+            }
+            const auto verified = verify_prepared_distribution(
+                project_root, *request->prepared_input, artifact
+            );
+            out << verified.report.dump(2) << '\n';
+            return exit_code(verified.status);
+        }
+        if (request->prepared_input) {
+            emit_command_error(
+                err, command_error::invalid_request,
+                "--input is only supported for check prepared"
             );
             return exit_code(command_error::invalid_request);
         }

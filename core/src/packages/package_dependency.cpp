@@ -30,6 +30,8 @@ const dependency_entry& dependency_entry_for_id(
         return dependencies.gtest;
     case dependency_id::benchmark:
         return dependencies.benchmark;
+    case dependency_id::openssl:
+        return dependencies.openssl;
     }
 
     return dependencies.json;
@@ -63,6 +65,8 @@ dependency_entry& dependency_entry_for_id(
         return dependencies.gtest;
     case dependency_id::benchmark:
         return dependencies.benchmark;
+    case dependency_id::openssl:
+        return dependencies.openssl;
     }
 
     return dependencies.json;

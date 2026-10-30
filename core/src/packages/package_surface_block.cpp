@@ -17,6 +17,7 @@ const std::vector<package_surface_block>& package_surface_block_order() {
         package_surface_block::zlib,
         package_surface_block::gtest,
         package_surface_block::benchmark,
+        package_surface_block::openssl,
     };
     return order;
 }

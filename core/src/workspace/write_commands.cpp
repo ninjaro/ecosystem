@@ -260,8 +260,7 @@ command_error run_workspace_build(
 
 command_error run_workspace_prerelease(
     const workspace_context& workspace, const workspace_scope& scope,
-    const std::optional<std::string>& version_base,
-    const prerelease_signing_options& signing_options, std::ostream& out,
+    const std::optional<std::string>& version_base, std::ostream& out,
     std::ostream& err
 ) {
     const command_error validity
@@ -282,7 +281,7 @@ command_error run_workspace_prerelease(
                 status,
                 run_prerelease(
                     project->root, *project->manifest_value, std::nullopt,
-                    version_base, signing_options, project_out, project_err
+                    version_base, project_out, project_err
                 )
             );
         } else {
@@ -291,8 +290,8 @@ command_error run_workspace_prerelease(
                     status,
                     run_prerelease(
                         project->root, *project->manifest_value,
-                        requested_artifact, version_base, signing_options,
-                        project_out, project_err
+                        requested_artifact, version_base, project_out,
+                        project_err
                     )
                 );
                 command_support::ensure_stream_trailing_newline(&project_out);
@@ -633,9 +632,9 @@ command_error run_build(
 static command_error run_prerelease_attempt(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::optional<artifact_ref>& requested_artifact,
-    const std::optional<std::string>& version_base,
-    const prerelease_signing_options& signing_options, std::ostream& out,
-    std::ostream& err, json& summary
+    const std::optional<std::string>& version_base, std::ostream& out,
+    std::ostream& err, json& summary,
+    const std::filesystem::path& preparation_dir
 ) {
     const std::optional<resolved_artifact> resolved
         = resolve_artifact(manifest_value, requested_artifact);
@@ -648,11 +647,24 @@ static command_error run_prerelease_attempt(
     if (resolved->artifact_value->kind == "interface_lib") {
         command_support::print_error(
             err, command_error::invalid_request,
-            "prerelease packaging does not support interface libraries"
+            "product preparation does not support interface libraries"
         );
         return command_error::invalid_request;
     }
     summary["artifact"] = format_artifact_ref(resolved->ref);
+
+    std::string manifest_digest;
+    if (!preparation_dir.empty()) {
+        std::string error;
+        manifest_digest
+            = prepared_file_sha256(project_root / "manifest.json", &error);
+        if (manifest_digest.empty()) {
+            command_support::print_error(
+                err, command_error::task_failed, error
+            );
+            return command_error::task_failed;
+        }
+    }
 
     const bool with_tests = component_is_test_only(*resolved->component_value);
     const bool with_benchmarks
@@ -693,8 +705,6 @@ static command_error run_prerelease_attempt(
         return command_error::task_failed;
     }
 
-    prerelease_version version;
-    prerelease_artifacts artifacts;
     for (const artifact_ref& companion :
          distribution_artifacts(manifest_value, resolved->ref)) {
         if (format_artifact_ref(companion)
@@ -710,76 +720,31 @@ static command_error run_prerelease_attempt(
         }
     }
     std::string error_message;
-    summary["stage"] = "package";
-    status = create_prerelease_packages(
-        project_root, manifest_value, *resolved, *built_path, version_base,
-        signing_options, &version, &artifacts, &error_message
+    std::filesystem::path input;
+    summary["stage"] = "prepare";
+    status = export_prepared_release_input(
+        project_root, manifest_value, *resolved, *built_path, preparation_dir,
+        manifest_digest, version_base, &input, &error_message
     );
     if (status != command_error::ok) {
-        if (!error_message.empty()) {
-            command_support::print_error(err, status, error_message);
-        }
+        command_support::print_error(err, status, error_message);
         return status;
     }
-
-    summary["stage"] = "published";
-    summary["version"] = version.logical_version;
-    summary["pacman_dependencies"] = artifacts.pacman_dependencies;
-    summary["debian_dependencies"] = artifacts.debian_dependencies;
-    summary["warnings"] = artifacts.warnings;
-    summary["artifacts"]
-        = { { "debian_repo",
-              artifacts.deb_repo_dir.lexically_relative(project_root)
-                  .generic_string() },
-            { "debian_package",
-              artifacts.deb_package_path.lexically_relative(project_root)
-                  .generic_string() },
-            { "debian_index",
-              artifacts.deb_packages_path.lexically_relative(project_root)
-                  .generic_string() },
-            { "debian_compressed_index",
-              artifacts.deb_packages_gz_path.lexically_relative(project_root)
-                  .generic_string() },
-            { "pacman_repo",
-              artifacts.pacman_repo_dir.lexically_relative(project_root)
-                  .generic_string() },
-            { "pacman_package",
-              artifacts.pacman_package_path.lexically_relative(project_root)
-                  .generic_string() },
-            { "pacman_database",
-              artifacts.pacman_db_path.lexically_relative(project_root)
-                  .generic_string() } };
-    out << "prerelease " << format_artifact_ref(resolved->ref) << " version "
-        << version.logical_version << "\n";
-    out << "debian repo: "
-        << artifacts.deb_repo_dir.lexically_relative(project_root)
-               .generic_string()
-        << "\n";
-    out << "debian package: "
-        << artifacts.deb_package_path.lexically_relative(project_root)
-               .generic_string()
-        << "\n";
-    out << "pacman repo: "
-        << artifacts.pacman_repo_dir.lexically_relative(project_root)
-               .generic_string()
-        << "\n";
-    out << "pacman package: "
-        << artifacts.pacman_package_path.lexically_relative(project_root)
-               .generic_string()
-        << "\n";
-    if (signing_options.sign) {
-        out << "signed prerelease metadata\n";
-    }
-    for (const auto& warning : artifacts.warnings)
-        err << "warning: " << warning << "\n";
+    summary["stage"] = "prepared";
+    summary["release_ready"] = false;
+    summary["release_input"]
+        = input.lexically_relative(project_root).generic_string();
+    out << "prepared release input: "
+        << summary["release_input"].get<std::string>()
+        << "\npreparation only; upstream conformance and release "
+           "authorization remain unverified\n";
     return command_error::ok;
 }
 
 command_error run_prerelease(
     const std::filesystem::path& project_root, const manifest& manifest_value,
     const std::optional<artifact_ref>& requested_artifact,
-    const std::optional<std::string>& version_base,
-    const prerelease_signing_options& signing_options, std::ostream& out,
+    const std::optional<std::string>& version_base, std::ostream& out,
     std::ostream& err
 ) {
     namespace fs = std::filesystem;
@@ -846,7 +811,6 @@ command_error run_prerelease(
                    { "requested_version_base",
                      version_base.has_value() ? json(*version_base)
                                               : json(nullptr) },
-                   { "sign", signing_options.sign },
                    { "log", "commands.log" } };
     // Replace the summary only after a complete write, preserving the initial
     // running marker if final reporting fails or the process is interrupted.
@@ -882,7 +846,7 @@ command_error run_prerelease(
         if (log.error().empty()) {
             status = run_prerelease_attempt(
                 project_root, manifest_value, requested_artifact, version_base,
-                signing_options, out, diagnostics, summary
+                out, diagnostics, summary, attempt / "prepared"
             );
         }
     } catch (const std::exception& error) {
@@ -900,10 +864,10 @@ command_error run_prerelease(
     summary["diagnostics"] = diagnostics.str();
     err << diagnostics.str();
     if (!save_summary()) {
-        // Publication has already completed on success. Report the reporting
-        // failure without pretending that the packages were rolled back.
+        // A summary failure cannot undo completed preparation. Retain the
+        // initial running marker so downstream discovery fails closed.
         err << "warning: " << error_message << "; prerelease "
-            << (status == command_error::ok ? "was published" : "failed")
+            << (status == command_error::ok ? "was prepared" : "failed")
             << "; initial summary retained at " << summary_path.string()
             << "\n";
     }

@@ -1,6 +1,8 @@
 #include "internal.hpp"
+#include "workspace/template_text.hpp"
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -24,7 +26,7 @@ std::string cmake_path_argument(const fs::path& path) {
         );
     std::string delimiter = "=";
     while (value.find("]" + delimiter + "]") != std::string::npos)
-        delimiter += "=";
+        delimiter += '=';
     return "[" + delimiter + "[" + value + "]" + delimiter + "]";
 }
 
@@ -33,6 +35,13 @@ bool path_within(const fs::path& path, const fs::path& root) {
     return !relative.empty() && !relative.is_absolute()
         && std::find(relative.begin(), relative.end(), fs::path(".."))
         == relative.end();
+}
+
+bool system_runtime_library(const fs::path& path) {
+    const std::array prefixes { "/lib", "/lib64", "/usr/lib", "/usr/lib64" };
+    return std::ranges::any_of(prefixes, [&](const auto& prefix) {
+        return path_within(path, fs::weakly_canonical(prefix));
+    });
 }
 
 bool stage_runtime(
@@ -97,15 +106,7 @@ bool stage_runtime(
         const fs::path dependency(line);
         const auto canonical = fs::canonical(dependency);
         if (!path_within(canonical, owned_root)) {
-            bool system = false;
-            for (const auto& prefix :
-                 { "/lib", "/lib64", "/usr/lib", "/usr/lib64" }) {
-                if (path_within(canonical, fs::weakly_canonical(prefix))) {
-                    system = true;
-                    break;
-                }
-            }
-            if (!system) {
+            if (!system_runtime_library(canonical)) {
                 *error_message = "unsupported package runtime library outside "
                                  "the project and system library directories: "
                     + dependency.string()
@@ -241,135 +242,6 @@ bool stage_runtime(
     }
     return write_text_file(
         work_dir / "runtime.json", inventory.dump(2) + "\n", error_message
-    );
-}
-
-bool resolve_runtime_packages(
-    const std::set<fs::path>& libraries, const std::string& package_name,
-    const fs::path& work_dir, prerelease_artifacts* artifacts,
-    std::string* error_message
-) {
-    artifacts->pacman_dependencies.clear();
-    artifacts->debian_dependencies.clear();
-    json mapping { { "scope", "ELF system libraries" },
-                   { "libraries", json::array() },
-                   { "dependencies", json::array() } };
-    const auto pacman = find_command_path("pacman");
-    const auto dpkg = find_command_path("dpkg-query");
-    const bool use_pacman = !pacman.empty();
-    const std::string backend = use_pacman ? "Pacman" : "Debian";
-    mapping["backend"] = libraries.empty() ? "none" : backend;
-    if (!libraries.empty() && pacman.empty() && dpkg.empty()) {
-        *error_message = "ELF runtime dependency mapping requires pacman or "
-                         "dpkg-query and its installed package database; build "
-                         "on Arch/Manjaro or Debian/Ubuntu";
-        return false;
-    }
-    std::map<std::string, std::string> versions;
-    for (const auto& library : libraries) {
-        captured_command owned;
-        std::string owner;
-        if (use_pacman) {
-            owned = capture_command_result(
-                { pacman, "-Qqo", "--", library.string() }, work_dir,
-                { { "LC_ALL", "C" } }
-            );
-            owner = trim(owned.output);
-        } else {
-            std::vector<fs::path> candidates { library };
-            // Merged-/usr hosts can retain pre-merge paths in dpkg's file
-            // lists.
-            if (library.string().starts_with("/usr/lib")) {
-                const fs::path alias = library.string().substr(4);
-                std::error_code error;
-                if (fs::equivalent(alias, library, error) && !error)
-                    candidates.push_back(alias);
-            }
-            for (const auto& candidate : candidates) {
-                owned = capture_command_result(
-                    { dpkg, "-S", candidate.string() }, work_dir,
-                    { { "LC_ALL", "C" } }
-                );
-                if (owned.exit_code != 0)
-                    continue;
-                const auto record = trim(owned.output);
-                const auto separator = record.find(": ");
-                if (separator != std::string::npos
-                    && record.substr(separator + 2) == candidate.string())
-                    owner = record.substr(0, separator);
-                break;
-            }
-        }
-        if (owned.exit_code != 0
-            || !std::regex_match(
-                owner,
-                use_pacman ? pacman_package_pattern : debian_package_pattern
-            )) {
-            *error_message = "unable to identify one installed " + backend
-                + " owner for runtime library " + library.string() + ":\n"
-                + owned.output;
-            return false;
-        }
-        if (owner.substr(0, owner.find(':')) == package_name) {
-            *error_message
-                = "release package name conflicts with required system package "
-                + owner;
-            return false;
-        }
-        if (!versions.contains(owner)) {
-            const auto queried = capture_command_result(
-                use_pacman ? string_list { pacman, "-Q", "--", owner }
-                           : string_list { dpkg, "-W",
-                                           ("-f=${Package} ${Version} "
-                                            "${db:Status-Status}\\n"),
-                                           "--", owner },
-                work_dir, { { "LC_ALL", "C" } }
-            );
-            std::istringstream record(queried.output);
-            std::string name, version, extra, installed_status;
-            record >> name >> version;
-            if (!use_pacman)
-                record >> installed_status;
-            if (queried.exit_code != 0
-                || name != owner.substr(0, owner.find(':'))
-                || (!use_pacman && installed_status != "installed")
-                || !std::regex_match(version, pacman_version_pattern)
-                || (record >> extra)) {
-                *error_message = std::string("unable to read installed ")
-                                     .append(backend)
-                                     .append(" version for ")
-                                     .append(owner)
-                                     .append(":\n")
-                                     .append(queried.output);
-                return false;
-            }
-            versions.emplace(owner, version);
-        }
-        mapping["libraries"].push_back({ { "path", library.generic_string() },
-                                         { "package", owner },
-                                         { "version", versions.at(owner) } });
-    }
-    auto& dependencies = use_pacman ? artifacts->pacman_dependencies
-                                    : artifacts->debian_dependencies;
-    for (const auto& [name, version] : versions)
-        dependencies.push_back(
-            use_pacman
-                ? std::string(name).append(">=").append(version)
-                : std::string(name).append(" (>= ").append(version).append(")")
-        );
-    mapping["dependencies"] = dependencies;
-    if (!libraries.empty()) {
-        const std::string other_backend = use_pacman ? "Debian" : "Pacman";
-        artifacts->warnings.push_back(
-            other_backend
-            + " runtime dependency metadata is incomplete; that archive "
-              "requires manual dependency review. "
-            + backend + " dependencies were resolved from this host."
-        );
-    }
-    return write_text_file(
-        work_dir / "runtime-packages.json", mapping.dump(2) + "\n",
-        error_message
     );
 }
 

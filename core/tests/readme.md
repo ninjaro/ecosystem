@@ -91,8 +91,9 @@ local formatting, including manifest/Git validation, not checkout/bootstrap or a
 entire workflow. No timing threshold is imposed on ordinary tests.
 
 Run the existing `core__core__tests` executable with an optional test-name
-substring. `--workspace-conformance <root>` and
-`--prerelease-install [pacman-cache]` remain separate opt-in modes.
+substring. `--workspace-conformance <root>` remains an opt-in mode.
+The old `--prerelease-install` mode was removed with release ownership; native
+package/install acceptance belongs downstream.
 
 `--facade-packages <installed-prefix>` compiles and runs an independent consumer
 of real `packing::library__core`, `monitor::watchdog_client__client` and
@@ -127,7 +128,7 @@ Linux; Make and Ninja Multi-Config are exercised where specified by the tests.
 | Direct and three-repository acquisition/revision/configure/compile/install/Config/target/cycle failures; enclosing identities and blocked outer consumer configuration | `source_facade_reports_provider_failures` |
 | Marx provider builds, mutable edits, pinned repository reuse, package exports and invalid provider contracts | `source_dependency_` (six groups, now using maps for local selection) |
 | Exact root mapping, migration errors, malformed/missing paths, recursion and visitor isolation | `source_local_map_` (three groups) |
-| Runtime packaging through a map, excluding local configuration from shipped files | `prerelease_packages_installed_source_provider_runtime` |
+| Runtime preparation through a map, excluding local configuration from shipped files | `prerelease_prepares_installed_source_provider_runtime` |
 
 The opt-in real API probe and [public adoption record](../../docs/audits/facade-public-adoption-2026-09-30.md)
 supplement these synthetic local-Git fixtures. They do not turn routine regression

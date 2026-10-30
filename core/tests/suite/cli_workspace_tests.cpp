@@ -608,8 +608,7 @@ void test_cli_workspace_sync_supports_multi_project_filter() {
     );
 }
 
-void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection(
-) {
+void test_cli_workspace_unqualified_artifact_filter_rejects_multi_project_selection() {
     temp_dir root;
     write_sample_workspace_project(root.path(), "alpha");
     write_sample_workspace_project(root.path(), "beta");
@@ -993,6 +992,59 @@ void test_cli_workspace_check_repo_rejects_gitlink_project_scripts() {
         result.output, "scripts/: script directories are forbidden",
         "workspace ecos check repo must surface scripts committed "
         "inside gitlink-backed managed projects"
+    );
+}
+
+void test_cli_workspace_prerelease_prepares_only() {
+    temp_dir root;
+    const std::string state
+        = "{\"packages\":[{\"package_name\":\"sample\",\"base_version\":\"1.2."
+          "3\",\"next_prerelease\":23}]}\n";
+    for (const auto* name : { "alpha", "beta" }) {
+        write_sample_workspace_project(root.path(), name);
+        const auto published
+            = ecosystem::local_prerelease_dir(root.path() / name);
+        write_text(published / "state.json", state);
+        write_text(published / "deb/keep", "published bytes");
+    }
+    for (const auto* command :
+         { "prerelease", "prerelease --project alpha --prepare-only" }) {
+        const auto result = run_marx_cli(root.path(), command);
+        require_true(
+            result.exit_code == 0,
+            "workspace preparation must succeed: " + result.output
+        );
+        require_contains(
+            result.output,
+            "prepared release input:", "workspace exports exact prepared input"
+        );
+        require_not_contains(
+            result.output, "signed prerelease",
+            "workspace cannot reach a signer"
+        );
+        for (const auto* name : { "alpha", "beta" }) {
+            const auto published
+                = ecosystem::local_prerelease_dir(root.path() / name);
+            require_true(
+                read_text(published / "state.json") == state,
+                "workspace cannot change persisted state bytes"
+            );
+            require_true(
+                read_text(published / "deb/keep") == "published bytes"
+                    && !fs::exists(published / "pacman"),
+                "workspace cannot replace native repositories"
+            );
+        }
+    }
+    const auto rejected = run_marx_cli(
+        root.path(), "prerelease --project alpha --sign-key unavailable"
+    );
+    require_true(
+        rejected.exit_code == 2, "workspace rejects old signing flags"
+    );
+    require_contains(
+        rejected.output, "ecosystem-release package",
+        "workspace directs signing to its real owner"
     );
 }
 

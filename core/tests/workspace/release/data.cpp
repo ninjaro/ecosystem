@@ -5,20 +5,6 @@
 namespace ecosystem_test_support {
 
 void test_release_tooling_bundle() {
-    {
-        scoped_env retired("ECOSYSTEM_PACKAGER", "retired identity");
-        scoped_env current("ECOSYSTEM_PACKAGER", "");
-        scoped_env external("PACKAGER", "external identity");
-        require_true(
-            ecosystem::release_detail::package_author() == "external identity",
-            "retired internal aliases must not override external PACKAGER"
-        );
-        scoped_env selected("ECOSYSTEM_PACKAGER", "current identity");
-        require_true(
-            ecosystem::release_detail::package_author() == "current identity",
-            "the current explicit packager identity must take precedence"
-        );
-    }
     temp_dir root;
     const auto source = root.path() / "tooling-source";
     const auto build = ecosystem::local_build_dir(source, "release");
@@ -46,9 +32,8 @@ void test_release_tooling_bundle() {
     require_true(loaded.value.has_value(), "tooling manifest must load");
     const auto selected
         = ecosystem::resolve_artifact(*loaded.value, std::nullopt);
-    ecosystem::prerelease_version version;
-    ecosystem::prerelease_artifacts artifacts;
     std::string error;
+    fs::path input_path;
     {
         const auto override_root = root.path() / "override-templates";
         write_text(
@@ -58,22 +43,13 @@ void test_release_tooling_bundle() {
         scoped_env override_path(
             "ECOSYSTEM_TEMPLATE_ROOT", override_root.string()
         );
-        const auto status = ecosystem::create_prerelease_packages(
-            source, *loaded.value, *selected, build / "marx", "1.0.0", {},
-            &version, &artifacts, &error
-        );
-        require_true(
-            status == ecosystem::command_error::ok,
-            "tooling package must include its source data: " + error
-        );
+        input_path
+            = prepare_fixture(source, *loaded.value, *selected, build / "marx");
     }
-    const auto state = json::parse(
-        read_text(ecosystem::local_prerelease_dir(source) / "state.json")
-    );
-    const auto files = state.at("packages")
-                           .at(0)
-                           .at("latest_files")
-                           .get<std::vector<std::string>>();
+    const auto input = json::parse(read_text(input_path));
+    std::vector<std::string> files;
+    for (const auto& file : input.at("distribution").at("files"))
+        files.push_back(file.at("install_path").get<std::string>());
     require_true(
         std::find(
             files.begin(), files.end(),
@@ -84,26 +60,13 @@ void test_release_tooling_bundle() {
     );
     const auto pacman = root.path() / "pacman-install";
     const auto debian = root.path() / "debian-install";
-    fs::create_directories(pacman);
-    fs::create_directories(debian);
-    auto command
-        = [&](const std::vector<std::string>& args, const fs::path& cwd) {
-              const auto result = ecosystem::capture_command_result(args, cwd);
-              require_true(
-                  result.exit_code == 0,
-                  "tooling archive extraction must succeed:\n" + result.output
-              );
-          };
-    command(
-        { "tar", "-xzf", artifacts.pacman_package_path.string(), "-C",
-          pacman.string() },
-        root.path()
+    fs::copy(
+        input_path.parent_path() / "payload", pacman,
+        fs::copy_options::recursive
     );
-    command({ "ar", "x", artifacts.deb_package_path.string() }, debian);
-    command(
-        { "tar", "-xzf", (debian / "data.tar.gz").string(), "-C",
-          debian.string() },
-        root.path()
+    fs::copy(
+        input_path.parent_path() / "payload", debian,
+        fs::copy_options::recursive
     );
     fs::rename(source, root.path() / "unavailable-tooling-source");
     scoped_env no_override("ECOSYSTEM_TEMPLATE_ROOT", "");
@@ -115,7 +78,8 @@ void test_release_tooling_bundle() {
             fs::is_regular_file(
                 bundle / "tracked/.github/workflows/tests.yml.tpl"
             ),
-            "each archive must contain the complete hidden template tree"
+            "each prepared product must contain the complete hidden template "
+            "tree"
         );
         require_true(
             !fs::exists(prefix / "usr/bin/assets"),
@@ -182,17 +146,19 @@ void test_release_tooling_errors() {
     const auto build = ecosystem::local_build_dir(root.path(), "release");
     write_text(build / "marx", "actor fixture");
     write_text(build / "engels", "actor fixture");
-    ecosystem::prerelease_version version;
-    ecosystem::prerelease_artifacts artifacts;
     std::string error;
     auto reject = [&]() {
-        const auto status = ecosystem::create_prerelease_packages(
-            root.path(), value, *selected, build / "marx", "1.0.0", {},
-            &version, &artifacts, &error
-        );
+        bool rejected = false;
+        try {
+            (void)prepare_fixture(
+                root.path(), value, *selected, build / "marx"
+            );
+        } catch (const std::exception& failure) {
+            rejected = true;
+            error = failure.what();
+        }
         require_true(
-            status == ecosystem::command_error::task_failed,
-            "unsupported tooling data must fail packaging"
+            rejected, "unsupported tooling data must fail preparation"
         );
         require_true(
             !fs::exists(
@@ -259,30 +225,25 @@ void test_release_asset_intent() {
         root.path() / "assets/sets/thumbnail_cache/authored.svg",
         "authored output"
     );
-    ecosystem::prerelease_version version;
-    ecosystem::prerelease_artifacts artifacts;
     std::string error;
     for (const bool enabled : { false, true, false }) {
         value.install_assets = enabled;
-        const auto status = ecosystem::create_prerelease_packages(
-            root.path(), value, *selected, binary, "1.0.0", {}, &version,
-            &artifacts, &error
-        );
-        require_true(
-            status == ecosystem::command_error::ok,
-            "asset intent packaging must succeed: " + error
-        );
-        const auto listing = ecosystem::capture_command_result(
-            { "tar", "-tzf", artifacts.pacman_package_path.string() }
-        );
-        require_true(
-            listing.exit_code == 0, "native archive listing must succeed"
-        );
+        const auto input_path
+            = prepare_fixture(root.path(), value, *selected, binary);
+        const auto input = json::parse(read_text(input_path));
+
+        struct {
+            std::string output;
+        } listing;
+
+        for (const auto& file : input.at("distribution").at("files"))
+            listing.output += file.at("install_path").get<std::string>() + "\n";
         require_true(
             (listing.output.find("usr/bin/assets/sets/visible.txt")
              != std::string::npos)
                 == enabled,
-            "each archive must reflect current asset install intent, without "
+            "each prepared product must reflect current asset install intent, "
+            "without "
             "stale payloads"
         );
         require_true(
@@ -293,15 +254,15 @@ void test_release_asset_intent() {
         );
         require_not_contains(
             listing.output, "usr/bin/assets/showcase/",
-            "native packages must exclude project presentation media"
+            "prepared products must exclude project presentation media"
         );
         require_not_contains(
             listing.output, "/.cache/",
-            "packages must exclude ordinary hidden caches"
+            "prepared products must exclude ordinary hidden caches"
         );
         require_not_contains(
             listing.output, "/.thumbnail_cache/",
-            "packages must exclude named hidden caches"
+            "prepared products must exclude named hidden caches"
         );
         require_true(
             (listing.output.find(
@@ -309,7 +270,8 @@ void test_release_asset_intent() {
              )
              != std::string::npos)
                 == enabled,
-            "packages must preserve similarly named authored directories"
+            "prepared products must preserve similarly named authored "
+            "directories"
         );
     }
 }

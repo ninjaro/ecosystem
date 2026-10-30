@@ -747,133 +747,76 @@ verified CI status.
 
 ## 7.6 `prerelease`
 
-### Purpose
+### Purpose and ownership
 
-`prerelease` builds one selected artifact through the release profile and emits
-shareable prerelease repositories under local ecosystem state.
+`marx prerelease` configures/builds the selected complete product through the
+Release build profile and exports its version-1 prepared-product handoff.
+`--prepare-only` is a compatible spelling of the same operation; it is not a
+second mode. Marx never creates native archives/repository indexes, signs,
+publishes repositories or advances a release counter.
 
-### Rules
-
-1. `prerelease` **MUST** build through the `release` build profile.
-2. `prerelease` **MUST** resolve exactly one non-interface artifact.
-3. `prerelease` **MUST** publish Debian repo metadata under `.ecosystem/prerelease/deb/`.
-4. `prerelease` **MUST** publish Pacman repo metadata under `.ecosystem/prerelease/pacman/<arch>/`.
-5. `prerelease` **MUST** keep prerelease counters in local ignored state rather than tracked repository files.
-6. `prerelease` **MUST** write Debian `Packages` and `Packages.gz` under a `dists/prerelease/main/binary-<arch>/` layout and a matching `Release` file under `dists/prerelease/`.
-7. `prerelease` **MUST** write both Pacman `.db` and `.files` metadata archives for the selected repo.
-8. `prerelease` **MAY** accept `--version-base <major.minor.patch>` to start or reset a prerelease line.
-9. Subsequent `prerelease` runs **MUST** auto-increment the prerelease number for the selected package name.
-10. `prerelease` **MAY** accept `--sign` and `--sign-key <key-id>` for local GPG signing of publishable repo metadata.
-
-### Canonical forms
-
-```text
+```sh
 marx prerelease
-marx prerelease <component:artifact>
-marx prerelease --version-base <major.minor.patch>
-marx prerelease <component:artifact> --version-base <major.minor.patch>
-marx prerelease --sign
-marx prerelease --sign-key <key-id>
-marx prerelease --project <project>
-marx prerelease --project <project> --project <project>
-marx prerelease <project/component:artifact>
-marx prerelease <project/component:artifact> --version-base <major.minor.patch>
-marx prerelease <project/component:artifact> --sign --sign-key <key-id>
-```
-
-Examples:
-
-```text
-marx prerelease
+marx prerelease tool:cli
+marx prerelease --project sample
+marx prerelease --prepare-only
 marx prerelease --version-base 1.2.3
-marx prerelease --version-base 1.2.3 --sign --sign-key prerelease-key
-marx prerelease backend:cli --version-base 2.0.0
-marx prerelease --project ecosystem --version-base 1.2.3
-marx prerelease yodau/backend_cli:cli
 ```
 
-`prerelease` stores its mutable version state in `.ecosystem/prerelease/state.json`.
-The user-facing logical version uses `major.minor.patch-pre.<n>`, while generated
-Debian and Pacman package versions are adapted to their native version formats.
-The Debian repo uses a `pool/main/` package layout and writes architecture-
-specific indexes under `dists/prerelease/main/binary-<arch>/`; `--sign` adds
-`InRelease` plus `Release.gpg` next to `dists/prerelease/Release`. The Pacman
-repo always writes both `.db` and `.files`
-archives. When signing is requested, Pacman package files and both repo
-archives receive detached `.sig` files. `--sign-key <key-id>` or
-`ECOSYSTEM_PRERELEASE_SIGN_KEY` selects the signing identity.
+Workspace project/artifact selection and declared install companions retain the
+existing distribution policy. An explicit non-facade artifact selects only its
+own product closure. Facade/developer CMake graphs are not payload substitutes.
+Marx builds all required outputs and prepares resources, project/provider ELF
+runtime files and materialized SONAME aliases. Existing asset opt-in, cache
+exclusions, template-bundle ownership and runtime normalization remain unchanged.
+Missing artifacts, unsafe paths, collisions and incomplete runtime preparation
+fail upstream; Release must not build or repair them. Native package ownership,
+versions and backend dependency metadata belong to Ecosystem-Release.
 
-For ELF payloads, packaging requires CMake and `objdump` to inspect linked runtime
-dependencies. Project shared libraries and installed source-provider libraries
-are included under `usr/lib`, including transitive dependencies of companion
-executables. Staged binaries/libraries have build RPATH/RUNPATH removed; original
-build outputs retain them. A second inspection checks the staged dependency closure.
-An unresolved dependency, a conflicting library name,
-or a library outside project-owned and standard system library directories fails
-before publication. Use a managed source provider or installed system package for
-such an external library.
+Every invocation retains a new attempt beneath
+`.ecosystem/prerelease/attempts/<time>-<pid>-<suffix>/`. The CLI prints
+`commands.log` and `summary.json` before building. Transcripts contain actual
+native arguments/output/status, including provider builds. Failed or interrupted
+attempts retain diagnostics; a failed final summary write leaves the initial
+`running` marker so downstream discovery fails closed. Preparation success exits
+0 and reports stage `prepared`, not publication or release readiness.
 
-Candidate package work retains a `runtime.json` inventory of bundled and system
-libraries, resolved library lists and runtime scan/relocation/verification logs.
-System libraries are not bundled. Their installed owners and versions are queried
-through Pacman, or through `dpkg-query` when Pacman is absent. Missing tooling,
-unknown/ambiguous ownership and invalid or uninstalled package records fail before
-publication. `runtime-packages.json` records this mapping. Dependencies use the
-installed versions as conservative minimums and appear in the native archive and
-repository metadata; attempt summaries also retain the dependency lists.
+### Prepared full-product handoff
 
-The other distribution's archive is still emitted with a CLI/summary warning that
-its dependency metadata needs review. Build on the target distribution to obtain
-its native declarations; package names and versions are not translated between
-distributions. Archive generation alone does not establish native installation
-or clean-chroot runtime acceptance.
-Script interpreters, external
-commands, runtime-loaded plugins and QML imports are outside this ELF link scan.
+The exact exported path is
+`.ecosystem/prerelease/attempts/<attempt>/prepared/input.json`. The existing v1
+contract contains project/product/facade/package identity, primary/companion
+artifacts, all staged data/runtime files, install-relative destinations, sizes
+and SHA256 digests. Files reference retained regular copies in `payload/`.
+The existing `manifest.version`, when present, supplies `version_base`;
+`--version-base` cannot contradict it. When absent, an explicit override may be
+exported; otherwise Release selects its existing persisted/default base. Marx
+never reads or writes release counters to prepare this handoff.
 
-Marx/Engels packages include their source project's complete `assets/templates/`
-tree at `usr/share/ecosystem/templates`; runtime template overrides do not change the
-shipped bundle. Missing, empty or aliased bundle trees fail packaging. This package
-layout requires tooling release builds to use `CMAKE_INSTALL_BINDIR=bin` and
-`CMAKE_INSTALL_DATADIR=share` (or its default from `CMAKE_INSTALL_DATAROOTDIR`).
-Use `cmake --install` when a custom tooling install layout is required.
+Provenance binds exact manifest bytes and records a full Git revision only for
+clean tracked source when available. `sha256sum` and every declared output must
+be available. Manifest and prepared-file observations are rechecked before
+export. An attempt summary is descriptive, not authenticated Engels evidence.
+No producer authentication, package/installation acceptance or publication
+permission follows from preparation success. Existing published files and
+`.ecosystem/prerelease/state.json` remain untouched on success and failure.
 
-Template data ships independently of `install_assets`. Project assets are included
-under `usr/bin/assets` only when `install_assets` is enabled and a packaged
-executable is present.
+### Downstream operation
 
-Debian control/data and Pacman package entries record numeric root UID/GID,
-independent of the account that builds the package.
+From a correctly prepared project root:
 
-Package assembly, index generation and signing prepare a candidate beneath
-`.ecosystem/prerelease/work/publication/candidate/`. A failed preparation leaves
-the published repositories and version counter unchanged. Successful preparation
-replaces `deb/`, `pacman/` and finally `state.json`; a reported replacement failure
-attempts to restore their previous entries. Returned artifact paths always refer
-to the published repositories. Candidate work files remain available for inspection
-until the next attempt.
+```sh
+ecosystem-release package
+# Optional, still an unpublished local candidate:
+ecosystem-release package --sign --sign-key KEY
+```
 
-Each workflow attempt has its own directory at
-`.ecosystem/prerelease/attempts/<time>-<pid>-<suffix>/`, retained across retries.
-The CLI prints the paths to `commands.log` and `summary.json` before configuring.
-The transcript records native arguments, working directories, merged output and
-exit codes, including source-provider builds, archive/index creation and signing.
-Command headers do not dump environment values. Build output is also streamed to
-the terminal. The summary records the final stage, outcome, CLI exit status,
-diagnostics, timing and successful version/artifact paths relative to the project.
-
-Attempt storage is checked before building. A transcript write failure stops new
-native commands and prevents publication. Interrupted execution leaves the initial
-`running` summary and output captured so far. A failure to replace the final summary
-after publication produces a warning identifying the completed publication; the
-initial summary remains, and the successful package status is preserved. Old
-attempts are retained until explicitly removed.
-
-Run one prerelease writer per project. Publication is not atomic across process
-termination or power loss. If `.ecosystem/prerelease/work/publication/previous/`
-remains, a retry stops and reports it; inspect the published entries and retained
-backup and restore a consistent release before retrying. Keep enough free space
-for a candidate copy of the existing repositories. Requirements beyond linked ELF
-libraries remain with PKG-03.
+Release owns package/index creation, signing, version-state interpretation and
+publication mechanisms. Production publication remains disabled pending trusted
+upstream evidence and final shipped-representation gates. Marx does not invoke
+Release. Obsolete Marx `--sign`/`--sign-key` arguments fail with a migration
+diagnostic; they are never silently accepted. Explicit Release input/output
+paths remain available for testing and advanced use.
 
 ---
 
@@ -985,6 +928,62 @@ CLI v1 **MUST** support at least:
 * `ci`
 
 ## 8.4 Canonical forms
+
+The input-specific operation below is separate from ordinary configuration
+profiles and their aggregate CI execution:
+
+```sh
+engels check prepared --input .ecosystem/prerelease/attempts/ATTEMPT/prepared/input.json
+engels check prepared tool:cli --input .ecosystem/prerelease/attempts/ATTEMPT/prepared/input.json
+```
+
+Run it in the selected project; workspace selectors, `--theme` and `--changes`
+do not apply. The product defaults to the manifest facade; an explicit artifact
+must match the prepared product. `--input` is exclusive to this operation.
+
+It checks version-1 Marx handoff structure, exact current manifest bytes, project,
+artifact/facade/package identity and the existing manifest-derived distribution
+selection. Recorded clean revisions must still be reliably clean and identical;
+an absent revision remains explicitly unavailable. Artifact, companion, resource,
+template and applicable ELF runtime membership is independently derived from
+the current project rules. Every prepared size/digest is recomputed. Changing a
+payload and rewriting its claimed digest cannot substitute different bytes for
+the current reference. Prepared permissions must also match the reference. Unsafe
+paths, symlinks, unlisted files, missing members,
+collisions and inconsistent declarations fail.
+
+The prepared payload remains read-only. ELF comparison uses private diagnostic
+copies of current Release outputs, normalized with the same RPATH-removal rule
+used by Marx. Native dependency scans use CMake script mode, not configuration or
+compilation. Non-ELF target-runtime acceptance is not established. Diagnostic
+work belongs under `.ecosystem/reports/prepared/`.
+
+Actual project gates are repository conformance and formatting, strict Tidy of
+the selected production closure using the existing Release compilation database,
+and existing manifest-declared Release native tests. The existing Release cache
+and developer graph must match the current canonical project configuration;
+their presence does not prove compilation freshness. Engels does not generate a
+build tree, build missing tests, acquire dependencies or import asserted success
+reports. Missing databases/tools/test executables and incomplete test registration
+are reported as `not_run`; skipped required native tests cannot become a pass.
+Counted native tests require CTest's `--output-junit` capability (3.21+) and Python
+3's standard XML reader. A project without declared native tests reports them as
+`not_applicable`. Source build provenance is not certified by matching current
+output bytes or executing existing tests.
+
+JSON is written to stdout, including project/product identity, manifest/input
+digests, measured prepared/reference digests, actual gate outcomes, commands and
+limitations. Statuses distinguish `passed`, `failed`, `not_run`, `not_applicable`
+and package/install/environment gates `deferred` until their representation exists.
+Exit 0 means only `prepared_checks_passed`; exit 3 means incomplete applicable
+checks, exit 5 a failed validation/check, and exit 2 a CLI usage error. The report
+always has `release_ready: false`, `publication_authorized: false` and
+`all_release_gates_passed: false`. Caller-supplied evidence is not used to bypass
+checks. Neither this unsigned local report nor a `passed` field authenticates a
+producer, proves an uncompromised build, or authorizes publication. REL-01 package
+contents, clean installation and target-native released-representation checks
+remain deferred. The independent release planner remains provisional even when
+given this result as an evidence reference.
 
 ```text
 engels check <profile> [--theme <theme>]
@@ -1181,6 +1180,13 @@ compilation; C++-only warning options stay off C translation units. Required CTe
 runs (`tests`, `coverage`, `leaks`) pass `--no-tests=error`, so missing test
 registration cannot yield success. A selected artifact with no declared tests
 already fails as unsupported.
+
+Explicit native build/run selections generate their mandatory developer closure.
+Generated test-directory definitions refer to an actual target in that graph,
+so a selected nonvisual library can also build/test independently with CMake.
+The test/coverage check profiles retain their existing project integration setup,
+including runtime actors needed by CLI integration tests; their artifact filter
+selects test ownership, not a new test-runtime dependency model.
 
 `engels check ci` runs repository validation, the production facade and supported
 required tests, applicable Java checks, tidy, then format. It stops when a required stage fails. A useful local

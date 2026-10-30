@@ -28,6 +28,7 @@ struct dependency_summary {
     dependency_entry zlib;
     dependency_entry gtest;
     dependency_entry benchmark;
+    dependency_entry openssl;
 };
 
 const dependency_entry& dependency_entry_for_id(

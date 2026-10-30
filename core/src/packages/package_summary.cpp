@@ -2,6 +2,7 @@
 
 #include "packages/package_registry.hpp"
 #include "workspace/project.hpp"
+#include "workspace/template_text.hpp"
 
 #include <algorithm>
 #include <set>
@@ -156,6 +157,9 @@ namespace package_summary_support {
         dependency_summary* summary, const component& component_value,
         const package_dependency_scope scope
     ) {
+        const auto errors = validate_package_declarations(component_value);
+        if (!errors.empty())
+            throw template_render_error(errors.front());
         for (const package_descriptor& descriptor : registered_packages()) {
             dependency_entry& entry
                 = dependency_entry_for_id(*summary, descriptor.dependency);

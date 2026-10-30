@@ -2,7 +2,6 @@
   "id": "ecosystem",
   "description": "Self-hosting C++ project workflow with Marx and Engels.",
   "install_artifacts": [
-    "marx:marx",
     "engels:engels"
   ],
   "facade": "marx:marx",

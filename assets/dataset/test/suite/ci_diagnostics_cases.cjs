@@ -7,6 +7,7 @@ const path = require('node:path');
 const {execFileSync} = require('node:child_process');
 const diagnostics = require(path.resolve(process.argv[2]));
 const evidence = require(path.resolve(process.argv[3]));
+const engels = path.resolve(process.argv[4]);
 const changes = require(path.join(path.dirname(path.resolve(process.argv[3])), 'changes.cjs'));
 
 function fixture(t) {
@@ -16,8 +17,11 @@ function fixture(t) {
   const git = (...args) => execFileSync('git', ['-C', root, '-c', 'commit.gpgsign=false', ...args], {encoding: 'utf8', stdio: 'pipe'}).trim();
   git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid');
   write('.gitignore', '.ecosystem/\n'); write('docs/guide.md', 'Guide\n');
+  write('manifest.json', JSON.stringify({id: 'fixture', description: 'Synthetic diagnostic fixture.', facade: 'app:main',
+    artifacts: [{id: 'app:main', kind: 'exe', root: 'program', owns: [], entry: 'src/main.cpp'}]}));
+  write('program/src/main.cpp', 'int main() { return 0; }\n');
   git('add', '.'); git('commit', '-qm', 'base'); const base = git('rev-parse', 'HEAD');
-  const core = {setOutput() {}, summary: {addRaw() {return this;}, async write() {}}};
+  const core = {setOutput() {}, info() {}, summary: {addRaw() {return this;}, async write() {}}};
   return {root, write, git, base, core};
 }
 
@@ -30,16 +34,16 @@ for (const event of ['push', 'pull_request']) for (const file of ['custom/src/in
       ? {before: f.base, after: head} : {pull_request: {base: {sha: f.base}, head: {sha: head}}}};
     const delta = changes.resolve({root: f.root, context}); assert.equal(delta.complete, true);
     f.write('.ecosystem/github/changes.json', JSON.stringify(delta));
-    const result = evidence.requiredScope({context, root: f.root, baseScope: 'cheap'});
+    const result = evidence.requiredScope({context, root: f.root, baseScope: 'cheap', binary: engels});
     assert.equal(result.scope, file === 'docs/guide.md' ? 'cheap' : 'full');
-    assert.match(result.reason, file === 'docs/guide.md' ? /no-source/ : /source-or-build/);
+    assert.match(result.reason, file === 'docs/guide.md' ? /native-presentation/ : /native-full|unverified-delta/);
   });
 }
 test('missing or tampered delta cannot leave a source push cheap', t => {
   const f = fixture(t); const context = {eventName: 'push', sha: f.base, ref: 'refs/heads/feature', payload: {before: f.base, after: f.base}};
-  assert.equal(evidence.requiredScope({context, root: f.root, baseScope: 'cheap'}).scope, 'full');
+  assert.equal(evidence.requiredScope({context, root: f.root, baseScope: 'cheap', binary: engels}).scope, 'full');
   f.write('.ecosystem/github/changes.json', '{"complete":true,"paths":[]}');
-  assert.equal(evidence.requiredScope({context, root: f.root, baseScope: 'cheap'}).scope, 'full');
+  assert.equal(evidence.requiredScope({context, root: f.root, baseScope: 'cheap', binary: engels}).scope, 'full');
 });
 test('reuse/security/tag policy is not changed by source promotion', t => {
   const f = fixture(t);
@@ -76,14 +80,14 @@ test('full Checks classification failure blocks the required stage at its actual
 test('successful stage with a missing declared log cannot satisfy a report', async t => {
   const f = fixture(t);
   const record = await diagnostics.snapshot({core: f.core, root: f.root, kind: 'checks', scope: 'cheap', selectionResult: 'success', steps: {
-    changes: {outcome: 'success'}, ecosystem: {outcome: 'success'}, required: {outcome: 'success', outputs: {
+    changes: {outcome: 'success'}, ecosystem: {outcome: 'success'}, classification: {outcome: 'success'}, required: {outcome: 'success', outputs: {
       status: 'passed', 'report-path': '.ecosystem/github/reports/01-required-checks/summary.md', 'log-path': '.ecosystem/github/reports/01-required-checks/output.log'}}}});
   assert.equal(record.status, 'failed'); assert.equal(record.stages[3].category, 'missing-report');
 });
 test('unavailable required tool remains a failure with an environment category', async t => {
   const f = fixture(t);
   const record = await diagnostics.snapshot({core: f.core, root: f.root, kind: 'checks', scope: 'cheap', selectionResult: 'success', steps: {
-    changes: {outcome: 'success'}, ecosystem: {outcome: 'success'}, required: {outcome: 'success', outputs: {status: 'failed', 'exit-code': '4'}}}});
+    changes: {outcome: 'success'}, ecosystem: {outcome: 'success'}, classification: {outcome: 'success'}, required: {outcome: 'success', outputs: {status: 'failed', 'exit-code': '4'}}}});
   assert.equal(record.status, 'failed'); assert.equal(record.stages[3].category, 'unavailable-environment');
 });
 test('test counts and full test detail are collected from actual recorded output', async t => {
@@ -213,4 +217,38 @@ test('a claimed passing full check without native execution reports cannot succe
     steps: {changes: {outcome: 'success'}, ecosystem: {outcome: 'success'}, classification: {outcome: 'success'},
       required: {outcome: 'success', outputs: {status: 'passed'}}, coverage: {outcome: 'success'}}});
   assert.equal(result.status, 'failed'); assert.match(result.reason, /Missing native verification report/);
+});
+
+for (const mode of ['missing-actor', 'unbound-report', 'missing-comparison', 'missing-checks'])
+  test('native classification cannot narrow without trustworthy inputs: ' + mode, t => {
+    const f = fixture(t); f.write('docs/guide.md', 'changed\n'); const head = (f.git('add', '.'), f.git('commit', '-qm', 'docs'), f.git('rev-parse', 'HEAD'));
+    const context = {eventName: 'push', sha: head, ref: 'refs/heads/feature', payload: {before: f.base, after: head}};
+    changes.collect({context, core: f.core, root: f.root});
+    const classification = mode === 'missing-actor' ? undefined : changes.inspect({root: f.root, binary: engels});
+    if (mode === 'unbound-report') classification.comparison.head = f.base;
+    if (mode === 'missing-comparison') delete classification.comparison;
+    if (mode === 'missing-checks') delete classification.checks;
+    assert.equal(evidence.requiredScope({context, root: f.root, baseScope: 'cheap',
+      binary: '/nonexistent-native-classifier', classification}).scope, 'full');
+  });
+
+test('cheap execution still requires native classification to finish', async t => {
+  const f = fixture(t);
+  const record = await diagnostics.snapshot({core: f.core, root: f.root, kind: 'checks', scope: 'cheap', selectionResult: 'success',
+    steps: {changes: {outcome: 'success'}, ecosystem: {outcome: 'success'}, classification: {outcome: 'skipped'},
+      required: {outcome: 'skipped'}, coverage: {outcome: 'skipped'}}});
+  assert.equal(record.status, 'failed');
+  assert.equal(record.stages[2].category, 'missing-result');
+  assert.equal(record.stages[3].category, 'unmet-prerequisite');
+});
+
+test('manifest-owned Markdown retains full verification', t => {
+  const f = fixture(t);
+  f.write('manifest.json', JSON.stringify({id: 'fixture', description: 'Synthetic owned input.', facade: 'app:main',
+    artifacts: [{id: 'app:main', kind: 'exe', root: 'program', owns: ['include'], entry: 'src/main.cpp'}]}));
+  f.write('program/include/input.md', 'old\n'); f.git('add', '.'); f.git('commit', '-qm', 'owned input'); const base = f.git('rev-parse', 'HEAD');
+  f.write('program/include/input.md', 'changed\n'); f.git('add', '.'); f.git('commit', '-qm', 'change'); const head = f.git('rev-parse', 'HEAD');
+  const context = {eventName: 'push', sha: head, ref: 'refs/heads/feature', payload: {before: base, after: head}};
+  changes.collect({context, core: f.core, root: f.root});
+  assert.equal(evidence.requiredScope({context, root: f.root, baseScope: 'cheap', binary: engels}).scope, 'full');
 });

@@ -71,16 +71,15 @@ namespace {
             // Duplicate keys must not silently select a different checkout.
             std::vector<std::set<std::string>> keys;
             const auto config = json::parse(
-                text,
-                [&](int, json::parse_event_t event, json& item) {
+                text, [&](int, json::parse_event_t event, json& item) {
                     if (event == json::parse_event_t::object_start)
                         keys.emplace_back();
                     else if (event == json::parse_event_t::object_end)
                         keys.pop_back();
-                    else if (event == json::parse_event_t::key
-                             && !keys.back()
-                                     .insert(item.get<std::string>())
-                                     .second)
+                    else if (
+                        event == json::parse_event_t::key
+                        && !keys.back().insert(item.get<std::string>()).second
+                    )
                         throw std::runtime_error(
                             "duplicate key: " + item.get<std::string>()
                         );
@@ -102,7 +101,8 @@ namespace {
                     );
                 for (const auto& name : config.at("features")) {
                     if (!name.is_string())
-                        throw std::runtime_error("feature names must be strings"
+                        throw std::runtime_error(
+                            "feature names must be strings"
                         );
                     result.features.push_back(name.get<std::string>());
                 }
@@ -276,12 +276,17 @@ namespace {
     }
 
     struct preparation {
+        struct sdk {
+            std::set<std::string> exports;
+            string_list options;
+        };
+
         std::string profile;
         fs::path storage_root;
         local_sources sources;
         std::set<std::string> active;
         std::map<std::string, json> selected_packages;
-        std::map<std::string, string_list> completed_packages;
+        std::map<std::string, sdk> completed_packages;
 
         string_list prepare(
             const fs::path& project, const manifest& value,
@@ -405,28 +410,48 @@ namespace {
                     = validate_manifest_paths(provider, source);
                 if (!provider_paths.empty())
                     throw std::runtime_error(provider_paths.front());
-                // Reuse only successful SDK preparation in this operation.
-                // Every edge still validates source intent and requested
-                // exports.
-                if (const auto ready = completed_packages.find(package);
-                    ready != completed_packages.end()) {
+                const auto ready = completed_packages.find(package);
+                auto exports = ready == completed_packages.end()
+                    ? std::set<std::string> {}
+                    : ready->second.exports;
+                const auto previous_size = exports.size();
+                for (const auto& requested : selection.requests)
+                    exports.insert(
+                        format_artifact_ref(requested.dependency.artifact)
+                    );
+                // Repeated edges reuse one SDK identity. A later branch may
+                // widen that same SDK, never create an independent provider.
+                if (ready != completed_packages.end()
+                    && exports.size() == previous_size) {
                     options.insert(
-                        options.end(), ready->second.begin(),
-                        ready->second.end()
+                        options.end(), ready->second.options.begin(),
+                        ready->second.options.end()
                     );
                     continue;
                 }
+                // Project-wide installation intent is not the requested
+                // provider API. Reuse the existing mandatory-closure model
+                // with only exports actually required by this operation.
+                auto selected = provider;
+                selected.facade_entry_artifact = *exports.begin();
+                selected.install_artifacts.assign(
+                    exports.begin(), exports.end()
+                );
+                const auto selected_provider = distribution_build_manifest(
+                    selected,
+                    *parse_artifact_ref(selected.facade_entry_artifact)
+                );
                 // Source intent already has operation-wide package identity.
                 // Its SDK must not acquire a second path through another edge.
                 const auto provider_dependencies
-                    = prepare(source, provider, root, true);
+                    = prepare(source, selected_provider, root, true);
                 auto provider_options = provider_dependencies;
                 const auto generated = state / "project";
                 const auto build = state / "build" / profile;
                 const auto prefix = state / "install" / profile;
                 write(
                     generated / "CMakeLists.txt",
-                    generate_distribution_cmakelists(provider, source)
+                    generate_distribution_cmakelists(selected_provider, source)
                 );
                 provider_options.insert(
                     provider_options.end(),
@@ -466,8 +491,9 @@ namespace {
                     options.end(), prepared_options.begin(),
                     prepared_options.end()
                 );
-                completed_packages.emplace(
-                    package, std::move(prepared_options)
+                completed_packages.insert_or_assign(
+                    package,
+                    sdk { std::move(exports), std::move(prepared_options) }
                 );
             }
             active.erase(value.id);

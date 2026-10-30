@@ -698,14 +698,6 @@ namespace command_support {
         std::ostream& err
     );
 
-    command_error run_prerelease(
-        const fs::path& project_root, const manifest& manifest_value,
-        const std::optional<artifact_ref>& requested_artifact,
-        const std::optional<std::string>& version_base,
-        const prerelease_signing_options& signing_options, std::ostream& out,
-        std::ostream& err
-    );
-
     command_error run_benchmark(
         const fs::path& project_root, const manifest& manifest_value,
         const std::optional<artifact_ref>& requested_artifact,
@@ -740,15 +732,17 @@ namespace command_support {
                     }
                     const artifact_ref ref { component_value.id,
                                              artifact_value.id };
-                    targets.push_back({
-                        cmake_target_name(ref),
-                        component_value.ownership
-                            ? cmake_target_name(ref)
-                            : component_value.id + "_" + artifact_value.id,
-                        artifact_output_name(
-                            manifest_value, component_value, artifact_value
-                        ),
-                    });
+                    targets.push_back(
+                        {
+                            cmake_target_name(ref),
+                            component_value.ownership
+                                ? cmake_target_name(ref)
+                                : component_value.id + "_" + artifact_value.id,
+                            artifact_output_name(
+                                manifest_value, component_value, artifact_value
+                            ),
+                        }
+                    );
                 }
                 continue;
             }
@@ -760,11 +754,12 @@ namespace command_support {
                     && component_value.artifacts.front().id
                         != requested_artifact->artifact_id))
                 continue;
-            targets.push_back({ *target,
-                                component_value.ownership
-                                    ? *target
-                                    : component_value.id + "_tests",
-                                *target });
+            targets.push_back(
+                { *target,
+                  component_value.ownership ? *target
+                                            : component_value.id + "_tests",
+                  *target }
+            );
         }
 
         return targets;
@@ -792,7 +787,7 @@ namespace command_support {
         std::string regex = "^(";
         for (std::size_t index = 0; index < targets.size(); ++index) {
             if (index > 0U) {
-                regex += "|";
+                regex += '|';
             }
             regex += targets[index].test_name;
         }
@@ -1204,10 +1199,12 @@ namespace command_support {
         }
 
         void pause() const {
-            std::this_thread::sleep_until(std::min(
-                expires_at,
-                std::chrono::steady_clock::now() + std::chrono::seconds(1)
-            ));
+            std::this_thread::sleep_until(
+                std::min(
+                    expires_at,
+                    std::chrono::steady_clock::now() + std::chrono::seconds(1)
+                )
+            );
         }
     };
 
@@ -1348,12 +1345,14 @@ namespace command_support {
             return std::nullopt;
         }
 
-        const std::string badging = capture_command({
-            environment.aapt_bin,
-            "dump",
-            "badging",
-            apk_path.string(),
-        });
+        const std::string badging = capture_command(
+            {
+                environment.aapt_bin,
+                "dump",
+                "badging",
+                apk_path.string(),
+            }
+        );
         const std::string prefix = "package: name='";
         const std::size_t start = badging.find(prefix);
         if (start == std::string::npos) {
@@ -1378,9 +1377,10 @@ namespace command_support {
         }
 
         while (std::chrono::steady_clock::now() < boot.expires_at) {
-            const auto result
-                = boot.capture({ adb_path, "-s", serial, "shell", "getprop",
-                                 "sys.boot_completed" });
+            const auto result = boot.capture(
+                { adb_path, "-s", serial, "shell", "getprop",
+                  "sys.boot_completed" }
+            );
             if (result.exit_code != 0)
                 return false;
             if (trim_copy(result.output) == "1") {

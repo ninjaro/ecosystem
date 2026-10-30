@@ -60,76 +60,16 @@ void test_release_runtime_closure() {
         "native runtime packaging must succeed:\n" + result.output
     );
     const auto release = ecosystem::local_prerelease_dir(project);
-    const auto metadata = json::parse(read_text(
-        first_recursive_file_named(release / "work", "runtime-packages.json")
-    ));
-    const auto dependencies
-        = metadata.at("dependencies").get<std::vector<std::string>>();
+    const auto input = prepared_input(project, result);
+    const auto payload = prepared_payload(input);
     require_true(
-        !dependencies.empty(),
-        "native linked payload must declare system package dependencies"
+        !fs::exists(release / "state.json") && !fs::exists(release / "deb")
+            && !fs::exists(release / "pacman"),
+        "runtime preparation is not publication"
     );
-    require_contains(
-        result.output, "runtime dependency metadata is incomplete",
-        "cross-distribution metadata limitation must be visible"
-    );
-    const auto attempt = json::parse(read_text(
-        first_recursive_file_named(release / "attempts", "summary.json")
+    const auto inventory = json::parse(read_text(
+        first_recursive_file_named(release / "attempts", "runtime.json")
     ));
-    const bool native_pacman = metadata.at("backend") == "Pacman";
-    require_true(
-        attempt.at(
-            native_pacman ? "pacman_dependencies" : "debian_dependencies"
-        ) == dependencies,
-        "attempt summary must retain the native dependency declarations"
-    );
-    if (native_pacman) {
-        const auto package = first_recursive_file_with_suffix(
-            release / "pacman", ".pkg.tar.gz"
-        );
-        const auto info = ecosystem::capture_command_result(
-            { "pacman", "-Qip", "--", package.string() }, root.path(),
-            { { "LC_ALL", "C" } }
-        );
-        require_true(
-            info.exit_code == 0,
-            "native Pacman must accept the ELF archive: " + info.output
-        );
-        for (const auto& dependency : dependencies)
-            require_contains(
-                info.output, dependency,
-                "native package reader must see every dependency"
-            );
-        std::vector<std::string> check { "pacman", "-T" };
-        check.insert(check.end(), dependencies.begin(), dependencies.end());
-        const auto installed = ecosystem::capture_command_result(check);
-        require_true(
-            installed.exit_code == 0,
-            "the build host must satisfy the declared version floors: "
-                + installed.output
-        );
-        const auto empty_db = root.path() / "empty-db";
-        fs::create_directories(empty_db / "local");
-        check.insert(
-            check.begin() + 1,
-            { "--config", "/dev/null", "--dbpath", empty_db.string() }
-        );
-        const auto missing = ecosystem::capture_command_result(check);
-        require_true(
-            missing.exit_code != 0,
-            "an empty package database must not satisfy declared runtime "
-            "dependencies"
-        );
-        for (const auto& dependency : dependencies)
-            require_contains(
-                missing.output, dependency,
-                "native dependency checking must identify each missing "
-                "requirement"
-            );
-    }
-    const auto inventory = json::parse(
-        read_text(first_recursive_file_named(release / "work", "runtime.json"))
-    );
     require_true(
         inventory.at("bundled").size() == 3 && !inventory.at("system").empty(),
         "runtime inventory must distinguish three linked project libraries "
@@ -137,9 +77,9 @@ void test_release_runtime_closure() {
     );
     const auto source_binary
         = ecosystem::local_build_dir(project, "release") / "runtime_app";
-    const auto original
-        = ecosystem::capture_command_result({ "readelf", "-d",
-                                              source_binary.string() });
+    const auto original = ecosystem::capture_command_result(
+        { "readelf", "-d", source_binary.string() }
+    );
     require_true(original.exit_code == 0, "source ELF inspection must succeed");
     require_contains(
         original.output, project.string(),
@@ -148,33 +88,8 @@ void test_release_runtime_closure() {
 
     const auto pacman = root.path() / "pacman-prefix";
     const auto debian = root.path() / "debian-prefix";
-    fs::create_directories(pacman);
-    fs::create_directories(debian);
-    auto command = [&](const std::vector<std::string>& args,
-                       const fs::path& cwd) {
-        const auto execution = ecosystem::capture_command_result(args, cwd);
-        require_true(
-            execution.exit_code == 0,
-            "native package extraction must succeed:\n" + execution.output
-        );
-    };
-    command(
-        { "tar", "-xzf",
-          first_recursive_file_with_suffix(release / "pacman", ".pkg.tar.gz")
-              .string(),
-          "-C", pacman.string() },
-        root.path()
-    );
-    command(
-        { "ar", "x",
-          first_recursive_file_with_suffix(release / "deb", ".deb").string() },
-        debian
-    );
-    command(
-        { "tar", "-xzf", (debian / "data.tar.gz").string(), "-C",
-          debian.string() },
-        root.path()
-    );
+    fs::copy(payload, pacman, fs::copy_options::recursive);
+    fs::copy(payload, debian, fs::copy_options::recursive);
     fs::rename(project, root.path() / "unavailable-project");
     for (const auto& prefix : { pacman, debian }) {
         for (const auto& library :
@@ -191,9 +106,9 @@ void test_release_runtime_closure() {
         );
         for (const auto& executable : { "runtime_app", "runtime_tool" }) {
             const auto binary = prefix / "usr/bin" / executable;
-            const auto dynamic
-                = ecosystem::capture_command_result({ "readelf", "-d",
-                                                      binary.string() });
+            const auto dynamic = ecosystem::capture_command_result(
+                { "readelf", "-d", binary.string() }
+            );
             require_true(
                 dynamic.exit_code == 0, "packaged ELF inspection must succeed"
             );
@@ -233,9 +148,10 @@ void test_release_provider_runtime() {
     }
     write_text(
         consumer / "ecosystem.local.json",
-        json({ { "sources",
-                 { { "https://example.invalid/numbers.git",
-                     provider.string() } } } }
+        json(
+            { { "sources",
+                { { "https://example.invalid/numbers.git",
+                    provider.string() } } } }
         ).dump(2)
     );
     scoped_env override_path(
@@ -259,9 +175,9 @@ void test_release_provider_runtime() {
         transcript, "numbers",
         "provider configure/build output must join the attempt transcript"
     );
-    const auto inventory = json::parse(
-        read_text(first_recursive_file_named(release / "work", "runtime.json"))
-    );
+    const auto inventory = json::parse(read_text(
+        first_recursive_file_named(release / "attempts", "runtime.json")
+    ));
     require_true(
         inventory.at("bundled").size() == 1,
         "installed provider shared library must be bundled once"
@@ -272,14 +188,10 @@ void test_release_provider_runtime() {
         "provider runtime must come from its installed package"
     );
     const auto prefix = root.path() / "installed";
-    fs::create_directories(prefix);
-    const auto unpacked = ecosystem::capture_command_result(
-        { "tar", "-xzf",
-          first_recursive_file_with_suffix(release / "pacman", ".pkg.tar.gz")
-              .string(),
-          "-C", prefix.string() }
+    fs::copy(
+        prepared_payload(prepared_input(consumer, result)), prefix,
+        fs::copy_options::recursive
     );
-    require_true(unpacked.exit_code == 0, "provider package must extract");
     for (const auto& entry : fs::recursive_directory_iterator(prefix)) {
         require_true(
             entry.path().filename() != "ecosystem.local.json",
@@ -323,9 +235,11 @@ void test_release_runtime_aliases() {
     };
     auto library = [&](const fs::path& directory) {
         fs::create_directories(directory);
-        command({ "c++", "-shared", "-fPIC", (project / "value.cpp").string(),
-                  "-Wl,-soname,libversioned.so.3", "-o",
-                  (directory / "libversioned.so.3.2").string() });
+        command(
+            { "c++", "-shared", "-fPIC", (project / "value.cpp").string(),
+              "-Wl,-soname,libversioned.so.3", "-o",
+              (directory / "libversioned.so.3.2").string() }
+        );
         fs::create_symlink(
             "libversioned.so.3.2", directory / "libversioned.so.3"
         );
@@ -333,9 +247,11 @@ void test_release_runtime_aliases() {
     };
     auto application = [&](const fs::path& output, const fs::path& directory) {
         fs::create_directories(output.parent_path());
-        command({ "c++", (project / "main.cpp").string(),
-                  "-L" + directory.string(), "-lversioned",
-                  "-Wl,-rpath," + directory.string(), "-o", output.string() });
+        command(
+            { "c++", (project / "main.cpp").string(), "-L" + directory.string(),
+              "-lversioned", "-Wl,-rpath," + directory.string(), "-o",
+              output.string() }
+        );
     };
     library(first_lib);
     application(primary, first_lib);
@@ -346,23 +262,25 @@ void test_release_runtime_aliases() {
         value, ecosystem::artifact_ref { "app", "app" }
     );
     require_true(selected.has_value(), "native fixture primary must resolve");
-    ecosystem::prerelease_version version;
-    ecosystem::prerelease_artifacts artifacts;
     std::string error;
+    fs::path prepared;
     auto prepare = [&]() {
-        return ecosystem::create_prerelease_packages(
-            project, value, *selected, primary, "1.0.0", {}, &version,
-            &artifacts, &error
-        );
+        try {
+            prepared = prepare_fixture(project, value, *selected, primary);
+            return ecosystem::command_error::ok;
+        } catch (const std::exception& failure) {
+            error = failure.what();
+            return ecosystem::command_error::task_failed;
+        }
     };
     require_true(
         prepare() == ecosystem::command_error::ok,
-        "versioned runtime must package: " + error
+        "versioned runtime must prepare: " + error
     );
     const auto prefix = root.path() / "installed";
-    fs::create_directories(prefix);
-    command({ "tar", "-xzf", artifacts.pacman_package_path.string(), "-C",
-              prefix.string() });
+    fs::copy(
+        prepared.parent_path() / "payload", prefix, fs::copy_options::recursive
+    );
     for (const auto& name : { "libversioned.so.3", "libversioned.so.3.2" })
         require_true(
             fs::is_regular_file(prefix / "usr/lib" / name),
@@ -382,6 +300,7 @@ void test_release_runtime_aliases() {
     fs::rename(project / "unavailable-version", first_lib);
 
     const auto release = ecosystem::local_prerelease_dir(project);
+    write_text(release / "state.json", "untouched release state");
     const auto state = read_text(release / "state.json");
     library(second_lib);
     application(companion, second_lib);
@@ -429,26 +348,29 @@ void test_release_runtime_recovery() {
         "initial runtime release must succeed:\n" + result.output
     );
     const auto release = ecosystem::local_prerelease_dir(project);
+    write_text(release / "state.json", "untouched release state");
     const auto state = read_text(release / "state.json");
-    const auto package
-        = first_recursive_file_with_suffix(release / "pacman", ".pkg.tar.gz");
+    const auto package = prepared_payload(prepared_input(project, result))
+        / "usr/bin/runtime_app";
     const auto previous_package = read_text(package);
     const auto loaded = ecosystem::load_manifest(project / "manifest.json");
     require_true(loaded.value.has_value(), "runtime fixture must load");
     const auto resolved
         = ecosystem::resolve_artifact(*loaded.value, std::nullopt);
     const auto build = ecosystem::local_build_dir(project, "release");
-    ecosystem::prerelease_version version;
-    ecosystem::prerelease_artifacts artifacts;
     std::string error;
     auto prepare = [&]() {
-        const auto status = ecosystem::create_prerelease_packages(
-            project, *loaded.value, *resolved, build / "runtime_app",
-            std::nullopt, {}, &version, &artifacts, &error
-        );
+        bool rejected = false;
+        try {
+            (void)prepare_fixture(
+                project, *loaded.value, *resolved, build / "runtime_app"
+            );
+        } catch (const std::exception& failure) {
+            rejected = true;
+            error = failure.what();
+        }
         require_true(
-            status == ecosystem::command_error::task_failed,
-            "runtime inspection failure must stop publication"
+            rejected, "runtime inspection failure must stop preparation"
         );
         require_true(
             read_text(release / "state.json") == state
@@ -479,12 +401,17 @@ void test_release_runtime_recovery() {
         error, "runtime scanner failed",
         "native scanner errors must remain attributable"
     );
-    require_contains(
-        read_text(
-            first_recursive_file_named(release / "work", "runtime-scan.log")
-        ),
-        "runtime scanner failed",
-        "failed runtime inspection must retain its log"
+    bool retained_failure = false;
+    for (const auto& entry :
+         fs::recursive_directory_iterator(release / "attempts"))
+        if (entry.is_regular_file()
+            && entry.path().filename() == "runtime-scan.log")
+            retained_failure = retained_failure
+                || read_text(entry.path()).find("runtime scanner failed")
+                    != std::string::npos;
+    require_true(
+        retained_failure,
+        "each failed preparation retains its own runtime scanner log"
     );
 }
 

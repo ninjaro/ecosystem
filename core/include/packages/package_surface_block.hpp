@@ -16,6 +16,7 @@ enum class package_surface_block {
     zlib,
     gtest,
     benchmark,
+    openssl,
 };
 
 const std::vector<package_surface_block>& package_surface_block_order();

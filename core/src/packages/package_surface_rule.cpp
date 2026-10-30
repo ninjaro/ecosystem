@@ -129,6 +129,21 @@ namespace package_surface_rule_support {
                 }),
             },
             {
+                package_surface_block::openssl,
+                make_component_surface_rule(
+                    dependency_id::openssl, {},
+                    "find_package(OpenSSL 3 REQUIRED COMPONENTS",
+                    {
+                        "set(ECOSYSTEM_OPENSSL_CRYPTO_LIBRARY "
+                        "\"${OPENSSL_CRYPTO_LIBRARY}\" CACHE INTERNAL "
+                        "\"Resolved OpenSSL Crypto libraries\" FORCE)",
+                        "set(ECOSYSTEM_OPENSSL_SSL_LIBRARY "
+                        "\"${OPENSSL_SSL_LIBRARY}\" CACHE INTERNAL \"Resolved "
+                        "OpenSSL SSL libraries\" FORCE)",
+                    }
+                ),
+            },
+            {
                 package_surface_block::llvm_clang,
                 make_static_surface_rule(
                     {

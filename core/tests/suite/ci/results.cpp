@@ -53,11 +53,6 @@ void test_ci_stage_failures() {
                 workflow->contents, "  pull_request:",
                 "later-stage presentation must not run on pull requests"
             );
-            require_contains(
-                workflow->contents, "steps.coverage.outputs.status == 'passed'",
-                "coverage uploads must use the status output provided by the "
-                "stage action"
-            );
             require_not_contains(
                 workflow->contents, "steps.coverage.outputs.enabled",
                 "coverage uploads must not depend on a nonexistent output"
@@ -71,6 +66,13 @@ void test_ci_stage_failures() {
                 workflow->contents,
                 "uses: ./.github/actions/select-ecosystem-ci",
                 "CodeQL must share event selection with required checks"
+            );
+        }
+        if (std::string(filename) == "tests.yml") {
+            require_contains(
+                workflow->contents,
+                "COVERAGE_STATUS: ${{ steps.coverage.outputs.status }}",
+                "coverage gates and evidence must use the real stage status"
             );
         }
         if (std::string(filename) != "html.yml") {
@@ -225,8 +227,7 @@ void test_ci_result_gates() {
     );
     require_contains(
         workflow->contents,
-        "- name: Upload check reports\n        if: ${{ always() && "
-        "needs.select.outputs.scope != 'reuse' }}",
+        "- name: Upload check reports\n        if: ${{ always() }}",
         "fresh attempts must preserve diagnostics without replacing reused "
         "reports"
     );
@@ -416,9 +417,9 @@ void test_ci_result_gates() {
     for (const auto* consumer : { workflow, codeql }) {
         require_contains(
             consumer->contents,
-            "- name: Setup ecosystem tool\n        if: ${{ "
-            "needs.select.outputs.scope != 'reuse' }}",
-            "validated reuse must skip tooling bootstrap and native operations"
+            "- name: Setup ecosystem tool\n        id: ecosystem",
+            "generated verification establishes its own environment before "
+            "execution"
         );
         const auto name = consumer == workflow ? "Enforce required result"
                                                : "Enforce CodeQL result";
@@ -433,8 +434,8 @@ void test_ci_result_gates() {
                     (root.path() / "summary").string() } }
             );
             require_true(
-                (reused.exit_code == 0) == (std::string(verified) == "true"),
-                "only the selector's validated pair may replace native results"
+                reused.exit_code != 0,
+                "preliminary metadata cannot replace native workflow results"
             );
         }
         const auto missing = ecosystem::capture_command_result(

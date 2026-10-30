@@ -26,6 +26,11 @@ void test_ci_evidence() {
         const auto destination = root.path() / adapter;
         write_text(destination, script->contents);
     }
+    const auto* selection = find_tracked_surface_file(
+        files, ".github/actions/select-ecosystem-ci/action.yml"
+    );
+    require_true(selection != nullptr, "preliminary selection action exists");
+    write_text(root.path() / "action.yml", selection->contents);
     const auto* diagnostics = find_tracked_surface_file(
         files, ".github/actions/publish-ecosystem-report/diagnostics.cjs"
     );
@@ -64,7 +69,8 @@ void test_ci_evidence() {
            / "assets/dataset/test/suite/ci_diagnostics_cases.cjs")
               .string(),
           (root.path() / "diagnostics.cjs").string(),
-          (root.path() / "evidence.cjs").string() },
+          (root.path() / "evidence.cjs").string(),
+          engels_binary_path().string() },
         root.path()
     );
     require_true(

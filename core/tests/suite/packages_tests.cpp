@@ -674,8 +674,10 @@ void test_registered_packages_keep_stable_order() {
         ecosystem::package_kind::eigen,
         ecosystem::package_kind::jni,
         ecosystem::package_kind::cxxopts,
+        ecosystem::package_kind::zlib,
         ecosystem::package_kind::gtest,
         ecosystem::package_kind::benchmark,
+        ecosystem::package_kind::openssl,
     };
 
     std::vector<ecosystem::package_kind> actual;
@@ -745,8 +747,10 @@ void test_package_surface_block_order_is_stable() {
         ecosystem::package_surface_block::eigen,
         ecosystem::package_surface_block::jni,
         ecosystem::package_surface_block::cxxopts,
+        ecosystem::package_surface_block::zlib,
         ecosystem::package_surface_block::gtest,
         ecosystem::package_surface_block::benchmark,
+        ecosystem::package_surface_block::openssl,
     };
     require_true(
         ecosystem::package_surface_block_order() == expected,
@@ -1084,4 +1088,284 @@ void test_render_package_surface_block_renders_cxxopts_support() {
     );
 }
 
+} // namespace ecosystem_test_support
+
+namespace ecosystem_test_support {
+void test_openssl_package_contract() {
+    auto value = sample_library_manifest();
+    value.components.front().stack
+        = { { "openssl", json::array({ "Crypto" }) } };
+    const auto dependencies
+        = ecosystem::summarize_dependencies(value, std::nullopt);
+    require_true(
+        dependencies.openssl.enabled
+            && dependencies.openssl.values
+                == std::set<std::string> { "Crypto" },
+        "OpenSSL components must survive normalization and summarization"
+    );
+    require_true(
+        ecosystem::component_package_link_targets(value.components.front())
+            == std::vector<std::string> { "OpenSSL::Crypto" },
+        "Crypto must link the native imported target"
+    );
+    temp_dir root;
+    for (const auto& cmake :
+         { ecosystem::generate_cmakelists(value, root.path()),
+           ecosystem::generate_developer_cmakelists(value, root.path()) }) {
+        require_contains(
+            cmake, "find_package(OpenSSL 3 REQUIRED COMPONENTS\n        Crypto",
+            "both surfaces require OpenSSL 3 Crypto"
+        );
+        require_contains(
+            cmake, "OpenSSL::Crypto", "both surfaces must link Crypto"
+        );
+        require_not_contains(
+            cmake, "OpenSSL::SSL", "Crypto must not imply an SSL dependency"
+        );
+    }
+    auto no_crypto = sample_manifest();
+    require_not_contains(
+        ecosystem::generate_cmakelists(no_crypto, root.path()), "OpenSSL",
+        "unrelated projects must not discover OpenSSL"
+    );
+    ecosystem::cmake_cache_snapshot cache;
+    cache.entries["OPENSSL_INCLUDE_DIR"] = "/sdk/include";
+    require_contains(
+        ecosystem::configured_status_for_package(
+            ecosystem::package_kind::openssl, dependencies, cache
+        ),
+        "missing Crypto", "headers alone are not Crypto availability"
+    );
+    cache.entries["ECOSYSTEM_OPENSSL_CRYPTO_LIBRARY"] = "/sdk/libcrypto.so";
+    require_contains(
+        ecosystem::configured_status_for_package(
+            ecosystem::package_kind::openssl, dependencies, cache
+        ),
+        "detected Crypto",
+        "Doctor must recognize the platform-independent discovery records"
+    );
+    value.components.front().stack["openssl"]
+        = json::array({ "SSL", "Crypto" });
+    const auto ssl = ecosystem::summarize_dependencies(value, std::nullopt);
+    require_contains(
+        ecosystem::configured_status_for_package(
+            ecosystem::package_kind::openssl, ssl, cache
+        ),
+        "missing SSL", "Crypto must not falsely satisfy SSL"
+    );
+    cache.entries["ECOSYSTEM_OPENSSL_SSL_LIBRARY"] = "/sdk/libssl.so";
+    require_contains(
+        ecosystem::configured_status_for_package(
+            ecosystem::package_kind::openssl, ssl, cache
+        ),
+        "detected Crypto SSL", "both selected components must be found"
+    );
+    cache.entries.erase("OPENSSL_INCLUDE_DIR");
+    require_contains(
+        ecosystem::configured_status_for_package(
+            ecosystem::package_kind::openssl, ssl, cache
+        ),
+        "missing Crypto SSL", "libraries without headers are unavailable"
+    );
+    require_true(
+        ecosystem::component_package_link_targets(value.components.front())
+            == std::vector<std::string> { "OpenSSL::Crypto", "OpenSSL::SSL" },
+        "selected components must link deterministically"
+    );
+
+    auto extra = value.components.front();
+    extra.id = "crypto";
+    extra.modules.clear();
+    extra.artifacts.front().link.clear();
+    no_crypto.components.push_back(extra);
+    require_not_contains(
+        ecosystem::generate_cmakelists(no_crypto, root.path()), "OpenSSL",
+        "unselected developer dependencies must not leak into the visitor"
+    );
+    require_contains(
+        ecosystem::generate_developer_cmakelists(no_crypto, root.path()),
+        "OpenSSL",
+        "the independent developer graph must retain its actual requirements"
+    );
+}
+
+void test_openssl_native_build_and_installed_sdk() {
+    temp_dir root;
+    const auto project = root.path() / "project";
+    const json authored {
+        { "id", "evp_fixture" },
+        { "description", "Native OpenSSL EVP integration" },
+        { "facade", "crypto:lib" },
+        { "artifacts",
+          json::array(
+              { { { "id", "crypto:lib" },
+                  { "kind", "static_lib" },
+                  { "root", "lib" },
+                  { "owns", json::array({ "include", "src" }) },
+                  { "packages",
+                    { { "openssl", json::array({ "Crypto" }) } } } },
+                { { "id", "cli:app" },
+                  { "kind", "exe" },
+                  { "root", "app" },
+                  { "owns", json::array() },
+                  { "entry", "src/main.cpp" },
+                  { "dependencies", json::array({ "crypto:lib" }) } },
+                { { "id", "check:tests" },
+                  { "kind", "exe" },
+                  { "root", "check" },
+                  { "owns", json::array() },
+                  { "entry", "tests/main.cpp" },
+                  { "dependencies", json::array({ "crypto:lib" }) } } }
+          ) }
+    };
+    write_text(project / "manifest.json", authored.dump(2));
+    write_text(
+        project / "lib/include/evp_fixture/digest.hpp",
+        "#pragma once\nbool digest_ok();\n"
+    );
+    write_text(project / "lib/src/digest.cpp", R"cpp(
+#include <evp_fixture/digest.hpp>
+#include <openssl/evp.h>
+#include <array>
+#include <memory>
+bool digest_ok() {
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+    std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+    unsigned int size = 0;
+    return context && EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) == 1
+        && EVP_DigestUpdate(context.get(), "abc", 3) == 1
+        && EVP_DigestFinal_ex(context.get(), digest.data(), &size) == 1
+        && size == 32 && digest.front() == 0xba && digest[31] == 0xad;
+}
+)cpp");
+    const std::string main = "#include <evp_fixture/digest.hpp>\nint main() { "
+                             "return digest_ok() ? 0 : 1; }\n";
+    write_text(project / "app/src/main.cpp", main);
+    write_text(project / "check/tests/main.cpp", main);
+    const auto loaded = ecosystem::load_manifest(project / "manifest.json");
+    require_true(
+        loaded.value && loaded.errors.empty(), join_lines(loaded.errors)
+    );
+    const auto& value = *loaded.value;
+    const auto command = [&](const std::vector<std::string>& args) {
+        const auto result
+            = ecosystem::capture_command_result(args, root.path());
+        require_true(result.exit_code == 0, result.output);
+    };
+    write_text(
+        project / "CMakeLists.txt",
+        ecosystem::generate_cmakelists(value, project)
+    );
+    write_text(
+        project / ".ecosystem/source/CMakeLists.txt",
+        ecosystem::generate_developer_cmakelists(value, project)
+    );
+    const auto consumer = root.path() / "consumer";
+    write_text(consumer / "main.cpp", main);
+    write_text(
+        consumer / "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.20)\nproject(consumer LANGUAGES "
+        "CXX)\nfind_package(evp_fixture CONFIG "
+        "REQUIRED)\nadd_executable(consumer "
+        "main.cpp)\ntarget_link_libraries(consumer PRIVATE "
+        "evp_fixture::crypto__lib)\n"
+    );
+    for (const auto& profile : { "Debug", "Release" }) {
+        const auto visitor = root.path() / (std::string("visitor-") + profile);
+        const auto developer
+            = root.path() / (std::string("developer-") + profile);
+        const auto prefix = root.path() / (std::string("sdk-") + profile);
+        command(
+            { "cmake", "-S", project.string(), "-B", visitor.string(),
+              std::string("-DCMAKE_BUILD_TYPE=") + profile,
+              "-DCMAKE_INSTALL_PREFIX=" + prefix.string() }
+        );
+        command({ "cmake", "--build", visitor.string(), "--parallel", "2" });
+        command({ "cmake", "--install", visitor.string() });
+        command(
+            { "cmake", "-S", (project / ".ecosystem/source").string(), "-B",
+              developer.string(), std::string("-DCMAKE_BUILD_TYPE=") + profile,
+              "-DECOSYSTEM_PROJECT_ROOT=" + project.string(),
+              "-DECOSYSTEM_BUILD_TESTS=ON" }
+        );
+        command({ "cmake", "--build", developer.string(), "--parallel", "2" });
+        command(
+            { "ctest", "--test-dir", developer.string(), "--output-on-failure" }
+        );
+        const auto relocated
+            = root.path() / (std::string("relocated-") + profile);
+        fs::rename(prefix, relocated);
+        const auto consumer_build
+            = root.path() / (std::string("consumer-") + profile);
+        command(
+            { "cmake", "-S", consumer.string(), "-B", consumer_build.string(),
+              std::string("-DCMAKE_BUILD_TYPE=") + profile,
+              "-DCMAKE_PREFIX_PATH=" + relocated.string() }
+        );
+        command(
+            { "cmake", "--build", consumer_build.string(), "--parallel", "2" }
+        );
+        command({ (consumer_build / "consumer").string() });
+    }
+    const auto unavailable = ecosystem::capture_command_result(
+        { "cmake", "-S", project.string(), "-B",
+          (root.path() / "missing").string(),
+          "-DCMAKE_DISABLE_FIND_PACKAGE_OpenSSL=TRUE" },
+        root.path()
+    );
+    require_true(
+        unavailable.exit_code != 0,
+        "required OpenSSL cannot silently become optional"
+    );
+    require_contains(
+        unavailable.output, "OpenSSL",
+        "the unavailable dependency must be named"
+    );
+    const auto old_sdk = root.path() / "old-sdk";
+    write_text(
+        old_sdk / "FindOpenSSL.cmake",
+        "set(OPENSSL_VERSION 1.1.1)\nset(OPENSSL_INCLUDE_DIR "
+        "/fixture)\nset(OPENSSL_CRYPTO_LIBRARY "
+        "/fixture/libcrypto)\nset(OpenSSL_Crypto_FOUND "
+        "TRUE)\ninclude(FindPackageHandleStandardArgs)\nfind_package_handle_"
+        "standard_args(OpenSSL REQUIRED_VARS OPENSSL_INCLUDE_DIR "
+        "OPENSSL_CRYPTO_LIBRARY VERSION_VAR OPENSSL_VERSION "
+        "HANDLE_COMPONENTS)\n"
+    );
+    const auto old = ecosystem::capture_command_result(
+        { "cmake", "-S", project.string(), "-B", (root.path() / "old").string(),
+          "-DCMAKE_MODULE_PATH=" + old_sdk.string() },
+        root.path()
+    );
+    require_true(
+        old.exit_code != 0, "a pre-3.0 SDK must fail during configuration"
+    );
+    require_contains(
+        old.output, "1.1.1", "the rejected SDK version must be reported"
+    );
+    write_text(
+        old_sdk / "FindOpenSSL.cmake",
+        "set(OPENSSL_VERSION 3.6.4)\nset(OPENSSL_INCLUDE_DIR /fixture)\n"
+        "set(OPENSSL_CRYPTO_LIBRARY "
+        "/fixture/libcrypto)\nset(OpenSSL_Crypto_FOUND FALSE)\n"
+        "include(FindPackageHandleStandardArgs)\n"
+        "find_package_handle_standard_args(OpenSSL REQUIRED_VARS "
+        "OPENSSL_INCLUDE_DIR OPENSSL_CRYPTO_LIBRARY VERSION_VAR "
+        "OPENSSL_VERSION HANDLE_COMPONENTS)\n"
+    );
+    const auto missing_crypto = ecosystem::capture_command_result(
+        { "cmake", "-S", project.string(), "-B",
+          (root.path() / "missing-component").string(),
+          "-DCMAKE_MODULE_PATH=" + old_sdk.string() },
+        root.path()
+    );
+    require_true(
+        missing_crypto.exit_code != 0,
+        "a version-compatible SDK missing Crypto must fail"
+    );
+    require_contains(
+        missing_crypto.output, "Crypto",
+        "the unavailable component must be reported"
+    );
+}
 } // namespace ecosystem_test_support

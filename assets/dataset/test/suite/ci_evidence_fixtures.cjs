@@ -7,6 +7,7 @@ const {execFileSync} = require('node:child_process');
 const evidence = require(path.resolve(process.argv[2]));
 const changes = require(path.join(path.dirname(path.resolve(process.argv[2])), 'changes.cjs'));
 const engels = path.resolve(process.argv[3]);
+// Explicit synthetic identity for transport-only fixtures; never runner acceptance.
 const runtime = {known: true, image: 'fixture-reviewed-image', node: process.version, architecture: process.arch,
   configuration: {'.clang-format': 'absent', '.clang-tidy': 'absent'}, build_environment: {},
   tools: Object.fromEntries(['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format', 'llvm-cov', 'llvm-profdata'].map(name => [name, 'reviewed'])), dependencies: evidence.hash('fixture-sdk')};
@@ -53,7 +54,7 @@ function fixture(t, delta = 'source') {
     return {input, report};
   }
   selection();
-  async function record(kind = 'checks', overrides = {}) {
+  async function record(kind = 'checks', overrides = {}, identity = runtime) {
     delete outputs.name; delete outputs.directory;
     const runId = kind === 'checks' ? 101 : 202;
     runs[runId] = {id: runId, run_attempt: 1, workflow_id: runId + 1000,
@@ -70,16 +71,18 @@ function fixture(t, delta = 'source') {
       write('.ecosystem/' + name, 'native evidence\n');
     if (kind === 'checks' && env.COVERAGE_STATUS === 'passed')
       execFileSync('python3', [path.join(__dirname, 'coverage_fixture.py'), root]);
-    await evidence.record({github, core, context: {...context, runId}, env, root, runtime});
+    await evidence.record({github, core, context: {...context, runId}, env, root,
+      ...(identity === 'default' ? {} : {runtime: identity})});
     if (!outputs.directory) return null;
     return JSON.parse(fs.readFileSync(path.join(outputs.directory, 'receipt.json')));
   }
   return {root, git, write, base, head, tree, tested, pr, repository, outputs, notices, core, github, runs, record, selection, record_context: context};
 }
 
-async function consumerFixture(t, strategy = 'squash') {
+async function consumerFixture(t, strategy = 'squash', identity = runtime) {
   const f = fixture(t);
-  await f.record('checks'); await f.record('codeql');
+  const recorded = await f.record('checks', {}, identity); await f.record('codeql', {}, identity);
+  const executionRuntime = recorded.environment;
   const target = f.git('commit-tree', f.tree, '-p', f.base,
     ...(strategy === 'merge' ? ['-p', f.head] : []), '-m', strategy + ' result');
   f.git('checkout', '-q', '--detach', target);
@@ -151,9 +154,9 @@ async function consumerFixture(t, strategy = 'squash') {
     else throw new Error('Unexpected API route: ' + route);
     return {data: structuredClone(data)};
   };
-  const select = async (kind = 'checks', scope = 'full', identity = runtime) => evidence.select({github: f.github, context,
-    core: f.core, root: f.root, runtime: identity, env: {BASE_SCOPE: scope, EVIDENCE_KIND: kind}});
-  return {...f, state, context, repack, changeReceipt, changeSelection, select, runtime};
+  const select = async (kind = 'checks', scope = 'full', identity = executionRuntime) => evidence.select({github: f.github, context,
+    core: f.core, root: f.root, runtime: identity, env: {BASE_SCOPE: scope, EVIDENCE_KIND: kind, ENGELS_BINARY: engels}});
+  return {...f, state, context, repack, changeReceipt, changeSelection, select, runtime: executionRuntime};
 }
 
 module.exports = {fixture, consumerFixture, evidence};
