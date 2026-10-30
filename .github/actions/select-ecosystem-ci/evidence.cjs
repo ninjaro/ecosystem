@@ -57,7 +57,7 @@ function runtimeIdentity(root) {
       sdk[directory] = hash(JSON.stringify(walk(directory)));
     const configuration = Object.fromEntries(['.clang-format', '.clang-tidy'].map(name =>
       [name, fs.existsSync(path.join(root, name)) ? hash(fs.readFileSync(path.join(root, name))) : 'absent']));
-    const build_environment = Object.fromEntries(['CC', 'CXX', 'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS',
+    const build_environment = Object.fromEntries(['CC', 'CXX', 'LLVM_DIR', 'Clang_DIR', 'CFLAGS', 'CXXFLAGS', 'CPPFLAGS', 'LDFLAGS',
       'CPATH', 'CPLUS_INCLUDE_PATH', 'C_INCLUDE_PATH', 'SDKROOT', 'COMPILER_PATH', 'GCC_EXEC_PREFIX',
       'LIBRARY_PATH', 'LD_LIBRARY_PATH', 'LD_PRELOAD', 'LANG', 'LC_ALL', 'TZ', 'SOURCE_DATE_EPOCH']
       .map(name => [name, process.env[name] || null]));

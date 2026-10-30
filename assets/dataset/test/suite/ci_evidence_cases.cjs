@@ -380,7 +380,8 @@ test('default runtime identity becomes usable only after explicit synthetic envi
   fs.writeFileSync(path.join(sdk, 'synthetic-qt.hpp'), '// synthetic SDK, not a real Qt installation\n');
   for (const name of ['clang', 'clang++', 'cmake', 'ctest', 'clang-tidy', 'clang-format', 'llvm-cov', 'llvm-profdata', 'dpkg-query'])
     fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nprintf "synthetic-' + name + '=1\\n"\n', {mode: 0o755});
-  const saved = Object.fromEntries(['PATH', 'ImageVersion', 'QT_ROOT_DIR', 'CMAKE_PREFIX_PATH', 'CMAKE_TOOLCHAIN_FILE'].map(name => [name, process.env[name]]));
+  const saved = Object.fromEntries(['PATH', 'ImageVersion', 'QT_ROOT_DIR', 'CMAKE_PREFIX_PATH', 'CMAKE_TOOLCHAIN_FILE',
+    'LLVM_DIR', 'Clang_DIR'].map(name => [name, process.env[name]]));
   try {
     Object.assign(process.env, {PATH: bin + path.delimiter + saved.PATH,
       ImageVersion: 'synthetic-test-runner-not-hosted-evidence', QT_ROOT_DIR: sdk, CMAKE_PREFIX_PATH: sdk});
@@ -402,6 +403,13 @@ test('default runtime identity becomes usable only after explicit synthetic envi
       process.env[name] = value;
     }
     assert.equal(f.state.calls.length, 0, 'unknown identities must not download artifacts');
+    for (const name of ['LLVM_DIR', 'Clang_DIR']) {
+      process.env[name] = path.join(setup, 'different-synthetic-sdk', name);
+      await selectDefault();
+      assert.equal(f.outputs.scope, 'full', name + ' changes the selected SDK');
+      assert.equal(f.outputs.verified, 'false', name);
+      if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name];
+    }
     fs.appendFileSync(path.join(bin, 'clang++'), '# different synthetic compiler\n');
     await selectDefault();
     assert.equal(f.outputs.scope, 'full'); assert.equal(f.outputs.verified, 'false');

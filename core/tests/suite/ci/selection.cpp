@@ -235,7 +235,52 @@ void test_ci_selection() {
         = ci_shell(setup->contents, "Install shared native dependencies", 6);
     const auto bin = root.path() / "bin";
     write_executable_script(bin / "sudo", "#!/bin/sh\nprintf '%s\\n' \"$*\"\n");
+    // Synthetic package roots reproduce the hosted Ubuntu image: an older
+    // incomplete Clang export is found before the installed default SDK.
+    const auto stale = root.path() / "LLVM 17";
+    const auto installed = root.path() / "LLVM 18/lib/cmake";
+    write_text(stale / "lib/cmake/llvm/LLVMConfig.cmake", "");
+    write_text(
+        stale / "lib/cmake/clang/ClangConfig.cmake",
+        "message(FATAL_ERROR \"The imported target clangBasic references the "
+        "missing file libclangBasic.a\")\n"
+    );
+    write_text(installed / "llvm/LLVMConfig.cmake", "set(TEST_LLVM 18)\n");
+    write_text(installed / "clang/ClangConfig.cmake", "set(TEST_CLANG 18)\n");
+    write_executable_script(
+        bin / "llvm-config",
+        "#!/bin/sh\n[ \"$1\" = --cmakedir ] || exit 2\n"
+        "printf '%s\\n' \"$CI_LLVM_CMAKE_DIR\"\n"
+    );
+    const auto probe = root.path() / "sdk-probe";
+    write_text(
+        probe / "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(sdk_selection LANGUAGES NONE)\n"
+        "find_package(LLVM CONFIG REQUIRED)\n"
+        "find_package(Clang CONFIG REQUIRED)\n"
+        "if(NOT TEST_LLVM STREQUAL \"18\" OR NOT TEST_CLANG STREQUAL \"18\")\n"
+        "  message(FATAL_ERROR \"SDK selection differs\")\nendif()\n"
+    );
+    const auto configure = [&](const fs::path& build, const auto& env) {
+        return ecosystem::capture_command_result(
+            { "cmake", "-S", probe.string(), "-B", build.string() },
+            root.path(), env
+        );
+    };
+    const auto unselected = configure(
+        root.path() / "before-sdk-selection",
+        std::vector<std::pair<std::string, std::string>> {
+            { "CMAKE_PREFIX_PATH", stale.string() },
+            { "LLVM_DIR", "" },
+            { "Clang_DIR", "" } }
+    );
+    require_true(unselected.exit_code != 0, "the stale hosted SDK must fail");
+    require_contains(
+        unselected.output, "clangBasic", "reproduce the hosted error"
+    );
     const auto dependencies = root.path() / "dependencies.sh";
+    const auto environment = root.path() / "sdk-environment";
     for (const auto& [project_deps, docs] :
          std::vector<std::pair<std::string, std::string>> {
              { "false", "false" }, { "true", "false" }, { "false", "true" } }) {
@@ -244,10 +289,13 @@ void test_ci_selection() {
         );
         script = ci_bind(script, "inputs.install-docs", docs);
         write_text(dependencies, script);
+        write_text(environment, "");
         const auto result = ecosystem::capture_command_result(
             { "bash", "-e", "-o", "pipefail", dependencies.string() },
             root.path(),
             { { "PATH", bin.string() + ":" + current_path_env() },
+              { "GITHUB_ENV", environment.string() },
+              { "CI_LLVM_CMAKE_DIR", (installed / "llvm").string() },
               { "GITHUB_WORKSPACE", root.path().string() } }
         );
         require_true(
@@ -280,6 +328,47 @@ void test_ci_selection() {
                     == (docs == "true"),
                 "presentation dependencies remain explicit"
             );
+        std::vector<std::pair<std::string, std::string>> sdk_env {
+            { "CMAKE_PREFIX_PATH", stale.string() },
+            { "LLVM_DIR", "" },
+            { "Clang_DIR", "" }
+        };
+        std::istringstream exported(read_text(environment));
+        std::string line;
+        while (std::getline(exported, line)) {
+            const auto split = line.find('=');
+            require_true(split != std::string::npos, "SDK export is KEY=VALUE");
+            sdk_env.emplace_back(line.substr(0, split), line.substr(split + 1));
+        }
+        const auto configured = configure(
+            root.path() / ("selected-sdk-" + project_deps + "-" + docs), sdk_env
+        );
+        require_true(
+            configured.exit_code == 0,
+            "minimal/full/docs bootstrap must select the installed LLVM/Clang "
+            "SDK despite the older broken export:\n"
+                + configured.output
+        );
+    }
+    for (const auto* missing :
+         { "llvm/LLVMConfig.cmake", "clang/ClangConfig.cmake" }) {
+        const auto file = installed / missing;
+        const auto contents = read_text(file);
+        fs::remove(file);
+        write_text(environment, "");
+        const auto failed = ecosystem::capture_command_result(
+            { "bash", "-e", "-o", "pipefail", dependencies.string() },
+            root.path(),
+            { { "PATH", bin.string() + ":" + current_path_env() },
+              { "GITHUB_WORKSPACE", root.path().string() },
+              { "CI_LLVM_CMAKE_DIR", (installed / "llvm").string() },
+              { "GITHUB_ENV", environment.string() } }
+        );
+        require_true(
+            failed.exit_code != 0 && read_text(environment).empty(),
+            "incomplete installed SDKs must fail without partial exports"
+        );
+        write_text(file, contents);
     }
 
     // Execute the exact generated local-operation selection with recording
